@@ -4,6 +4,17 @@
 
 import { ENV } from "./_core/env";
 
+/**
+ * Whether Forge-backed storage can be used at all.
+ *
+ * Storage is optional for features that only want to archive a file as a
+ * side effect: callers check this first and skip the upload rather than
+ * letting getForgeConfig() throw and take the whole request down.
+ */
+export function isStorageConfigured(): boolean {
+  return Boolean(ENV.forgeApiUrl && ENV.forgeApiKey);
+}
+
 function getForgeConfig() {
   const forgeUrl = ENV.forgeApiUrl;
   const forgeKey = ENV.forgeApiKey;
