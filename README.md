@@ -78,7 +78,7 @@ Fill things in as you need the features they unlock:
 | Enable sign-in                                                | `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID` |
 | Grant yourself admin                                          | `OWNER_OPEN_ID`                                                          |
 | Transcribe recitations and generate coaching feedback         | `OPENAI_API_KEY`                                                         |
-| Image generation, uploads, notifications                      | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
+| Image generation, uploads, notifications, archiving attempts  | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
 | Render maps                                                   | `VITE_FRONTEND_FORGE_API_KEY`                                            |
 | Collect analytics                                             | `VITE_ANALYTICS_ENDPOINT`, `VITE_ANALYTICS_WEBSITE_ID`                   |
 

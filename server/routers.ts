@@ -5,9 +5,9 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { transcribeAudio } from "./_core/voiceTranscription";
+import { MAX_AUDIO_BYTES, transcribeAudio } from "./_core/voiceTranscription";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
-import { storageGetSignedUrl, storagePut } from "./storage";
+import { isStorageConfigured, storagePut } from "./storage";
 
 const recitationInput = z.object({
   expectedArabic: z.string().min(1).max(1600),
@@ -102,17 +102,27 @@ export const appRouter = router({
         ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
         : input.audioBase64;
       const audioBuffer = Buffer.from(rawBase64, "base64");
-      if (!audioBuffer.length || audioBuffer.length > 16 * 1024 * 1024) {
+      if (!audioBuffer.length || audioBuffer.length > MAX_AUDIO_BYTES) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Please submit an audio clip below 16 MB." });
       }
 
-      const extension = input.mimeType === "audio/wav" ? "wav" : input.mimeType === "audio/ogg" ? "ogg" : input.mimeType === "audio/mp4" ? "m4a" : "webm";
-      const uploaded = await storagePut(
-        `recitation-attempts/guest/${input.surah}-${input.ayah}-${Date.now()}.${extension}`,
-        audioBuffer,
-        input.mimeType,
-      );
-      const signedAudioUrl = await storageGetSignedUrl(uploaded.key);
+      // Archiving the attempt is a side effect, not a prerequisite: storage
+      // runs on Forge while transcription runs on OpenAI, so the review has to
+      // work with OPENAI_API_KEY alone. Upload only when Forge is configured,
+      // and never fail the review because the archive step did.
+      if (isStorageConfigured()) {
+        const extension = input.mimeType === "audio/wav" ? "wav" : input.mimeType === "audio/ogg" ? "ogg" : input.mimeType === "audio/mp4" ? "m4a" : "webm";
+        try {
+          await storagePut(
+            `recitation-attempts/guest/${input.surah}-${input.ayah}-${Date.now()}.${extension}`,
+            audioBuffer,
+            input.mimeType,
+          );
+        } catch (error) {
+          console.warn("[recitation] Attempt audio was not archived", error);
+        }
+      }
+
       // No `prompt` here, deliberately. Whisper's prompt parameter is decoder
       // priming rather than an instruction — the text is treated as the
       // transcript preceding this audio — so OpenAI's guidance is that it must
@@ -124,7 +134,8 @@ export const appRouter = router({
       // which would inflate the recall score this endpoint exists to measure.
       // `language: "ar"` is the supported way to pin the language.
       const transcription = await transcribeAudio({
-        audioUrl: signedAudioUrl,
+        audio: audioBuffer,
+        mimeType: input.mimeType,
         language: "ar",
       });
 

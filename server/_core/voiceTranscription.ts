@@ -2,25 +2,21 @@
  * Voice transcription helper backed by OpenAI's Whisper transcription API
  * (POST /v1/audio/transcriptions). Requires OPENAI_API_KEY.
  *
+ * Takes the audio bytes directly, so transcription depends on nothing but
+ * OPENAI_API_KEY — no storage bucket, no publicly reachable URL.
+ *
  * Frontend implementation guide:
  * 1. Capture audio using MediaRecorder API
- * 2. Upload audio to storage (e.g., S3) to get URL
- * 3. Call transcription with the URL
- * 
+ * 2. Send it to your tRPC procedure (e.g. base64-encoded)
+ * 3. Decode it to a Buffer server side and pass it straight to transcribeAudio
+ *
  * Example usage:
- * ```tsx
- * // Frontend component
- * const transcribeMutation = trpc.voice.transcribe.useMutation({
- *   onSuccess: (data) => {
- *     console.log(data.text); // Full transcription
- *     console.log(data.language); // Detected language
- *     console.log(data.segments); // Timestamped segments
- *   }
- * });
- * 
- * // After uploading audio to storage
- * transcribeMutation.mutate({
- *   audioUrl: uploadedAudioUrl,
+ * ```ts
+ * // Server side, inside a tRPC procedure
+ * const audio = Buffer.from(input.audioBase64, "base64");
+ * const result = await transcribeAudio({
+ *   audio,
+ *   mimeType: input.mimeType, // e.g. "audio/webm"
  *   language: 'en', // optional
  *   prompt: 'Acme Corp, Q3 roadmap' // optional; see the note on prompts below
  * });
@@ -28,8 +24,11 @@
  */
 import { ENV } from "./env";
 
+export const MAX_AUDIO_BYTES = 16 * 1024 * 1024; // OpenAI's upload limit is 25MB; this is the app's own cap
+
 export type TranscribeOptions = {
-  audioUrl: string; // URL to the audio file (e.g., S3 URL)
+  audio: Buffer | Uint8Array; // Raw audio bytes
+  mimeType: string; // MIME type of those bytes, e.g. "audio/webm" — decides the filename extension sent to Whisper
   language?: string; // Optional: specify language code (e.g., "en", "es", "zh")
   // Optional priming text for Whisper. This is NOT an instruction — Whisper
   // treats it as the transcript that precedes the audio, so it must be written
@@ -88,45 +87,32 @@ export async function transcribeAudio(
       };
     }
 
-    // Step 2: Download audio from URL
-    let audioBuffer: Buffer;
-    let mimeType: string;
-    try {
-      const response = await fetch(options.audioUrl);
-      if (!response.ok) {
-        return {
-          error: "Failed to download audio file",
-          code: "INVALID_FORMAT",
-          details: `HTTP ${response.status}: ${response.statusText}`
-        };
-      }
-      
-      audioBuffer = Buffer.from(await response.arrayBuffer());
-      mimeType = response.headers.get('content-type') || 'audio/mpeg';
-      
-      // Check file size (16MB limit)
-      const sizeMB = audioBuffer.length / (1024 * 1024);
-      if (sizeMB > 16) {
-        return {
-          error: "Audio file exceeds maximum size limit",
-          code: "FILE_TOO_LARGE",
-          details: `File size is ${sizeMB.toFixed(2)}MB, maximum allowed is 16MB`
-        };
-      }
-    } catch (error) {
+    // Step 2: Validate the supplied audio
+    const { audio, mimeType } = options;
+
+    if (!audio.byteLength) {
       return {
-        error: "Failed to fetch audio file",
-        code: "SERVICE_ERROR",
-        details: error instanceof Error ? error.message : "Unknown error"
+        error: "Audio file is empty",
+        code: "INVALID_FORMAT",
+        details: "No audio bytes were supplied"
+      };
+    }
+
+    const sizeMB = audio.byteLength / (1024 * 1024);
+    if (audio.byteLength > MAX_AUDIO_BYTES) {
+      return {
+        error: "Audio file exceeds maximum size limit",
+        code: "FILE_TOO_LARGE",
+        details: `File size is ${sizeMB.toFixed(2)}MB, maximum allowed is ${MAX_AUDIO_BYTES / (1024 * 1024)}MB`
       };
     }
 
     // Step 3: Create FormData for multipart upload to Whisper API
     const formData = new FormData();
-    
+
     // Create a Blob from the buffer and append to form
     const filename = `audio.${getFileExtension(mimeType)}`;
-    const audioBlob = new Blob([new Uint8Array(audioBuffer)], { type: mimeType });
+    const audioBlob = new Blob([new Uint8Array(audio)], { type: mimeType });
     formData.append("file", audioBlob, filename);
     
     formData.append("model", "whisper-1");
@@ -190,8 +176,12 @@ export async function transcribeAudio(
 
 /**
  * Helper function to get file extension from MIME type
+ *
+ * Whisper infers the container from the filename, so this has to survive the
+ * parameterised types MediaRecorder produces (e.g. `audio/webm;codecs=opus`).
  */
 function getFileExtension(mimeType: string): string {
+  const baseType = mimeType.split(";")[0].trim().toLowerCase();
   const mimeToExt: Record<string, string> = {
     'audio/webm': 'webm',
     'audio/mp3': 'mp3',
@@ -203,7 +193,7 @@ function getFileExtension(mimeType: string): string {
     'audio/mp4': 'm4a',
   };
   
-  return mimeToExt[mimeType] || 'audio';
+  return mimeToExt[baseType] || 'audio';
 }
 
 /**
@@ -216,13 +206,17 @@ function getFileExtension(mimeType: string): string {
  * export const voiceRouter = router({
  *   transcribe: protectedProcedure
  *     .input(z.object({
- *       audioUrl: z.string(),
+ *       audioBase64: z.string(),
+ *       mimeType: z.string(),
  *       language: z.string().optional(),
- *       prompt: z.string().optional(),
  *     }))
  *     .mutation(async ({ input, ctx }) => {
- *       const result = await transcribeAudio(input);
- *       
+ *       const result = await transcribeAudio({
+ *         audio: Buffer.from(input.audioBase64, "base64"),
+ *         mimeType: input.mimeType,
+ *         language: input.language,
+ *       });
+ *
  *       // Check if it's an error
  *       if ('error' in result) {
  *         throw new TRPCError({
@@ -231,17 +225,17 @@ function getFileExtension(mimeType: string): string {
  *           cause: result,
  *         });
  *       }
- *       
+ *
  *       // Optionally save transcription to database
  *       await db.insert(transcriptions).values({
  *         userId: ctx.user.id,
  *         text: result.text,
  *         duration: result.duration,
  *         language: result.language,
- *         audioUrl: input.audioUrl,
  *         createdAt: new Date(),
  *       });
- *       
+ *
+ *
  *       return result;
  *     }),
  * });
