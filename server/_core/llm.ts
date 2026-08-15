@@ -133,7 +133,14 @@ const normalizeContentPart = (
   }
 
   if (part.type === "file_url") {
-    return part;
+    // Forge accepted arbitrary file/audio URLs inline. OpenAI's chat
+    // completions API does not: audio has to be sent as base64 `input_audio`
+    // and documents uploaded through the Files API first. The type is kept in
+    // the exported surface so existing callers still typecheck, but sending
+    // one would only earn a confusing 400 from OpenAI, so fail clearly here.
+    throw new Error(
+      "file_url content is not supported by the OpenAI chat completions API; upload the file and pass its contents instead"
+    );
   }
 
   throw new Error("Unsupported message content part");
@@ -212,15 +219,34 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+// Model used when a caller does not name one. Forge filled this in server
+// side; OpenAI requires `model` on every request, so it is chosen here.
+const DEFAULT_MODEL = "gpt-5-mini";
+
+const resolveApiUrl = (path: string) =>
+  `${ENV.openaiBaseUrl.replace(/\/$/, "")}/${path}`;
 
 const assertApiKey = () => {
-  if (!ENV.forgeApiKey) {
+  if (!ENV.openaiApiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
+};
+
+// Forge took Anthropic-style `thinking` and OpenAI-style `reasoning` objects.
+// The OpenAI chat completions API takes neither — it exposes a single
+// `reasoning_effort` string — and rejects unknown top-level fields, so pull an
+// effort out of whichever object was supplied and drop the rest.
+const REASONING_EFFORTS = new Set(["minimal", "low", "medium", "high"]);
+
+const normalizeReasoningEffort = (
+  thinking: Record<string, unknown> | undefined,
+  reasoning: Record<string, unknown> | undefined
+): string | undefined => {
+  const effort = reasoning?.effort ?? thinking?.effort;
+  if (typeof effort === "string" && REASONING_EFFORTS.has(effort)) {
+    return effort;
+  }
+  return undefined;
 };
 
 const normalizeResponseFormat = ({
@@ -359,12 +385,9 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
+    model: model || DEFAULT_MODEL,
     messages: messages.map(normalizeMessage),
   };
-
-  if (model) {
-    payload.model = model;
-  }
 
   if (tools && tools.length > 0) {
     payload.tools = tools;
@@ -380,14 +403,14 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
 
   const resolvedMaxTokens = max_tokens ?? maxTokens;
   if (typeof resolvedMaxTokens === "number") {
-    payload.max_tokens = resolvedMaxTokens;
+    // `max_tokens` is deprecated and is rejected outright by the reasoning
+    // models this app calls; `max_completion_tokens` is the current field.
+    payload.max_completion_tokens = resolvedMaxTokens;
   }
 
-  if (thinking) {
-    payload.thinking = thinking;
-  }
-  if (reasoning) {
-    payload.reasoning = reasoning;
+  const reasoningEffort = normalizeReasoningEffort(thinking, reasoning);
+  if (reasoningEffort) {
+    payload.reasoning_effort = reasoningEffort;
   }
 
   const normalizedResponseFormat = normalizeResponseFormat({
@@ -401,11 +424,11 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetchWithBackoff(resolveApiUrl(), {
+  const response = await fetchWithBackoff(resolveApiUrl("chat/completions"), {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
+      authorization: `Bearer ${ENV.openaiApiKey}`,
     },
     body: JSON.stringify(payload),
   });
@@ -435,12 +458,8 @@ export type ModelsResponse = {
 export async function listLLMModels(): Promise<ModelsResponse> {
   assertApiKey();
 
-  const url = ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/models`
-    : "https://forge.manus.im/v1/models";
-
-  const response = await fetchWithBackoff(url, {
-    headers: { authorization: `Bearer ${ENV.forgeApiKey}` },
+  const response = await fetchWithBackoff(resolveApiUrl("models"), {
+    headers: { authorization: `Bearer ${ENV.openaiApiKey}` },
   });
 
   if (!response.ok) {
