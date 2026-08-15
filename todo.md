@@ -1,0 +1,39 @@
+- [x] Check public web usage for Tarteel, Tilawah, Wird, Qirā’ah, Nūr, Sakīnah, Bayān, and Āyah.
+- [x] Identify direct Quran-learning product collisions and notable domain or app-name use.
+- [x] Summarize preliminary naming risk, distinguishing web research from trademark clearance.
+- [x] Create five coined, pronounceable names aligned with a calm Quran reading and study experience.
+- [x] Check the candidates for obvious public-web name collisions.
+- [x] Recommend the strongest options with domain and trademark-clearance caveats.
+- [x] Identify five respectful Arabic name directions rooted in Quranic language or Quranic concepts.
+- [x] Verify the meanings and screen the leading options for obvious public brand or app use.
+- [x] Recommend only the most suitable options with naming and clearance caveats.
+- [x] Identify Quranic Arabic terms that clearly communicate reading, learning, reflection, or memorisation.
+- [x] Screen the strongest learning-oriented candidates for obvious public app and brand use.
+- [x] Recommend the clearest names with pronunciation and naming caveats.
+- [x] Audit the prototype and current app for recitation, repetition, and correction controls that must be preserved or restored.
+- [x] Enable the required server-side voice and analysis capability for meaningful student feedback.
+- [x] Implement a guided reciter audio, learner recording, assessment, correction, and retry loop.
+- [x] Validate the microphone, audio playback, feedback states, and responsive teaching experience.
+- [x] Reconfirm reciter playback stops before learner recording and re-run automated validation.
+- [x] Manually exercise the browser microphone permission, recording, review, and retry states before final delivery.
+- [x] Complete Study or Advanced → record → stop → AI feedback → play spoken guidance → retry using the browser's native media APIs, then document the result. (The sandbox has no physical microphone; a native Web Audio virtual track and the no-device recovery path were both verified.)
+- [x] Audit and resolve any remaining browser-specific limitations in microphone, audio playback, and spoken-guidance handling.
+- [x] Complete final automated and live-browser validation, then publish the finished learning experience.
+- [x] Ensure the transcription request passes the selected Arabic language hint to the speech-to-text service and re-run the live recitation smoke test.
+- [x] Detect translated or non-Arabic speech-to-text output and show an honest unavailable-review state instead of a misleading zero-score correction.
+- [x] Add meaningful in-app progress tracking for Starter letters and the Reading path.
+- [x] Add clearer lesson actions so learners can mark practice, continue their level, and enter guided recitation from the curriculum.
+- [x] Add a Starter recognition exercise that lets learners identify a selected Arabic letter.
+- [x] Add an intermediate Reading exercise for short vowels, including an immediate helpful response.
+- [x] Validate the new exercise interactions on the live learning workspace.
+- [x] Exercise and document the incorrect/retry responses for both the Starter letter check and Reading short-vowel check.
+- [x] Exercise and document the incorrect/retry responses for both the Starter letter check and Reading short-vowel check.
+- [x] Define beginner, intermediate, and advanced learning paths from Arabic letters through recitation practice.
+- [x] Build a level-selection and lesson-navigation experience that preserves the existing Quran reader.
+- [x] Extend recitation review with AI-supported audio feedback while clearly stating its limits and referring advanced tajwid assessment to a qualified teacher.
+- [x] Validate level navigation, lesson interactions, recording feedback, and responsive layouts.
+- [x] Use clear learner-facing names—Starter, Reading, and Advanced—for the curriculum levels while retaining Arabic lesson context.
+- [x] Include client-side learning-progress tests in the standard automated test suite.
+- [x] Manually trigger the Study review panel’s retry action and confirm it resets the learner to the listening stage.
+- [x] Complete the remaining device-level recording validation autonomously without requesting further user input.
+- [ ] Deliver the completed project to masehullahsahil/quran-reading-main or provide a complete scaffold-inclusive ZIP export.

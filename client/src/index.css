@@ -1,0 +1,280 @@
+/**
+ * Quiet Sanctuary design reminder: tactile editorial surfaces, asymmetrical reading desk,
+ * Sanctuary Green focus states, and small brass markers—not generic dashboard decoration.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Amiri+Quran&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "DM Sans", sans-serif;
+  --font-serif: "Fraunces", Georgia, serif;
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-ring: var(--ring);
+}
+
+:root {
+  --background: #f6f3ec;
+  --foreground: #26332e;
+  --card: #fffdf8;
+  --card-foreground: #26332e;
+  --primary: #174d42;
+  --primary-foreground: #fffdf8;
+  --muted: #ebe7dd;
+  --muted-foreground: #6d766f;
+  --border: #ded8ca;
+  --ring: #a87a3d;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--background); }
+body { margin: 0; min-width: 320px; background: var(--background); color: var(--foreground); font-family: "DM Sans", sans-serif; }
+button { font: inherit; }
+button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
+
+.sanctuary-shell { min-height: 100vh; display: grid; grid-template-columns: 230px minmax(560px, 1fr) 350px; overflow: hidden; }
+.app-rail { position: relative; z-index: 2; min-height: 100vh; display: flex; flex-direction: column; padding: 27px 18px 20px; background: #eeece4; border-right: 1px solid #dcd6ca; }
+.rail-brand { display: flex; align-items: center; gap: 10px; padding: 0 7px 37px; }
+.brand-mark { width: 40px; height: 40px; object-fit: contain; }
+.brand-name, .brand-arabic { margin: 0; }
+.brand-name { font-family: "Fraunces", Georgia, serif; font-size: 19px; font-weight: 600; letter-spacing: -.04em; color: #174d42; }
+.brand-arabic { color: #7a847c; font-family: "Amiri Quran", serif; font-size: 16px; line-height: 1; }
+.rail-label, .eyebrow { margin: 0; color: #7c837b; font-size: 10px; font-weight: 700; letter-spacing: .145em; text-transform: uppercase; }
+.rail-label { padding: 0 10px 9px; }
+.rail-nav { display: grid; gap: 5px; }
+.rail-item { display: flex; width: 100%; align-items: center; gap: 11px; padding: 10px; border: 0; border-radius: 10px; background: transparent; color: #667068; cursor: pointer; font-size: 13px; font-weight: 500; text-align: left; transition: background-color .18s cubic-bezier(.23,1,.32,1), color .18s cubic-bezier(.23,1,.32,1), transform .18s cubic-bezier(.23,1,.32,1); }
+.rail-item:hover { color: #174d42; background: rgba(255,253,248,.62); transform: translateX(2px); }
+.rail-item.is-active { color: #174d42; background: #fbfaf5; box-shadow: inset 0 0 0 1px rgba(23,77,66,.08); }
+.rail-practice { display: flex; align-items: center; gap: 11px; padding: 14px 9px 14px 12px; margin-top: auto; margin-bottom: 13px; background: linear-gradient(90deg, rgba(231,240,235,.62), rgba(231,240,235,0)); border-top: 1px solid #d5ddd4; border-bottom: 1px solid #d5ddd4; border-left: 2px solid #b38748; border-radius: 0; }
+.practice-orbit { display: grid; place-content: center; width: 42px; height: 42px; flex: 0 0 42px; border-radius: 50%; color: #174d42; border: 3px solid #7ea398; border-left-color: #174d42; transform: rotate(-20deg); text-align: center; }
+.practice-orbit span { font-size: 12px; font-weight: 700; line-height: 1; transform: rotate(20deg); }
+.practice-orbit small { font-size: 8px; transform: rotate(20deg); }
+.rail-practice p { margin: 0 0 3px; color: #31443c; font-size: 12px; font-weight: 700; }
+.rail-practice span { color: #728078; font-size: 10px; line-height: 1.3; }
+.rail-account { display: flex; align-items: center; gap: 9px; width: 100%; padding: 10px 8px 0; border: 0; border-top: 1px solid #d8d2c6; background: transparent; color: #35443d; cursor: pointer; text-align: left; }
+.rail-account > span:nth-child(2) { display: grid; gap: 1px; flex: 1; }
+.rail-account strong { font-size: 12px; font-weight: 700; }
+.rail-account small { color: #788178; font-size: 10px; }
+.avatar { display: grid; width: 27px; height: 27px; place-content: center; color: #fffdf8; background: #174d42; border-radius: 50%; font-size: 11px; font-weight: 700; }
+
+.reading-desk { position: relative; min-width: 0; padding: 25px clamp(25px, 4vw, 68px) 34px; background: #f6f3ec; }
+.desk-header, .chapter-intro, .page-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.desk-header { margin-bottom: 46px; }
+.crumbs, .header-tools { display: flex; align-items: center; gap: 11px; }
+.crumb-separator { color: #b2b0a8; }
+.chapter-picker { display: flex; align-items: center; gap: 3px; padding: 0; color: #4f5b54; border: 0; background: transparent; cursor: pointer; font-size: 12px; font-weight: 600; }
+.icon-button { display: grid; width: 33px; height: 33px; place-content: center; color: #627069; border: 1px solid transparent; background: transparent; border-radius: 50%; cursor: pointer; transition: background-color .18s cubic-bezier(.23,1,.32,1), border-color .18s cubic-bezier(.23,1,.32,1); }
+.icon-button:hover { background: #fffdf8; border-color: #e3ddd2; }
+.chapter-intro { align-items: flex-end; margin-bottom: 30px; }
+.chapter-intro h1 { margin: 7px 0 9px; color: #203c34; font-family: "Fraunces", Georgia, serif; font-size: clamp(32px, 3vw, 45px); font-weight: 500; letter-spacing: -.055em; line-height: 1.02; }
+.intro-copy { max-width: 430px; margin: 0; color: #758078; font-size: 13px; line-height: 1.65; }
+.chapter-arabic { padding-bottom: 5px; color: #407061; font-family: "Amiri Quran", serif; font-size: 25px; }
+.mode-tabs { display: flex; gap: 0; position: relative; z-index: 1; width: max-content; margin: 0 0 -1px 20px; padding: 0; background: transparent; border: 0; border-radius: 0; }
+.mode-tab { position: relative; display: flex; align-items: center; gap: 8px; min-width: 139px; padding: 10px 13px 11px; border: 1px solid transparent; border-bottom: 0; background: transparent; border-radius: 15px 15px 0 0; color: #7c837b; cursor: pointer; text-align: left; transition: all .18s cubic-bezier(.23,1,.32,1); }
+.mode-tab span:last-child { display: grid; gap: 1px; }
+.mode-tab strong { color: #536159; font-size: 12px; font-weight: 700; }
+.mode-tab small { font-size: 9px; line-height: 1.15; }
+.tab-icon { display: grid; width: 27px; height: 27px; place-content: center; border-radius: 8px; }
+.mode-tab.is-active { background: rgba(255,253,248,.86); border-color: #e2ddd2; box-shadow: 0 -1px 8px rgba(57,63,54,.03); }
+.mode-tab.is-active::before { content: ""; position: absolute; top: 4px; right: 17px; left: 17px; height: 5px; border: 1px solid rgba(174,136,70,.45); border-bottom: 0; border-radius: 18px 18px 0 0; opacity: .9; }
+.mode-tab.is-active .tab-icon { color: #174d42; background: #e7f0eb; }
+.mode-tab.is-active strong { color: #174d42; }
+
+.manuscript-stage { position: relative; min-height: 587px; overflow: hidden; background: #fffdf8 url('/manus-storage/quran-reading-arch-texture_7fae99c7.png') center / cover; border: 1px solid #dcd4c6; box-shadow: 0 19px 38px rgba(56,62,50,.09), 0 2px 5px rgba(56,62,50,.05); }
+.manuscript-stage::before { content: ""; position: absolute; z-index: 0; top: 59px; right: 9%; bottom: -104px; left: 9%; border: 1px solid rgba(174,136,70,.34); border-bottom: 0; border-radius: 260px 260px 0 0 / 146px 146px 0 0; pointer-events: none; }
+.manuscript-stage::after { content: ""; position: absolute; z-index: 0; top: 77px; right: 13.5%; bottom: -105px; left: 13.5%; border: 1px solid rgba(23,77,66,.19); border-bottom: 0; border-radius: 220px 220px 0 0 / 123px 123px 0 0; pointer-events: none; }
+.manuscript-light { position: absolute; inset: 0; background: linear-gradient(100deg, rgba(255,253,248,.65), rgba(255,253,248,.04) 50%, rgba(255,253,248,.57)); pointer-events: none; }
+.manuscript-frame { position: absolute; z-index: 0; inset: 16px; border: 1px solid rgba(174,136,70,.25); clip-path: polygon(0 0, 100% 0, 100% 87%, 94% 100%, 6% 100%, 0 87%); pointer-events: none; }
+.reader-layout, .learning-layout, .study-layout, .memory-layout { position: relative; z-index: 1; }
+.reader-layout { padding: 29px clamp(28px, 5vw, 72px) 25px; }
+.manuscript-meta { display: flex; justify-content: space-between; gap: 10px; padding-bottom: 13px; color: #788077; border-bottom: 1px solid rgba(164,158,145,.38); font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+.basmala { margin: 33px 0 24px; color: #29483e; font-family: "Amiri Quran", serif; font-size: clamp(30px, 3.2vw, 42px); line-height: 1.55; text-align: center; }
+.quran-flow { max-width: 850px; margin: 0 auto; color: #1f332b; font-family: "Amiri Quran", serif; font-size: clamp(27px, 2.65vw, 38px); line-height: 2.15; text-align: center; }
+.quran-ayah { display: inline; padding: 1px 3px; color: inherit; border: 0; border-radius: 5px; background: transparent; cursor: pointer; font: inherit; transition: background-color .18s cubic-bezier(.23,1,.32,1), color .18s cubic-bezier(.23,1,.32,1); }
+.quran-ayah:hover, .quran-ayah.is-selected { color: #174d42; background: linear-gradient(90deg, transparent, rgba(215,232,223,.84) 12%, rgba(215,232,223,.84) 88%, transparent); }
+.quran-ayah.is-selected { box-shadow: inset 0 -1px 0 rgba(174,136,70,.72); }
+.quran-ayah.is-playing { box-shadow: inset 0 -2px 0 #a97e41; }
+.verse-medallion { display: inline-grid; width: 1.48em; height: 1.48em; align-content: center; justify-content: center; margin: 0 .18em; color: #9a7137; background: #f7f0e4; border: 1px solid #bc965d; border-radius: 50%; font-family: "DM Sans", sans-serif; font-size: .38em; font-weight: 700; line-height: 1; vertical-align: middle; }
+.reader-footer { display: flex; justify-content: space-between; gap: 14px; margin-top: 30px; padding-top: 13px; color: #81877e; border-top: 1px solid rgba(164,158,145,.38); font-size: 10px; }
+.reader-footer button { padding: 0; color: #174d42; border: 0; background: none; cursor: pointer; font-size: inherit; font-weight: 700; }
+.page-controls { padding: 19px 5px 0; color: #8b9088; font-size: 11px; }
+.page-controls button, .study-pagination > button { display: inline-flex; align-items: center; gap: 6px; color: #53635a; border: 0; background: transparent; cursor: pointer; font-size: 11px; font-weight: 700; }
+.page-controls button:disabled, .study-pagination button:disabled { opacity: .35; cursor: not-allowed; }
+
+.study-layout { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 10px; align-items: center; min-height: 587px; padding: 33px clamp(28px, 6vw, 73px); }
+.study-index { display: grid; gap: 3px; align-content: center; height: 100%; color: #8a8d80; border-right: 1px solid rgba(164,158,145,.4); font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.study-index strong { color: #174d42; font-family: "Fraunces", Georgia, serif; font-size: 34px; font-weight: 500; letter-spacing: -.07em; }
+.study-card { position: relative; max-width: 650px; padding: 32px 42px 25px; margin: 0 auto; overflow: hidden; text-align: center; }
+.study-visual { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .14; object-fit: cover; mix-blend-mode: multiply; pointer-events: none; }
+.study-card > *:not(.study-visual) { position: relative; }
+.study-arabic { min-height: 140px; margin: 14px auto 16px; color: #1d3a31; font-family: "Amiri Quran", serif; font-size: clamp(35px, 4vw, 55px); line-height: 1.85; }
+.study-divider { width: 35px; height: 1px; margin: 0 auto 20px; background: #b58b4e; }
+.transliteration { margin: 0 0 8px; color: #6c796f; font-family: "Fraunces", Georgia, serif; font-size: 14px; font-style: italic; }
+.study-translation { max-width: 470px; margin: 0 auto; color: #35463d; font-family: "Fraunces", Georgia, serif; font-size: 19px; line-height: 1.45; }
+.listen-inline { display: inline-flex; align-items: center; gap: 7px; padding: 10px 0; margin-top: 22px; color: #174d42; border: 0; border-bottom: 1px solid #9db9ae; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; }
+.study-pagination { display: flex; grid-column: 2; align-items: center; justify-content: space-between; max-width: 650px; width: 100%; margin: 0 auto; }
+.study-pagination > div { display: flex; gap: 6px; }
+.dot { display: block; width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%; background: #d4d0c5; cursor: pointer; }
+.dot.is-current { background: #a67b3d; transform: scale(1.4); }
+
+.learning-layout { min-height: 587px; padding: 34px clamp(28px, 6vw, 72px); }
+.learning-topline, .starter-intro, .letter-lesson, .path-workspace, .audio-coach { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.learning-topline { padding-bottom: 17px; border-bottom: 1px solid rgba(164,158,145,.38); }.learning-topline h2 { max-width: 440px; margin: 7px 0 0; color: #25483c; font-family: "Fraunces", Georgia, serif; font-size: clamp(23px, 2.4vw, 30px); font-weight: 500; letter-spacing: -.045em; line-height: 1.08; }.learning-topline > span { padding-top: 10px; color: #8d754a; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.level-picker { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; padding: 18px 0; }.level-picker button { display: grid; gap: 3px; min-height: 93px; padding: 12px; color: #738078; border: 1px solid #ddd9cf; background: rgba(255,253,248,.55); border-radius: 9px; cursor: pointer; text-align: left; transition: transform .16s cubic-bezier(.23,1,.32,1), background .16s cubic-bezier(.23,1,.32,1), border-color .16s cubic-bezier(.23,1,.32,1); }.level-picker button:hover { transform: translateY(-2px); background: #fffdf8; }.level-picker button.is-selected { color: #174d42; border-color: #9db9aa; background: #edf5ef; box-shadow: inset 2px 0 #b48646; }.level-picker span { color: #a07c45; font-size: 9px; font-weight: 800; letter-spacing: .1em; }.level-picker strong { font-family: "Fraunces", Georgia, serif; font-size: 16px; font-weight: 600; letter-spacing: -.03em; }.level-picker small { color: #7c867e; font-size: 9px; }
+.starter-workspace, .path-workspace { padding: 20px; background: rgba(255,253,248,.8); border-top: 1px solid #c8d7ce; border-bottom: 1px solid #d5d0c4; border-left: 2px solid #b58748; }.starter-intro h3, .path-copy h3 { margin: 6px 0 5px; color: #23483b; font-family: "Fraunces", Georgia, serif; font-size: 22px; font-weight: 500; letter-spacing: -.04em; }.starter-intro p, .path-copy p { max-width: 470px; margin: 0; color: #68766d; font-size: 12px; line-height: 1.6; }.starter-count { min-width: 48px; padding: 8px 5px; color: #946e35; background: #f9f0df; border: 1px solid #e4c995; font-family: "Fraunces", Georgia, serif; font-size: 13px; text-align: center; }
+.alphabet-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; padding: 19px 0 16px; }.alphabet-grid button { display: grid; place-items: center; gap: 2px; min-height: 52px; padding: 3px; color: #44594e; border: 1px solid #dfdbd1; background: #fffdf8; border-radius: 6px; cursor: pointer; transition: transform .16s cubic-bezier(.23,1,.32,1), background .16s cubic-bezier(.23,1,.32,1); }.alphabet-grid button:hover { transform: translateY(-1px); background: #f3f7f2; }.alphabet-grid button.is-selected { color: #174d42; background: #e4f0e7; border-color: #91b39e; box-shadow: inset 0 -2px #b38345; }.alphabet-grid span { font-family: "Amiri Quran", serif; font-size: 24px; line-height: 1; }.alphabet-grid small { font-size: 8px; font-weight: 700; }
+.letter-lesson { align-items: center; padding: 14px; background: #f7f4ec; border: 1px solid #e1dbce; }.letter-focus { display: flex; align-items: center; gap: 11px; }.letter-focus > span { display: grid; width: 58px; height: 58px; place-content: center; color: #174d42; background: #e8f2eb; border: 1px solid #bed1c4; border-radius: 50%; font-family: "Amiri Quran", serif; font-size: 39px; }.letter-focus p { margin: 0; color: #2b4e40; font-family: "Fraunces", Georgia, serif; font-size: 18px; font-weight: 600; }.letter-focus small { color: #7d887f; font-size: 10px; }.harakat-strip { display: flex; gap: 8px; color: #2c4a3e; font-family: "Amiri Quran", serif; font-size: 27px; }.harakat-strip span { padding: 2px 5px; border-bottom: 1px solid #c5aa7b; }.letter-actions { display: flex; flex-wrap: wrap; gap: 7px; }.lesson-boundary { display: flex; align-items: flex-start; gap: 5px; max-width: 200px; margin: 0; color: #7e877f; font-size: 9px; line-height: 1.45; }
+.path-workspace { display: grid; grid-template-columns: 1fr auto; align-items: end; }.path-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; grid-column: 1 / -1; margin: 20px 0 15px; }.path-steps > div { padding: 12px; background: #f7f4ec; border: 1px solid #e4ded1; }.path-steps span { display: block; margin-bottom: 7px; color: #9a7742; font-size: 9px; font-weight: 800; }.path-steps strong { display: block; color: #355446; font-size: 11px; }.path-steps small { display: block; margin-top: 5px; color: #7a847c; font-size: 9px; line-height: 1.4; }.path-cta { display: inline-flex; align-items: center; gap: 7px; padding: 11px 14px; color: #fffdf8; border: 1px solid #174d42; background: #174d42; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 800; }.path-cta:active { transform: scale(.97); }.advanced-principles { display: flex; flex-wrap: wrap; gap: 6px; grid-column: 1 / -1; margin: 19px 0 15px; }.advanced-principles span { padding: 6px 8px; color: #476457; background: #eff5f0; border: 1px solid #d2e0d5; font-size: 9px; font-weight: 700; }
+.micro-practice { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 12px; background: #f3f8f4; border-top: 1px solid #c6dacb; border-bottom: 1px solid #c6dacb; }.micro-practice p { margin: 4px 0 0; color: #416054; font-size: 11px; }.micro-practice p strong { color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: 23px; font-weight: 400; }.answer-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }.answer-options button { min-width: 41px; padding: 7px 8px; color: #395d4d; border: 1px solid #afc9b7; background: #fffdf8; border-radius: 5px; cursor: pointer; font-size: 10px; font-weight: 800; }.answer-options button:hover { background: #e7f3ea; }.answer-options button.is-correct { color: #fffdf8; border-color: #2e7857; background: #2e7857; }.answer-options button.is-retry { color: #8a6532; border-color: #e3c887; background: #fbf0d8; }.exercise-response { grid-column: 1 / -1; margin: 0 !important; padding-top: 8px; border-top: 1px solid rgba(120,151,132,.3); line-height: 1.45; }.exercise-response.is-correct { color: #286148; }.exercise-response.is-retry { color: #86693c; }.vowel-practice { grid-column: 1 / -1; margin: 0 0 15px; }
+.starter-count { display: grid; }.starter-count small { margin-top: 2px; color: #9b8b6f; font-family: "DM Sans", sans-serif; font-size: 8px; font-weight: 700; text-transform: uppercase; }.alphabet-grid button.is-practised:not(.is-selected) { color: #3b6951; background: #f0f7f2; border-color: #bdd5c3; }.quiet-action.is-complete { color: #fffdf8; border-color: #3d765d; background: #3d765d; }.path-progress { padding: 6px 8px; color: #8c6b38; background: #f9efde; border: 1px solid #e5d0a6; font-size: 9px; font-weight: 800; }.path-steps button { padding: 12px; border: 1px solid #e4ded1; background: #f7f4ec; cursor: pointer; text-align: left; transition: background .16s cubic-bezier(.23,1,.32,1), border-color .16s cubic-bezier(.23,1,.32,1), transform .16s cubic-bezier(.23,1,.32,1); }.path-steps button:hover { transform: translateY(-1px); background: #fffdf8; }.path-steps button.is-complete { background: #edf5ef; border-color: #b6d0bc; }.path-steps button span { display: grid; width: 18px; height: 18px; place-content: center; color: #9a7742; border: 1px solid #dcc49b; border-radius: 50%; }.path-steps button.is-complete span { color: #fffdf8; border-color: #3b745c; background: #3b745c; }
+
+.teacher-loop { grid-column: 2; max-width: 650px; width: 100%; padding: 20px 24px 21px; margin: 2px auto 0; background: rgba(255,253,248,.8); border-top: 1px solid #c6d7cf; border-bottom: 1px solid #c6d7cf; border-left: 2px solid #ad8547; box-shadow: 0 8px 18px rgba(52,70,58,.045); }
+.loop-header, .feedback-summary, .live-guidance-top { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
+.loop-header h2 { margin: 6px 0 0; color: #244138; font-family: "Fraunces", Georgia, serif; font-size: 22px; font-weight: 500; letter-spacing: -.04em; }
+.teacher-badge { padding: 5px 8px; color: #8b6734; background: #f7efdf; border: 1px solid #e3d0ab; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.loop-steps { display: grid; grid-template-columns: repeat(3,1fr); gap: 7px; padding: 15px 0; margin-top: 14px; border-top: 1px solid #e4e0d6; border-bottom: 1px solid #e4e0d6; }
+.loop-steps span { display: flex; align-items: center; gap: 6px; color: #8a9189; font-size: 10px; font-weight: 700; }
+.loop-steps b { display: grid; width: 18px; height: 18px; place-content: center; color: #89938b; border: 1px solid #d0d6ce; border-radius: 50%; font-size: 8px; }
+.loop-steps .is-current { color: #174d42; }.loop-steps .is-current b { color: #fffdf8; background: #174d42; border-color: #174d42; box-shadow: 0 0 0 3px #e2efe8; }.loop-steps .is-complete { color: #557364; }.loop-steps .is-complete b { color: #174d42; background: #e6f0e9; border-color: #b4d0bf; }
+.loop-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; padding-top: 17px; }
+.loop-listen, .loop-record, .retry-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 43px; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 800; transition: transform .15s cubic-bezier(.23,1,.32,1), background .15s cubic-bezier(.23,1,.32,1), color .15s cubic-bezier(.23,1,.32,1); }
+.loop-listen { color: #174d42; border: 1px solid #b9cec1; background: #edf4ef; }.loop-listen:hover { background: #dcebe1; }.loop-record { color: #fffdf8; border: 1px solid #174d42; background: #174d42; }.loop-record:hover { background: #103e34; }.loop-record.is-recording { color: #fff7f4; border-color: #a74339; background: #b4473e; animation: recording-pulse 1.5s ease-in-out infinite; }.loop-record:disabled { opacity: .55; cursor: wait; }.loop-listen:active, .loop-record:active, .retry-button:active { transform: scale(.97); }
+.loop-message { min-height: 19px; margin: 12px 0 0; color: #6e796f; font-size: 11px; line-height: 1.5; }
+.live-guidance { padding: 13px; margin-top: 12px; background: rgba(240,246,241,.76); border: 1px solid #cfe0d5; }
+.live-guidance-top { align-items: center; color: #446557; font-size: 10px; font-weight: 800; }.live-guidance-top small { color: #8a948d; font-size: 9px; font-weight: 500; }
+.live-word-row { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px 7px; margin-top: 10px; color: #b1bab3; font-family: "Amiri Quran", serif; font-size: 22px; line-height: 1.55; }.live-word-row span { padding: 0 3px; border-radius: 4px; transition: color .15s, background .15s; }.live-word-row span.is-heard { color: #174d42; background: #dceee3; }
+.heard-transcript { min-height: 16px; margin: 8px 0 0; color: #6d7b72; font-family: "Amiri Quran", serif; font-size: 15px; text-align: right; }
+.learner-playback { width: 100%; height: 34px; margin-top: 12px; accent-color: #174d42; }
+.feedback-panel { margin-top: 13px; padding: 15px; background: #fffdf8; border: 1px solid #d9d5ca; box-shadow: inset 2px 0 #b38748; }
+.feedback-summary strong { display: block; margin-top: 3px; color: #21463a; font-family: "Fraunces", Georgia, serif; font-size: 25px; font-weight: 600; letter-spacing: -.06em; }.feedback-summary small { display: block; margin-top: 2px; color: #7a847c; font-size: 9px; }.feedback-score { display: grid; width: 43px; height: 43px; place-content: center; color: #986a2f; background: #f8eedc; border: 1px solid #e0c18b; border-radius: 50%; font-size: 11px; font-weight: 800; }.feedback-score.is-strong { color: #174d42; background: #e7f1eb; border-color: #a8c9b4; }
+.audio-coach { align-items: center; padding: 10px; margin: 12px 0; background: #edf5ef; border: 1px solid #cadccf; }.audio-coach p { max-width: 300px; margin: 3px 0 0; color: #68766d; font-size: 10px; line-height: 1.4; }.audio-coach button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; color: #174d42; border: 1px solid #aac5b2; background: #fffdf8; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 800; }.coach-audio-toggle { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #748077; font-size: 9px; font-weight: 600; }.coach-audio-toggle input { accent-color: #174d42; }
+.review-unavailable { display: flex; align-items: flex-start; gap: 7px; padding: 10px; color: #795e35; background: #fbf3e4; border: 1px solid #ead2a8; font-size: 10px; font-weight: 600; line-height: 1.5; }
+.coach-copy { margin: 13px 0 12px; color: #49594f; font-family: "Fraunces", Georgia, serif; font-size: 14px; line-height: 1.48; }.correction-list { display: grid; gap: 6px; }.correction-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 9px; padding: 8px 9px; background: #f8f5ed; border: 1px solid #e7e1d5; }.correction-index { color: #7f897f; font-size: 9px; font-weight: 800; text-transform: uppercase; }.correction-word { color: #23453a; font-family: "Amiri Quran", serif; font-size: 20px; text-align: right; }.correction-state { padding: 3px 5px; color: #8c622b; background: #f8ead0; border-radius: 3px; font-size: 8px; font-weight: 800; text-transform: uppercase; }.correction-state.is-review { color: #8c622b; background: #f8ead0; }.correction-state.is-extra { color: #8a5641; background: #f6dfd7; }.all-matched { display: flex; align-items: center; gap: 7px; padding: 10px; color: #225c49; background: #e8f3ec; font-size: 11px; font-weight: 700; }.next-step { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding: 9px 0; color: #34584a; border-top: 1px solid #e5e0d6; font-size: 11px; font-weight: 700; line-height: 1.5; }.feedback-note { display: flex; gap: 5px; margin: 7px 0 0; color: #818981; font-size: 9px; line-height: 1.45; }.retry-button { width: 100%; min-height: 38px; margin-top: 12px; color: #174d42; border: 1px solid #aac5b3; background: transparent; }.retry-button:hover { background: #e8f2eb; }
+@keyframes recording-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(180,71,62,.25); } 50% { box-shadow: 0 0 0 7px rgba(180,71,62,0); } }
+
+.memory-layout { display: flex; min-height: 587px; flex-direction: column; justify-content: center; max-width: 650px; padding: 50px 34px; margin: 0 auto; text-align: center; }
+.memory-topline { display: flex; justify-content: space-between; padding-bottom: 18px; color: #81877e; border-bottom: 1px solid rgba(164,158,145,.38); font-size: 11px; }
+.memory-prompt { margin: 33px 0 12px; color: #607067; font-family: "Fraunces", Georgia, serif; font-size: 17px; font-style: italic; }
+.memory-verse { display: grid; min-height: 148px; place-content: center; padding: 14px 25px; color: #1e4035; font-family: "Amiri Quran", serif; font-size: clamp(34px, 4vw, 52px); line-height: 1.75; transition: filter .2s cubic-bezier(.23,1,.32,1), background-color .2s cubic-bezier(.23,1,.32,1); }
+.memory-verse.is-covered { color: #79958b; background: rgba(227,237,229,.76); filter: blur(5px); user-select: none; }
+.covered-copy { color: #174d42; font-family: "DM Sans", sans-serif; font-size: 13px; filter: blur(0); }
+.memory-meaning { max-width: 470px; margin: 8px auto 19px; color: #647168; font-size: 13px; line-height: 1.6; }
+.memory-actions { display: flex; justify-content: center; gap: 8px; }
+.quiet-action { display: inline-flex; align-items: center; gap: 7px; padding: 10px 13px; color: #174d42; border: 1px solid #c9d8cf; background: rgba(255,253,248,.68); border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 700; transition: background .18s cubic-bezier(.23,1,.32,1), transform .18s cubic-bezier(.23,1,.32,1); }
+.quiet-action:hover { background: #e7f0eb; transform: translateY(-1px); }
+.memory-steps { display: flex; justify-content: center; gap: 10px; margin-top: 34px; }
+.step { display: grid; width: 25px; height: 25px; place-content: center; padding: 0; color: #7d8780; border: 1px solid #d4d6ce; background: #fffdf8; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: 700; }
+.step.is-active { color: #fffdf8; background: #174d42; border-color: #174d42; box-shadow: 0 0 0 4px #dcebe3; }
+
+.study-panel { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 100vh; padding: 28px 24px; overflow: hidden; background: linear-gradient(180deg, #fcfaf5 0%, #faf7f0 74%, #f3f0e7 100%); border-left: 1px solid #e2ddd2; }
+.study-panel::before { content: ""; position: absolute; top: -156px; right: 28px; width: 216px; height: 230px; border: 1px solid rgba(174,136,70,.26); border-radius: 140px 140px 0 0; pointer-events: none; }
+.study-panel::after { content: ""; position: absolute; top: -127px; right: 49px; width: 174px; height: 192px; border: 1px solid rgba(23,77,66,.15); border-radius: 118px 118px 0 0; pointer-events: none; }
+.panel-topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; margin-bottom: 26px; border-bottom: 1px solid #e6e1d7; }
+.save-button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; color: #6d786f; border: 0; background: transparent; border-radius: 7px; cursor: pointer; font-size: 11px; font-weight: 700; transition: color .18s cubic-bezier(.23,1,.32,1), background-color .18s cubic-bezier(.23,1,.32,1); }
+.save-button:hover, .save-button.is-saved { color: #174d42; background: #e8f1ec; }
+.selected-ayah { position: relative; z-index: 1; padding-bottom: 26px; border-bottom: 1px solid #e6e1d7; }
+.ayah-reference { display: flex; align-items: center; justify-content: space-between; color: #718075; font-size: 11px; font-weight: 700; }
+.ayah-reference .verse-medallion { font-size: 12px; }
+.selected-ayah > p[lang="ar"] { margin: 17px 0 13px; color: #1c3a30; font-family: "Amiri Quran", serif; font-size: 31px; line-height: 1.85; text-align: right; }
+.panel-transliteration { margin: 0 0 6px; color: #758076; font-family: "Fraunces", Georgia, serif; font-size: 12px; font-style: italic; }
+.panel-translation { margin: 0; color: #405047; font-size: 12px; line-height: 1.65; }
+.audio-module { position: relative; z-index: 1; padding: 23px 0 23px 13px; border-bottom: 1px solid #e6e1d7; border-left: 1px solid #d8c29d; }
+.audio-heading { display: flex; align-items: center; gap: 7px; color: #38554a; font-size: 12px; font-weight: 700; }
+.audio-pulse { width: 8px; height: 8px; background: #a8844c; border-radius: 50%; }
+.audio-pulse.is-playing { background: #174d42; box-shadow: 0 0 0 5px rgba(23,77,66,.12); }
+.audio-track, .completion-track { height: 4px; overflow: hidden; margin: 16px 0 7px; background: #e2e2d9; border-radius: 999px; }
+.track-fill, .completion-track span { display: block; width: 24%; height: 100%; background: #174d42; border-radius: inherit; }
+.track-fill.is-moving { animation: audio-sweep 2.6s linear infinite; }
+.audio-times { display: flex; justify-content: space-between; color: #94998f; font-size: 9px; }
+.listen-button { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; padding: 11px 14px; margin-top: 17px; color: #fffdf8; border: 1px solid #174d42; background: #174d42; border-radius: 9px; cursor: pointer; font-size: 12px; font-weight: 700; transition: transform .15s cubic-bezier(.23,1,.32,1), background .15s cubic-bezier(.23,1,.32,1); }
+.listen-button:hover { background: #113f35; }
+.listen-button:active { transform: scale(.97); }
+.audio-note { display: flex; align-items: center; gap: 6px; margin: 11px 0 0; color: #8a9189; font-size: 9px; line-height: 1.45; }
+.practice-note { position: relative; z-index: 1; display: grid; grid-template-columns: 82px minmax(0,1fr); gap: 13px; padding: 24px 0; border-bottom: 1px solid #e6e1d7; }
+.practice-note img { width: 82px; height: 102px; object-fit: cover; border-radius: 6px; }
+.practice-note .eyebrow { font-size: 9px; }
+.practice-note p { margin: 8px 0 0; color: #657268; font-family: "Fraunces", Georgia, serif; font-size: 13px; font-style: italic; line-height: 1.45; }
+.completion-card { position: relative; z-index: 1; margin-top: auto; padding: 15px 15px 16px; background: linear-gradient(90deg, rgba(238,243,238,.93), rgba(238,243,238,.34)); border-top: 1px solid #b9cdbf; border-bottom: 1px solid #b9cdbf; border-left: 2px solid #b38849; border-radius: 0; }
+.completion-card > div:first-child { display: flex; align-items: end; justify-content: space-between; }
+.completion-card .eyebrow { color: #658072; font-size: 9px; }
+.completion-card strong { color: #174d42; font-family: "Fraunces", Georgia, serif; font-size: 23px; font-weight: 600; letter-spacing: -.04em; }
+.completion-card p { margin: 0; color: #637269; font-size: 10px; line-height: 1.45; }
+.completion-track { margin: 11px 0 9px; }
+.completion-track span { background: #b38849; transition: width .22s cubic-bezier(.23,1,.32,1); }
+
+.mobile-dock { display: none; }
+@keyframes audio-sweep { 0% { transform: translateX(-100%); width: 28%; } 100% { transform: translateX(365%); width: 28%; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
+
+@media (max-width: 1190px) {
+  .sanctuary-shell { grid-template-columns: 208px minmax(500px,1fr) 304px; }
+  .reading-desk { padding-inline: 31px; }
+  .mode-tab { min-width: 122px; }
+  .study-panel { padding-inline: 19px; }
+}
+@media (max-width: 1000px) {
+  .sanctuary-shell { grid-template-columns: 194px minmax(0,1fr); }
+  .study-panel { display: none; }
+  .reading-desk { min-height: 100vh; }
+}
+@media (max-width: 700px) {
+  body { padding-bottom: 76px; }
+  .sanctuary-shell { display: block; }
+  .app-rail { display: none; }
+  .reading-desk { padding: 20px 16px 18px; }
+  .desk-header { margin-bottom: 33px; }
+  .chapter-intro { align-items: flex-start; margin-bottom: 24px; }
+  .chapter-intro h1 { font-size: 35px; }
+  .intro-copy { max-width: 250px; font-size: 12px; }
+  .chapter-arabic { padding-top: 1px; font-size: 19px; }
+  .mode-tabs { width: calc(100% + 16px); margin-left: -8px; gap: 2px; padding: 0; overflow: auto; }
+  .mode-tab { min-width: 0; flex: 1; padding: 9px 5px 8px; justify-content: center; }
+  .mode-tab .tab-icon { display: none; }
+  .mode-tab small { display: none; }
+  .mode-tab strong { font-size: 11px; }
+  .manuscript-stage { min-height: 520px; }
+  .manuscript-frame { inset: 9px; }
+  .manuscript-stage::before { top: 58px; right: 5%; left: 5%; border-radius: 150px 150px 0 0 / 90px 90px 0 0; }
+  .manuscript-stage::after { top: 71px; right: 9%; left: 9%; border-radius: 127px 127px 0 0 / 75px 75px 0 0; }
+  .reader-layout { padding: 21px 22px; }
+  .manuscript-meta span:nth-child(2) { display: none; }
+  .basmala { margin: 29px 0 20px; font-size: 30px; }
+  .quran-flow { font-size: 29px; line-height: 2.12; }
+  .reader-footer { margin-top: 18px; }
+  .reader-footer span { display: none; }
+  .reader-footer { justify-content: center; }
+  .page-controls { padding-top: 15px; }
+  .page-controls span { display: none; }
+  .study-layout { grid-template-columns: 1fr; min-height: 520px; padding: 20px 20px 28px; }
+  .study-index { display: flex; align-items: center; justify-content: center; height: auto; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid rgba(164,158,145,.4); }
+  .study-index strong { font-size: 25px; }
+  .study-card { padding: 12px 15px; }
+  .study-arabic { min-height: 115px; font-size: 40px; }
+  .learning-layout { min-height: 520px; padding: 21px 20px 28px; }
+  .learning-topline h2 { font-size: 24px; }
+  .level-picker { gap: 4px; }.level-picker button { min-height: 77px; padding: 9px 6px; }.level-picker small { font-size: 8px; }
+  .alphabet-grid { grid-template-columns: repeat(5, 1fr); }.letter-lesson { align-items: flex-start; flex-direction: column; }.lesson-boundary { max-width: none; }
+  .path-workspace { grid-template-columns: 1fr; }.path-steps { grid-template-columns: 1fr; }.path-cta { width: 100%; justify-content: center; }.audio-coach { align-items: flex-start; flex-direction: column; }.audio-coach button { width: 100%; justify-content: center; }
+  .teacher-loop { grid-column: 1; padding: 16px; }
+  .loop-header h2 { font-size: 20px; }
+  .loop-steps { gap: 4px; }
+  .loop-steps span { font-size: 9px; }
+  .study-pagination { grid-column: 1; }
+  .memory-layout { min-height: 520px; padding: 35px 23px; }
+  .memory-verse { min-height: 133px; font-size: 40px; }
+  .quiet-action { padding: 10px; }
+  .mobile-dock { position: fixed; z-index: 5; right: 10px; bottom: 10px; left: 10px; display: grid; grid-template-columns: 1fr 1.05fr 1fr; padding: 6px; background: rgba(31,51,43,.96); border: 1px solid rgba(255,255,255,.13); border-radius: 15px; box-shadow: 0 14px 35px rgba(28,42,36,.23); backdrop-filter: blur(11px); }
+  .mobile-dock button { display: grid; place-items: center; gap: 2px; min-height: 47px; color: #cfdbd4; border: 0; background: transparent; border-radius: 10px; cursor: pointer; font-size: 9px; font-weight: 700; }
+  .mobile-dock button.is-active { color: #fffdf8; background: rgba(255,255,255,.13); }
+  .mobile-dock .dock-listen { color: #173c32; background: #dfece4; }
+}
