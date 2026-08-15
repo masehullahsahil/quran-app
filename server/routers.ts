@@ -113,10 +113,19 @@ export const appRouter = router({
         input.mimeType,
       );
       const signedAudioUrl = await storageGetSignedUrl(uploaded.key);
+      // No `prompt` here, deliberately. Whisper's prompt parameter is decoder
+      // priming rather than an instruction — the text is treated as the
+      // transcript preceding this audio — so OpenAI's guidance is that it must
+      // be in the same language as the audio. The English instruction that used
+      // to sit here primed an English decoder for Arabic speech, nudging the
+      // model toward translating rather than transcribing. Priming with Arabic
+      // instead would be worse for this feature specifically: any Quranic text
+      // in the prompt biases the decoder toward emitting those exact words,
+      // which would inflate the recall score this endpoint exists to measure.
+      // `language: "ar"` is the supported way to pin the language.
       const transcription = await transcribeAudio({
         audioUrl: signedAudioUrl,
         language: "ar",
-        prompt: "This is a learner reciting a Quran verse in Arabic. Transcribe only the Arabic words you can hear. Do not translate or add commentary.",
       });
 
       if ("error" in transcription) {

@@ -7,4 +7,9 @@ export const ENV = {
   isProduction: process.env.NODE_ENV === "production",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Direct OpenAI access, used by _core/llm.ts and _core/voiceTranscription.ts.
+  // Only the key has to be set; the base URL is overridable so the same code
+  // can point at an OpenAI-compatible gateway or a local test double.
+  openaiApiKey: process.env.OPENAI_API_KEY ?? "",
+  openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
 };

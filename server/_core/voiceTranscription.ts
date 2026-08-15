@@ -1,5 +1,6 @@
 /**
- * Voice transcription helper using internal Speech-to-Text service
+ * Voice transcription helper backed by OpenAI's Whisper transcription API
+ * (POST /v1/audio/transcriptions). Requires OPENAI_API_KEY.
  *
  * Frontend implementation guide:
  * 1. Capture audio using MediaRecorder API
@@ -21,7 +22,7 @@
  * transcribeMutation.mutate({
  *   audioUrl: uploadedAudioUrl,
  *   language: 'en', // optional
- *   prompt: 'Transcribe the meeting' // optional
+ *   prompt: 'Acme Corp, Q3 roadmap' // optional; see the note on prompts below
  * });
  * ```
  */
@@ -30,7 +31,11 @@ import { ENV } from "./env";
 export type TranscribeOptions = {
   audioUrl: string; // URL to the audio file (e.g., S3 URL)
   language?: string; // Optional: specify language code (e.g., "en", "es", "zh")
-  prompt?: string; // Optional: custom prompt for the transcription
+  // Optional priming text for Whisper. This is NOT an instruction — Whisper
+  // treats it as the transcript that precedes the audio, so it must be written
+  // in the same language as the audio and should only carry vocabulary hints
+  // (names, jargon, spellings). Omit it unless there is such a hint to give.
+  prompt?: string;
 };
 
 // Native Whisper API segment format
@@ -65,8 +70,8 @@ export type TranscriptionError = {
 };
 
 /**
- * Transcribe audio to text using the internal Speech-to-Text service
- * 
+ * Transcribe audio to text using OpenAI's Whisper transcription endpoint
+ *
  * @param options - Audio data and metadata
  * @returns Transcription result or error
  */
@@ -75,18 +80,11 @@ export async function transcribeAudio(
 ): Promise<TranscriptionResponse | TranscriptionError> {
   try {
     // Step 1: Validate environment configuration
-    if (!ENV.forgeApiUrl) {
-      return {
-        error: "Voice transcription service is not configured",
-        code: "SERVICE_ERROR",
-        details: "BUILT_IN_FORGE_API_URL is not set"
-      };
-    }
-    if (!ENV.forgeApiKey) {
+    if (!ENV.openaiApiKey) {
       return {
         error: "Voice transcription service authentication is missing",
         code: "SERVICE_ERROR",
-        details: "BUILT_IN_FORGE_API_KEY is not set"
+        details: "OPENAI_API_KEY is not set"
       };
     }
 
@@ -135,28 +133,23 @@ export async function transcribeAudio(
     formData.append("response_format", "verbose_json");
     if (options.language) formData.append("language", options.language);
     
-    // Add prompt - use custom prompt if provided, otherwise generate based on language
-    const prompt = options.prompt || (
-      options.language 
-        ? `Transcribe the user's voice to text, the user's working language is ${getLanguageName(options.language)}`
-        : "Transcribe the user's voice to text"
-    );
-    formData.append("prompt", prompt);
+    // Only forward a prompt the caller actually asked for. Whisper's `prompt`
+    // is decoder priming, not an instruction: the text is fed to the model as
+    // if it were the transcript preceding this audio, so OpenAI's guidance is
+    // that it must be written in the same language as the audio. The English
+    // "Transcribe the user's voice to text…" default that used to be generated
+    // here primed an English decoder for non-English speech, which pushes the
+    // model toward translating instead of transcribing. `language` below is the
+    // supported way to tell Whisper what it is listening to.
+    if (options.prompt) formData.append("prompt", options.prompt);
 
     // Step 4: Call the transcription service
-    const baseUrl = ENV.forgeApiUrl.endsWith("/")
-      ? ENV.forgeApiUrl
-      : `${ENV.forgeApiUrl}/`;
-    
-    const fullUrl = new URL(
-      "v1/audio/transcriptions",
-      baseUrl
-    ).toString();
+    const fullUrl = `${ENV.openaiBaseUrl.replace(/\/$/, "")}/audio/transcriptions`;
 
     const response = await fetch(fullUrl, {
       method: "POST",
       headers: {
-        authorization: `Bearer ${ENV.forgeApiKey}`,
+        authorization: `Bearer ${ENV.openaiApiKey}`,
         "Accept-Encoding": "identity",
       },
       body: formData,
@@ -211,35 +204,6 @@ function getFileExtension(mimeType: string): string {
   };
   
   return mimeToExt[mimeType] || 'audio';
-}
-
-/**
- * Helper function to get full language name from ISO code
- */
-function getLanguageName(langCode: string): string {
-  const langMap: Record<string, string> = {
-    'en': 'English',
-    'es': 'Spanish',
-    'fr': 'French',
-    'de': 'German',
-    'it': 'Italian',
-    'pt': 'Portuguese',
-    'ru': 'Russian',
-    'ja': 'Japanese',
-    'ko': 'Korean',
-    'zh': 'Chinese',
-    'ar': 'Arabic',
-    'hi': 'Hindi',
-    'nl': 'Dutch',
-    'pl': 'Polish',
-    'tr': 'Turkish',
-    'sv': 'Swedish',
-    'da': 'Danish',
-    'no': 'Norwegian',
-    'fi': 'Finnish',
-  };
-  
-  return langMap[langCode] || langCode;
 }
 
 /**

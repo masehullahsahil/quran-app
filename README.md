@@ -77,7 +77,8 @@ Fill things in as you need the features they unlock:
 | Persist users                                                 | `DATABASE_URL`                                                           |
 | Enable sign-in                                                | `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID` |
 | Grant yourself admin                                          | `OWNER_OPEN_ID`                                                          |
-| Recitation feedback, image generation, uploads, notifications | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
+| Transcribe recitations and generate coaching feedback         | `OPENAI_API_KEY`                                                         |
+| Image generation, uploads, notifications                      | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
 | Render maps                                                   | `VITE_FRONTEND_FORGE_API_KEY`                                            |
 | Collect analytics                                             | `VITE_ANALYTICS_ENDPOINT`, `VITE_ANALYTICS_WEBSITE_ID`                   |
 
@@ -86,8 +87,8 @@ it is missing. Two things worth knowing up front:
 
 - **`VITE_`-prefixed values are public.** They are inlined into the client bundle
   at build time and visible to anyone who loads the page. Never put a private
-  secret behind a `VITE_` name — `BUILT_IN_FORGE_API_KEY` in particular is
-  server-side only.
+  secret behind a `VITE_` name — `OPENAI_API_KEY` and `BUILT_IN_FORGE_API_KEY`
+  in particular are server-side only.
 - **If you leave the analytics variables blank,** their placeholders are emitted
   into the built HTML verbatim and the production page requests a broken script
   URL. Either set both, or delete the analytics `<script>` from
