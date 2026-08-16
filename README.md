@@ -83,6 +83,7 @@ Fill things in as you need the features they unlock:
 | Enable sign-in                                                | `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID` |
 | Grant yourself admin                                          | `OWNER_OPEN_ID`                                                          |
 | Transcribe recitations and generate coaching feedback         | `OPENAI_API_KEY`                                                         |
+| Read the Quran from a mirror instead of `api.quran.com`       | `QURAN_API_BASE_URL`                                                     |
 | Image generation, uploads, notifications, archiving attempts  | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
 | Render maps                                                   | `VITE_FRONTEND_FORGE_API_KEY`                                            |
 | Collect analytics                                             | `VITE_ANALYTICS_ENDPOINT`, `VITE_ANALYTICS_WEBSITE_ID`                   |
@@ -98,6 +99,18 @@ it is missing. Two things worth knowing up front:
   into the built HTML verbatim and the production page requests a broken script
   URL. Either set both, or delete the analytics `<script>` from
   `client/index.html`.
+
+### Quran content
+
+The Quran text, translations, and reciter audio come from the public
+[Quran.com API](https://api.quran.com/api/v4) (`api.quran.com`). It needs no
+key and no configuration — the reader works out of the box, provided the server
+can reach that host.
+
+Set `QURAN_API_BASE_URL` only to point at a mirror, or at a local fixture server
+when `api.quran.com` is unreachable from your network. See
+[Quran content pipeline](#quran-content-pipeline) for how the data is fetched
+and cached.
 
 ### Database (optional)
 
@@ -157,6 +170,69 @@ node scripts/audio-llm-smoke-test.mjs    # needs BUILT_IN_FORGE_API_URL + BUILT_
 
 ---
 
+## Quran content pipeline
+
+The reader covers the whole Quran — 114 surahs, 30 juz, per-ayah audio from
+three reciters — and none of it is bundled with the app. It is fetched from the
+Quran.com API through the server, never from the browser directly.
+
+```
+client/src/pages/Home.tsx      selection: surah, juz, reciter, ayah
+        │  trpc quran.index / quran.surah
+server/routers.ts              request validation, error mapping
+        │
+server/quranApi.ts             the only file that knows Quran.com's field names
+        │  TtlCache
+server/quranCache.ts           24h TTL, single-flight, LRU eviction
+        │
+api.quran.com/api/v4
+```
+
+Two procedures serve the reader:
+
+| Procedure      | Returns                                                              |
+| -------------- | -------------------------------------------------------------------- |
+| `quran.index`  | All 114 surahs, the 30 juz, and the reciter list — one call on load. |
+| `quran.surah`  | One surah's ayahs: Arabic, translation, transliteration, audio URL.  |
+
+### Caching
+
+Every upstream response passes through the TTL cache in `server/quranCache.ts`:
+
+- **24-hour TTL.** The text does not change; the TTL exists to pick up
+  translation corrections and to bound memory, not to revalidate.
+- **Single-flight.** Al-Baqarah is six upstream pages (the API caps `per_page`
+  at 50). Concurrent readers opening it share one fetch chain instead of
+  starting one each.
+- **Text and audio are cached separately,** keyed by surah and by
+  surah + reciter. Switching reciter refetches audio only; the text is reused.
+- **Failures are not cached,** so a transient upstream error is retried by the
+  next reader rather than pinned for the day.
+
+On the client both queries are held with `staleTime: Infinity`, so paging back
+to a surah already read in the session costs no request at all.
+
+### Reciters
+
+The picker offers Alafasy, Husary, and Minshawi. Each is resolved by matching
+the reciter's name against `/resources/recitations` at runtime, preferring the
+murattal reading, and falling back to a known recitation id if that list is
+unavailable. Matching by name rather than trusting a hardcoded id means an
+upstream renumbering cannot silently swap one reciter's audio for another's.
+
+### Degradation
+
+The Arabic text is the point of the app, so it is the last thing to be given up:
+
+- Audio missing for a reciter → the ayah still renders, and the reader is told
+  to try another reciter.
+- Translation or transliteration missing → that line is hidden, nothing else
+  changes.
+- Quran.com unreachable → the reading area shows the reason and a retry
+  control rather than an empty page.
+
+---
+
 ## Project layout
 
 ```
@@ -167,6 +243,9 @@ client/          React app (Vite root)
 server/          Express + tRPC backend
   _core/           Server bootstrap, OAuth, storage, AI integrations
   routers.ts       tRPC router definitions
+  quranApi.ts      Quran.com API client (surahs, juz, verses, audio)
+  quranCache.ts    TTL cache in front of Quran.com
+  recitation.ts    Word-recall alignment for recorded attempts
   db.ts            Drizzle queries
 shared/          Types and constants shared across client and server
 drizzle/         Schema and migrations

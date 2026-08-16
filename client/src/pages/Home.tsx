@@ -29,18 +29,12 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { markIndexComplete, progressPercent, toggleCompletion, type ReadingStepId } from "@/lib/learningProgress";
+import type { Ayah } from "@shared/quran";
 
 type View = "read" | "learn" | "study" | "memorise";
 type LessonStage = "listen" | "repeat" | "review";
 type LearningLevel = "starter" | "reading" | "advanced";
 type ExerciseResult = "correct" | "retry" | null;
-
-type Verse = {
-  number: number;
-  arabic: string;
-  translation: string;
-  transliteration: string;
-};
 
 type RecitationFeedback = {
   expectedWords: Array<{ expected: string; heard: string | null; status: "matched" | "review" | "missing" | "extra"; wordIndex: number | null }>;
@@ -76,16 +70,6 @@ declare global {
     webkitSpeechRecognition?: BrowserRecognitionConstructor;
   }
 }
-
-const verses: Verse[] = [
-  { number: 1, arabic: "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ", translation: "In the name of Allah—the Most Compassionate, Most Merciful.", transliteration: "Bismillāhi r-raḥmāni r-raḥīm" },
-  { number: 2, arabic: "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ", translation: "All praise is for Allah—Lord of all worlds.", transliteration: "Al-ḥamdu lillāhi rabbi l-ʿālamīn" },
-  { number: 3, arabic: "الرَّحْمَٰنِ الرَّحِيمِ", translation: "The Most Compassionate, Most Merciful.", transliteration: "Ar-raḥmāni r-raḥīm" },
-  { number: 4, arabic: "مَالِكِ يَوْمِ الدِّينِ", translation: "Master of the Day of Judgment.", transliteration: "Māliki yawmi d-dīn" },
-  { number: 5, arabic: "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ", translation: "You alone we worship and You alone we ask for help.", transliteration: "Iyyāka naʿbudu wa iyyāka nastaʿīn" },
-  { number: 6, arabic: "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ", translation: "Guide us along the Straight Path.", transliteration: "Ihdinā ṣ-ṣirāṭa l-mustaqīm" },
-  { number: 7, arabic: "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ", translation: "The Path of those You have blessed—not those You are displeased with, or those who are astray.", transliteration: "Ṣirāṭa l-ladhīna anʿamta ʿalayhim ghayri l-maghḍūbi ʿalayhim wa lā ḍ-ḍāllīn" },
-];
 
 const navigation = [
   { label: "Today", icon: HomeIcon, active: true },
@@ -134,9 +118,8 @@ function VerseMedallion({ number }: { number: number }) {
   return <span className="verse-medallion" aria-label={`Ayah ${number}`}>{number}</span>;
 }
 
-function reciterUrl(ayah: number) {
-  return `https://audio.qurancdn.com/Alafasy/mp3/001${String(ayah).padStart(3, "0")}.mp3`;
-}
+/** Quran.com serves ayah audio per reciter, so a surah with no recording is still readable. */
+const MISSING_AUDIO_MESSAGE = "This reciter has no recording for this ayah. Try another reciter.";
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -178,7 +161,10 @@ function storedStepList(key: string): ReadingStepId[] {
 
 export default function Home() {
   const [view, setView] = useState<View>("read");
+  const [surahNumber, setSurahNumber] = useState(1);
+  const [reciterId, setReciterId] = useState<number | null>(null);
   const [selectedVerse, setSelectedVerse] = useState(1);
+  const [continuousListening, setContinuousListening] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
   const [covered, setCovered] = useState(false);
   const [showTranslation, setShowTranslation] = useState(true);
@@ -204,10 +190,49 @@ export default function Home() {
   const recognitionRef = useRef<BrowserRecognition | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const recordingUrlRef = useRef<string | null>(null);
+  // Set when a verse change should start playing on its own — the Next control
+  // and the end-of-ayah handover both use it, so continuous listening survives
+  // the src swap that a verse change causes.
+  const resumeOnVerseChangeRef = useRef(false);
 
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
-  const activeVerse = useMemo(() => verses.find((verse) => verse.number === selectedVerse) ?? verses[0], [selectedVerse]);
-  const expectedWords = useMemo(() => activeVerse.arabic.split(/\s+/).filter(Boolean), [activeVerse]);
+
+  // The Quran's text does not change, so both queries are cached indefinitely
+  // for the session and the server keeps its own TTL cache in front of
+  // Quran.com. Paging back to a surah you have already opened costs nothing.
+  const quranIndex = trpc.quran.index.useQuery(undefined, { staleTime: Infinity, gcTime: Infinity });
+  const activeReciterId = reciterId ?? quranIndex.data?.reciters[0]?.id ?? null;
+  const surahQuery = trpc.quran.surah.useQuery(
+    { surah: surahNumber, ...(activeReciterId === null ? {} : { reciterId: activeReciterId }) },
+    { enabled: quranIndex.isSuccess, staleTime: Infinity, gcTime: Infinity },
+  );
+
+  const surahs = quranIndex.data?.surahs ?? [];
+  const juzs = quranIndex.data?.juzs ?? [];
+  const reciters = quranIndex.data?.reciters ?? [];
+  const ayahs: Ayah[] = useMemo(() => surahQuery.data?.ayahs ?? [], [surahQuery.data]);
+  const activeSurah = surahQuery.data?.surah ?? surahs.find((item) => item.number === surahNumber) ?? null;
+  const activeVerse = useMemo(
+    () => ayahs.find((verse) => verse.number === selectedVerse) ?? ayahs[0] ?? null,
+    [ayahs, selectedVerse],
+  );
+  const activeIndex = activeVerse ? ayahs.findIndex((verse) => verse.number === activeVerse.number) : -1;
+  const nextVerse = activeIndex >= 0 ? ayahs[activeIndex + 1] ?? null : null;
+  const previousVerse = activeIndex > 0 ? ayahs[activeIndex - 1] : null;
+  const surahLabel = activeSurah?.nameSimple ?? "Loading";
+  // Juz are ordered and contiguous, so the reader's juz is the last one that
+  // starts at or before the selected ayah. This keeps the juz picker in step
+  // when a long surah is read straight through a juz boundary.
+  const currentJuz = useMemo(() => {
+    let found: number | null = null;
+    for (const juz of juzs) {
+      const startsBefore = juz.firstSurah < surahNumber
+        || (juz.firstSurah === surahNumber && juz.firstAyah <= selectedVerse);
+      if (startsBefore) found = juz.number;
+    }
+    return found;
+  }, [juzs, surahNumber, selectedVerse]);
+  const expectedWords = useMemo(() => (activeVerse?.arabic ?? "").split(/\s+/).filter(Boolean), [activeVerse]);
   const activeLevel = useMemo(() => learningLevels.find((level) => level.id === learningLevel) ?? learningLevels[0], [learningLevel]);
   const activeLetter = alphabet[selectedLetter] ?? alphabet[0];
   const starterProgress = progressPercent(starterPractised.length, alphabet.length);
@@ -228,7 +253,15 @@ export default function Home() {
     setLiveTranscript("");
     setLiveMatched([]);
     setRecorderMessage("Listen to the reciter, then record your own repetition.");
-  }, [selectedVerse]);
+  }, [selectedVerse, surahNumber]);
+
+  // A surah change carries the selection with it (juz navigation lands mid-surah,
+  // for instance). If the landing ayah is not in the surah that loaded, fall back
+  // to its first ayah rather than rendering an empty reader.
+  useEffect(() => {
+    if (!ayahs.length) return;
+    if (!ayahs.some((verse) => verse.number === selectedVerse)) setSelectedVerse(ayahs[0].number);
+  }, [ayahs, selectedVerse]);
 
   useEffect(() => {
     window.localStorage.setItem("miqra-starter-practised", JSON.stringify(starterPractised));
@@ -247,11 +280,35 @@ export default function Home() {
     if (view === "memorise") setCovered(false);
   };
 
-  const moveVerse = (direction: -1 | 1) => setSelectedVerse((current) => Math.max(1, Math.min(verses.length, current + direction)));
+  const moveVerse = (direction: -1 | 1) => {
+    const target = direction === 1 ? nextVerse : previousVerse;
+    if (target) selectVerse(target.number);
+  };
+
+  /**
+   * Selection is set surah-first: juz navigation lands on an ayah part-way
+   * through a surah, so the ayah cannot be reset by an effect watching the surah.
+   */
+  const selectSurah = (number: number, ayah = 1) => {
+    resumeOnVerseChangeRef.current = false;
+    audioRef.current?.pause();
+    setSurahNumber(number);
+    setSelectedVerse(ayah);
+    if (view === "memorise") setCovered(false);
+  };
+
+  const selectJuz = (juzNumber: number) => {
+    const juz = juzs.find((item) => item.number === juzNumber);
+    if (juz) selectSurah(juz.firstSurah, juz.firstAyah);
+  };
 
   const playReciter = async (rate = 1) => {
     const audio = audioRef.current;
     if (!audio) return;
+    if (!activeVerse?.audioUrl) {
+      setRecorderMessage(MISSING_AUDIO_MESSAGE);
+      return;
+    }
     audio.pause();
     audio.currentTime = 0;
     audio.playbackRate = rate;
@@ -265,6 +322,48 @@ export default function Home() {
       setRecorderMessage("Audio could not start. Check your device volume, then try again.");
     }
   };
+
+  /**
+   * Move to the following ayah and keep listening. This is the Read view's
+   * "Next": the verse change swaps the audio source, so the actual play() call
+   * happens in the effect below once the new source is mounted.
+   */
+  const listenToNext = () => {
+    if (!nextVerse) return;
+    resumeOnVerseChangeRef.current = true;
+    selectVerse(nextVerse.number);
+  };
+
+  const toggleReaderPlayback = () => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+      setIsPlaying(false);
+      return;
+    }
+    void playReciter(1);
+  };
+
+  // Continuous listening: the ayah that just finished hands over to the next one.
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    if (!continuousListening || view !== "read" || !nextVerse) return;
+    resumeOnVerseChangeRef.current = true;
+    setSelectedVerse(nextVerse.number);
+  };
+
+  // Runs after the effect that pauses playback on a verse change, so the new
+  // ayah starts from a clean state rather than racing the reset.
+  useEffect(() => {
+    if (!resumeOnVerseChangeRef.current) return;
+    resumeOnVerseChangeRef.current = false;
+    if (!activeVerse?.audioUrl) return;
+    void playReciter(1);
+    // playReciter is recreated every render; depending on the verse identity is
+    // what makes this fire exactly once per handover.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeVerse?.verseKey, activeVerse?.audioUrl]);
 
   const stopRecognition = () => {
     try { recognitionRef.current?.stop(); } catch { /* browser already stopped */ }
@@ -310,6 +409,7 @@ export default function Home() {
   };
 
   const reviewRecording = async (blob: Blob) => {
+    if (!activeVerse) return;
     try {
       setRecorderMessage("Reviewing the words you recited…");
       const audioBase64 = await blobToBase64(blob);
@@ -317,7 +417,7 @@ export default function Home() {
         expectedArabic: activeVerse.arabic,
         audioBase64,
         mimeType: blob.type === "audio/ogg" ? "audio/ogg" : blob.type === "audio/wav" ? "audio/wav" : blob.type === "audio/mp4" ? "audio/mp4" : "audio/webm",
-        surah: 1,
+        surah: surahNumber,
         ayah: activeVerse.number,
       });
       setFeedback(result as RecitationFeedback);
@@ -381,7 +481,7 @@ export default function Home() {
   };
 
   const openRecitationPractice = () => {
-    setSelectedVerse(1);
+    selectSurah(1);
     setView("study");
   };
 
@@ -393,15 +493,38 @@ export default function Home() {
     setReadingComplete((current) => toggleCompletion(current, step));
   };
 
-  const chapterHeading = view === "learn" ? "Your Quran learning path" : "Surah Al-Fātiḥah";
-  const chapterEyebrow = view === "learn" ? "Learn at your level" : "01 · The Opening";
+  const chapterHeading = view === "learn" ? "Your Quran learning path" : `Surah ${surahLabel}`;
+  const chapterEyebrow = view === "learn"
+    ? "Learn at your level"
+    : `${String(surahNumber).padStart(2, "0")} · ${activeSurah?.translatedName ?? "Loading"}`;
   const chapterCopy = view === "learn"
     ? "Start from the alphabet, develop reading confidence, then move into recitation and memorisation practice."
     : "Read the ayah, hear it from a reciter, repeat it yourself, then return gently to the place that needs practice.";
 
+  const readingPercent = ayahs.length && activeVerse ? Math.round(((activeIndex + 1) / ayahs.length) * 100) : 0;
+  const contentPending = quranIndex.isPending || surahQuery.isPending;
+  const contentError = quranIndex.error ?? surahQuery.error;
+  const retryContent = () => {
+    if (quranIndex.error) void quranIndex.refetch();
+    else void surahQuery.refetch();
+  };
+
+  const contentFallback = contentError ? (
+    <div className="content-state is-error" role="alert">
+      <AlertCircle size={20} />
+      <p>{contentError.message}</p>
+      <button type="button" onClick={retryContent}><RotateCcw size={15} /> Try again</button>
+    </div>
+  ) : (
+    <div className="content-state" role="status">
+      <span className="content-spinner" aria-hidden="true" />
+      <p>Loading the Quran text and recitation…</p>
+    </div>
+  );
+
   return (
     <div className="sanctuary-shell">
-      <audio ref={audioRef} src={reciterUrl(activeVerse.number)} preload="auto" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => setIsPlaying(false)} />
+      <audio ref={audioRef} src={activeVerse?.audioUrl ?? undefined} preload="auto" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={handleAudioEnded} />
       <aside className="app-rail" aria-label="Primary navigation">
         <div className="rail-brand">
           <img src="/manus-storage/quran-open-book-arch-logo_db76dbd9.png" alt="" className="brand-mark" />
@@ -416,7 +539,44 @@ export default function Home() {
       </aside>
 
       <main className="reading-desk">
-        <header className="desk-header"><div className="crumbs"><span className="eyebrow">Quran</span><span className="crumb-separator">/</span><button type="button" className="chapter-picker">Juz’ 1 <ChevronDown size={14} /></button></div><div className="header-tools"><button type="button" className="icon-button" aria-label="Search Quran"><Search size={18} /></button><button type="button" className="icon-button" aria-label="Reading settings"><Settings2 size={18} /></button></div></header>
+        <header className="desk-header">
+          <div className="crumbs">
+            <span className="eyebrow">Quran</span>
+            <span className="crumb-separator">/</span>
+            <label className="quran-picker">
+              <span className="sr-only">Surah</span>
+              <select value={surahNumber} onChange={(event) => selectSurah(Number(event.target.value))} disabled={!surahs.length}>
+                {surahs.length
+                  ? surahs.map((surah) => <option key={surah.number} value={surah.number}>{surah.number}. {surah.nameSimple} · {surah.translatedName}</option>)
+                  : <option value={surahNumber}>Loading surahs…</option>}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </label>
+            <label className="quran-picker">
+              <span className="sr-only">Juz</span>
+              <select value={currentJuz ?? ""} onChange={(event) => selectJuz(Number(event.target.value))} disabled={!juzs.length}>
+                {juzs.length
+                  ? juzs.map((juz) => <option key={juz.number} value={juz.number}>Juz’ {juz.number}</option>)
+                  : <option value="">Loading juz…</option>}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </label>
+          </div>
+          <div className="header-tools">
+            <label className="quran-picker reciter-picker">
+              <Headphones size={15} aria-hidden="true" />
+              <span className="sr-only">Reciter</span>
+              <select value={activeReciterId ?? ""} onChange={(event) => setReciterId(Number(event.target.value))} disabled={!reciters.length}>
+                {reciters.length
+                  ? reciters.map((reciter) => <option key={reciter.id} value={reciter.id}>{reciter.name}{reciter.style ? ` · ${reciter.style}` : ""}</option>)
+                  : <option value="">Loading reciters…</option>}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </label>
+            <button type="button" className="icon-button" aria-label="Search Quran"><Search size={18} /></button>
+            <button type="button" className="icon-button" aria-label="Reading settings"><Settings2 size={18} /></button>
+          </div>
+        </header>
         <section className="chapter-intro" aria-labelledby="chapter-title"><div><p className="eyebrow">{chapterEyebrow}</p><h1 id="chapter-title">{chapterHeading}</h1><p className="intro-copy">{chapterCopy}</p></div><div className="chapter-arabic" lang="ar" dir="rtl">{view === "learn" ? activeLevel.arabic : "سُورَةُ ٱلْفَاتِحَةِ"}</div></section>
         <section className="mode-tabs" aria-label="Reading mode">
           {tabs.map((tab) => { const Icon = tab.icon; const active = view === tab.id; return <button type="button" key={tab.id} className={`mode-tab ${active ? "is-active" : ""}`} aria-pressed={active} onClick={() => setView(tab.id)}><span className="tab-icon"><Icon size={17} /></span><span><strong>{tab.label}</strong><small>{tab.caption}</small></span></button>; })}
@@ -424,7 +584,26 @@ export default function Home() {
 
         <section className={`manuscript-stage stage-${view}`} aria-live="polite">
           <div className="manuscript-light" aria-hidden="true" /><div className="manuscript-frame" />
-          {view === "read" && <div className="reader-layout"><div className="manuscript-meta"><span>Al-Fātiḥah</span><span>7 ayahs · Makki</span><span>Page 1</span></div><div className="basmala" lang="ar" dir="rtl">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div><div className="quran-flow" dir="rtl" lang="ar" aria-label="Surah Al-Fatiha verses">{verses.slice(1).map((verse) => <button key={verse.number} type="button" className={`quran-ayah ${selectedVerse === verse.number ? "is-selected" : ""} ${isPlaying && selectedVerse === verse.number ? "is-playing" : ""}`} onClick={() => selectVerse(verse.number)} aria-pressed={selectedVerse === verse.number}>{verse.arabic} <VerseMedallion number={verse.number} /></button>)}</div><div className="reader-footer"><span>Tap an ayah, then move to Study to hear and repeat it.</span><button type="button" onClick={() => setShowTranslation((current) => !current)}>{showTranslation ? "Hide meaning" : "Show meaning"}</button></div></div>}
+          {view === "read" && <div className="reader-layout">
+            <div className="manuscript-meta"><span>{surahLabel}</span><span>{activeSurah ? `${activeSurah.versesCount} ayahs · ${activeSurah.revelationPlace === "makkah" ? "Makki" : "Madani"}` : "—"}</span><span>{currentJuz ? `Juz’ ${currentJuz}` : "—"}</span></div>
+            {contentPending || contentError ? contentFallback : <>
+              {activeSurah?.bismillahPre && <div className="basmala" lang="ar" dir="rtl">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>}
+              <div className="quran-flow" dir="rtl" lang="ar" aria-label={`Surah ${surahLabel} verses`}>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={`quran-ayah ${selectedVerse === verse.number ? "is-selected" : ""} ${isPlaying && selectedVerse === verse.number ? "is-playing" : ""}`} onClick={() => selectVerse(verse.number)} aria-pressed={selectedVerse === verse.number}>{verse.arabic} <VerseMedallion number={verse.number} /></button>)}</div>
+
+              {/* Listening runs forward from the selected ayah: Next hands over to
+                  the following one, and with continuous listening on, the end of
+                  an ayah does the same without a click. */}
+              <div className="reader-playback" aria-label="Ayah playback">
+                <button type="button" className="playback-step" onClick={() => moveVerse(-1)} disabled={!previousVerse} aria-label="Previous ayah"><ArrowLeft size={16} /></button>
+                <button type="button" className="playback-main" onClick={toggleReaderPlayback} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}{isPlaying ? "Pause" : "Listen"}</button>
+                <button type="button" className="playback-step is-next" onClick={listenToNext} disabled={!nextVerse}>Next <ArrowRight size={16} /></button>
+                <span className="playback-place">Ayah {activeVerse?.number ?? "—"} of {ayahs.length || "—"}</span>
+                <label className="playback-continuous"><input type="checkbox" checked={continuousListening} onChange={(event) => setContinuousListening(event.target.checked)} /> Keep playing</label>
+              </div>
+              {!activeVerse?.audioUrl && <p className="playback-warning"><AlertCircle size={14} /> {MISSING_AUDIO_MESSAGE}</p>}
+            </>}
+            <div className="reader-footer"><span>Tap an ayah, then move to Study to hear and repeat it.</span><button type="button" onClick={() => setShowTranslation((current) => !current)}>{showTranslation ? "Hide meaning" : "Show meaning"}</button></div>
+          </div>}
 
           {view === "learn" && <div className="learning-layout">
             <div className="learning-topline"><div><span className="eyebrow">Choose your pace</span><h2>From first letters to confident recitation.</h2></div><span>{activeLevel.cue}</span></div>
@@ -434,9 +613,9 @@ export default function Home() {
             {learningLevel === "advanced" && <div className="path-workspace advanced-path"><div className="path-copy"><span className="eyebrow">Advanced path</span><h3>Recitation and hifz, one deliberate return at a time.</h3><p>Listen to a qualified reciter, repeat, review the words your recording captured, and return to your teacher for tajwid correction.</p></div><div className="advanced-principles"><span>Real reciter audio</span><span>AI word-recall review</span><span>Teacher-confirmed tajwid</span></div><button type="button" className="path-cta" onClick={openRecitationPractice}><Mic size={17} /> Begin guided recitation <ArrowRight size={17} /></button></div>}
           </div>}
 
-          {view === "study" && <div className="study-layout">
-            <div className="study-index"><span>Ayah</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>of 07</span></div>
-            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" /><p className="transliteration">{activeVerse.transliteration}</p><p className="study-translation">{activeVerse.translation}</p><button type="button" className="listen-inline" onClick={() => void playReciter(0.78)}><Volume2 size={17} />Listen slowly</button></div>
+          {view === "study" && (!activeVerse ? contentFallback : <div className="study-layout">
+            <div className="study-index"><span>Ayah</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>of {String(ayahs.length).padStart(2, "0")}</span></div>
+            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={!activeVerse.audioUrl}><Volume2 size={17} />Listen slowly</button></div>
             <div className="teacher-loop" aria-label="Recitation lesson">
               <div className="loop-header"><div><span className="eyebrow">Guided recitation</span><h2>Listen. Repeat. Review.</h2></div><span className="teacher-badge">Teacher loop</span></div>
               <div className="loop-steps" aria-label={`Current stage: ${lessonStage}`}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> Listen</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> Your turn</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> Review</span></div>
@@ -449,20 +628,22 @@ export default function Home() {
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
               {feedback && <div className="feedback-panel"><div className="feedback-summary"><div><span className="eyebrow">{feedback.wordReviewAvailable ? "Word recall review" : "Word review unavailable"}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{feedback.wordReviewAvailable ? "words matched in the transcript" : "the service did not recognise Arabic words"}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">AI audio coach</span><p>Hear the practice cue in English, then use the qualified reciter for Quranic Arabic.</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> Play guidance</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable"><AlertCircle size={16} /><span>The recording is saved, but this response cannot support a reliable word-by-word score. Replay the qualified reciter and retry in a quieter place; use a teacher for pronunciation and tajwid.</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? `Word ${item.wordIndex}` : "Extra"}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? "Not heard" : item.status === "review" ? "Review" : "Extra"}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> Every expected word was recognised in this recording.</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> Read new guidance aloud</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> Listen and try again</button></div>}
             </div>
-            <div className="study-pagination"><button type="button" onClick={() => moveVerse(-1)} disabled={selectedVerse === 1}><ArrowLeft size={17} /> Previous</button><div>{verses.map((verse) => <button key={verse.number} type="button" className={selectedVerse === verse.number ? "dot is-current" : "dot"} aria-label={`Choose ayah ${verse.number}`} onClick={() => selectVerse(verse.number)} />)}</div><button type="button" onClick={() => moveVerse(1)} disabled={selectedVerse === verses.length}>Next <ArrowRight size={17} /></button></div>
-          </div>}
+            {/* A dot per ayah reads well for short surahs; al-Baqarah's 286 would
+                not, so longer surahs get a counter instead. */}
+            <div className="study-pagination"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={17} /> Previous</button>{ayahs.length <= 20 ? <div>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={selectedVerse === verse.number ? "dot is-current" : "dot"} aria-label={`Choose ayah ${verse.number}`} onClick={() => selectVerse(verse.number)} />)}</div> : <span className="pagination-count">{activeVerse.number} / {ayahs.length}</span>}<button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>Next <ArrowRight size={17} /></button></div>
+          </div>)}
 
-          {view === "memorise" && <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">Recall gently</span><span>Ayah {activeVerse.number} of 7</span></div><p className="memory-prompt">Read aloud, then let the teacher loop help you check your place.</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">The ayah is covered</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation : "Meaning hidden for a focused recall."}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{covered ? "Reveal ayah" : "Cover ayah"}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> Toggle meaning</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> Practise aloud</button></div><div className="memory-steps">{verses.map((verse) => <button type="button" key={verse.number} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={`Practise ayah ${verse.number}`}><span>{verse.number}</span></button>)}</div></div>}
+          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">Recall gently</span><span>Ayah {activeVerse.number} of {ayahs.length}</span></div><p className="memory-prompt">Read aloud, then let the teacher loop help you check your place.</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">The ayah is covered</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : "Meaning hidden for a focused recall."}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{covered ? "Reveal ayah" : "Cover ayah"}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> Toggle meaning</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> Practise aloud</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={`Practise ayah ${verse.number}`}><span>{verse.number}</span></button>)}</div></div>)}
         </section>
-        <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={selectedVerse === 1}><ArrowLeft size={16} /> Previous ayah</button><span>Al-Fātiḥah · {selectedVerse}/7</span><button type="button" onClick={() => moveVerse(1)} disabled={selectedVerse === verses.length}>Next ayah <ArrowRight size={16} /></button></div>
+        <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> Previous ayah</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>Next ayah <ArrowRight size={16} /></button></div>
       </main>
 
       <aside className="study-panel" aria-label="Selected ayah details">
         <div className="panel-topbar"><p className="eyebrow">Keep your place</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={() => setSaved((current) => !current)} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {saved ? "Saved" : "Save"}</button></div>
-        <div className="selected-ayah"><div className="ayah-reference"><span>Al-Fātiḥah</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <><p className="panel-transliteration">{activeVerse.transliteration}</p><p className="panel-translation">{activeVerse.translation}</p></>}</div>
-        <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{isPlaying ? "Reciter audio playing" : "Listen & repeat"}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>Alafasy</span><span>Ayah {activeVerse.number}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {isPlaying ? "Playing reciter" : "Listen to selected"}</button><p className="audio-note"><Headphones size={14} /> Real reciter audio at full device volume. Use headphones for focused practice.</p></div>
+        {activeVerse && <div className="selected-ayah"><div className="ayah-reference"><span>{surahLabel}</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <>{activeVerse.transliteration && <p className="panel-transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="panel-translation">{activeVerse.translation}</p>}</>}</div>}
+        <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{isPlaying ? "Reciter audio playing" : "Listen & repeat"}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{reciters.find((reciter) => reciter.id === activeReciterId)?.name ?? "Reciter"}</span><span>Ayah {activeVerse?.number ?? "—"}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {isPlaying ? "Playing reciter" : "Listen to selected"}</button><p className="audio-note"><Headphones size={14} /> Real reciter audio at full device volume. Use headphones for focused practice.</p></div>
         <div className="practice-note"><img src="/manus-storage/quran-study-lantern-illustration_3d7eaf67.png" alt="" /><div><span className="eyebrow">Today’s sequence</span><p>Hear the ayah once, repeat it in your own voice, then return calmly to the one place that needs practice.</p></div></div>
-        <div className="completion-card"><div><span className="eyebrow">This reading</span><strong>{Math.round((selectedVerse / verses.length) * 100)}%</strong></div><div className="completion-track"><span style={{ width: `${(selectedVerse / verses.length) * 100}%` }} /></div><p>One attentive repetition is useful progress.</p></div>
+        <div className="completion-card"><div><span className="eyebrow">This reading</span><strong>{readingPercent}%</strong></div><div className="completion-track"><span style={{ width: `${readingPercent}%` }} /></div><p>One attentive repetition is useful progress.</p></div>
       </aside>
       <div className="mobile-dock" aria-label="Mobile reading actions"><button type="button" onClick={() => setView("read")} className={view === "read" ? "is-active" : ""}><BookOpen size={18} /><span>Read</span></button><button type="button" onClick={() => setView("study")} className="dock-listen"><Mic size={19} /><span>Practise</span></button><button type="button" onClick={() => setView("memorise")} className={view === "memorise" ? "is-active" : ""}><Sparkles size={18} /><span>Recall</span></button></div>
     </div>

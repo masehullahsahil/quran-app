@@ -73,6 +73,39 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .crumbs, .header-tools { display: flex; align-items: center; gap: 11px; }
 .crumb-separator { color: #b2b0a8; }
 .chapter-picker { display: flex; align-items: center; gap: 3px; padding: 0; color: #4f5b54; border: 0; background: transparent; cursor: pointer; font-size: 12px; font-weight: 600; }
+
+/* Surah, juz and reciter pickers. Native selects on purpose: 114 surahs are
+   quicker to reach by typing than by scrolling, and mobile gets its own wheel. */
+.quran-picker { position: relative; display: inline-flex; align-items: center; gap: 4px; max-width: 260px; padding: 5px 9px; color: #4f5b54; border: 1px solid transparent; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 600; transition: background-color .18s cubic-bezier(.23,1,.32,1), border-color .18s cubic-bezier(.23,1,.32,1); }
+.quran-picker:hover { background: #fffdf8; border-color: #e3ddd2; }
+.quran-picker:focus-within { background: #fffdf8; border-color: #9db9ae; }
+.quran-picker select { max-width: 210px; padding: 0; color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; text-overflow: ellipsis; appearance: none; }
+.quran-picker select:focus { outline: none; }
+.quran-picker select:disabled { color: #9aa39b; cursor: progress; }
+.quran-picker svg { flex: none; color: #8d968c; }
+.reciter-picker { color: #53635a; }
+
+/* Read-view playback: previous / listen / next, with the handover toggle. */
+.reader-playback { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; max-width: 850px; margin: 28px auto 0; padding: 13px 16px; background: #fffdf8; border: 1px solid #e7e1d6; border-radius: 14px; }
+.reader-playback button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; }
+.reader-playback button:disabled { opacity: .35; cursor: not-allowed; }
+.reader-playback .playback-step { padding: 7px 11px; color: #53635a; border-radius: 999px; }
+.reader-playback .playback-step:not(:disabled):hover { background: #f1ede3; }
+.reader-playback .playback-main { padding: 9px 19px; color: #fffdf8; background: #174d42; border-radius: 999px; }
+.reader-playback .playback-main:not(:disabled):hover { background: #10382f; }
+.playback-place { margin-left: 4px; color: #8b9088; font-size: 11px; font-weight: 600; }
+.playback-continuous { display: inline-flex; align-items: center; gap: 6px; color: #6c796f; cursor: pointer; font-size: 11px; font-weight: 600; }
+.playback-warning { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 12px 0 0; color: #8a6a3c; font-size: 11px; }
+.pagination-count { color: #8b9088; font-size: 11px; font-weight: 700; }
+
+/* Shared loading / error placeholder for API-backed views. */
+.content-state { display: grid; place-items: center; gap: 12px; min-height: 220px; padding: 40px 20px; color: #78807a; text-align: center; font-size: 13px; }
+.content-state p { max-width: 380px; margin: 0; }
+.content-state.is-error { color: #8a4a3c; }
+.content-state button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; color: #174d42; border: 1px solid #cfd8d0; border-radius: 999px; background: transparent; cursor: pointer; font-size: 12px; font-weight: 700; }
+.content-spinner { display: block; width: 26px; height: 26px; border: 2px solid #ded8cc; border-top-color: #174d42; border-radius: 50%; animation: content-spin .9s linear infinite; }
+@keyframes content-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .content-spinner { animation-duration: 2.4s; } }
 .icon-button { display: grid; width: 33px; height: 33px; place-content: center; color: #627069; border: 1px solid transparent; background: transparent; border-radius: 50%; cursor: pointer; transition: background-color .18s cubic-bezier(.23,1,.32,1), border-color .18s cubic-bezier(.23,1,.32,1); }
 .icon-button:hover { background: #fffdf8; border-color: #e3ddd2; }
 .chapter-intro { align-items: flex-end; margin-bottom: 30px; }
@@ -232,7 +265,13 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .sanctuary-shell { display: block; }
   .app-rail { display: none; }
   .reading-desk { padding: 20px 16px 18px; }
-  .desk-header { margin-bottom: 33px; }
+  .desk-header { flex-wrap: wrap; gap: 8px; margin-bottom: 33px; }
+  .crumbs { flex-wrap: wrap; gap: 6px; }
+  .quran-picker { max-width: 100%; padding: 5px 7px; }
+  .quran-picker select { max-width: 140px; }
+  .reciter-picker select { max-width: 116px; }
+  .reader-playback { gap: 8px; margin-top: 20px; padding: 11px 12px; }
+  .playback-place { display: none; }
   .chapter-intro { align-items: flex-start; margin-bottom: 24px; }
   .chapter-intro h1 { font-size: 35px; }
   .intro-copy { max-width: 250px; font-size: 12px; }

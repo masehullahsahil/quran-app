@@ -6,11 +6,18 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { MAX_AUDIO_BYTES, transcribeAudio } from "./_core/voiceTranscription";
+import { DEFAULT_RECITER_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import { isStorageConfigured, storagePut } from "./storage";
 
+// Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
+// past 1,600 characters once Uthmani diacritics are counted. The old limit fit
+// al-Fatiha and would have rejected the review request for a handful of ayahs
+// now that any surah can be selected.
+const MAX_AYAH_CHARS = 4000;
+
 const recitationInput = z.object({
-  expectedArabic: z.string().min(1).max(1600),
+  expectedArabic: z.string().min(1).max(MAX_AYAH_CHARS),
   audioBase64: z.string().min(20).max(22_500_000),
   mimeType: z.enum(["audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4"]),
   surah: z.number().int().min(1).max(114),
@@ -94,6 +101,39 @@ export const appRouter = router({
         success: true,
       } as const;
     }),
+  }),
+
+  quran: router({
+    // One call covers every navigation control: 114 surahs, 30 juz, and the
+    // reciter list. All three are cached upstream of this procedure.
+    index: publicProcedure.query(async () => {
+      try {
+        return await getQuranIndex();
+      } catch (error) {
+        throw new TRPCError({
+          code: "BAD_GATEWAY",
+          message: "The Quran index could not be loaded from Quran.com. Check your connection and try again.",
+          cause: error,
+        });
+      }
+    }),
+
+    surah: publicProcedure
+      .input(z.object({
+        surah: z.number().int().min(1).max(114),
+        reciterId: z.number().int().positive().default(DEFAULT_RECITER_ID),
+      }))
+      .query(async ({ input }) => {
+        try {
+          return await getSurahContent(input.surah, input.reciterId);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message: "This surah could not be loaded from Quran.com. Check your connection and try again.",
+            cause: error,
+          });
+        }
+      }),
   }),
 
   recitation: router({

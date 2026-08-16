@@ -12,4 +12,8 @@ export const ENV = {
   // can point at an OpenAI-compatible gateway or a local test double.
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+  // Quran.com content API. Public and key-free; the base URL is overridable so
+  // the reader can be pointed at a mirror or a local fixture server when
+  // api.quran.com is unreachable (restricted networks, offline development).
+  quranApiBaseUrl: process.env.QURAN_API_BASE_URL ?? "https://api.quran.com/api/v4",
 };
