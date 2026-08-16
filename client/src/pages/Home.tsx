@@ -12,6 +12,7 @@ import {
   Check,
   ChevronDown,
   Headphones,
+  Globe,
   Home as HomeIcon,
   Languages,
   Library,
@@ -29,8 +30,10 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { markIndexComplete, progressPercent, toggleCompletion, type ReadingStepId } from "@/lib/learningProgress";
-import { ARABIC_LETTERS, HARAKAT, letterAudioPath } from "@/lib/arabicLetters";
+import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
+import { useLocale } from "@/contexts/LocaleContext";
+import type { StringKey } from "@locales/index";
 import type { Ayah } from "@shared/quran";
 
 type View = "read" | "learn" | "study" | "memorise";
@@ -73,32 +76,41 @@ declare global {
   }
 }
 
-const navigation = [
-  { label: "Today", icon: HomeIcon, active: true },
-  { label: "My library", icon: Library },
-  { label: "Bookmarks", icon: Bookmark },
+// These tables carry string *keys*, not text. The instruction language supplies
+// the words at render time; the Arabic in `arabic` below is content, not
+// instruction, so it is the same in every language.
+const navigation: Array<{ key: StringKey; icon: typeof BookOpen; active?: boolean }> = [
+  { key: "nav.today", icon: HomeIcon, active: true },
+  { key: "nav.library", icon: Library },
+  { key: "nav.bookmarks", icon: Bookmark },
 ];
 
-const tabs: { id: View; label: string; caption: string; icon: typeof BookOpen }[] = [
-  { id: "read", label: "Read", caption: "Follow the page", icon: BookOpen },
-  { id: "learn", label: "Learn", caption: "Letters to recitation", icon: Languages },
-  { id: "study", label: "Study", caption: "Learn with a teacher loop", icon: ListMusic },
-  { id: "memorise", label: "Memorise", caption: "Cover, recall, review", icon: Sparkles },
+const tabs: Array<{ id: View; labelKey: StringKey; captionKey: StringKey; icon: typeof BookOpen }> = [
+  { id: "read", labelKey: "mode.read", captionKey: "mode.readCaption", icon: BookOpen },
+  { id: "learn", labelKey: "mode.learn", captionKey: "mode.learnCaption", icon: Languages },
+  { id: "study", labelKey: "mode.study", captionKey: "mode.studyCaption", icon: ListMusic },
+  { id: "memorise", labelKey: "mode.memorise", captionKey: "mode.memoriseCaption", icon: Sparkles },
 ];
 
-const learningLevels: Array<{ id: LearningLevel; order: string; title: string; arabic: string; summary: string; cue: string }> = [
-  { id: "starter", order: "01", title: "Starter", arabic: "الحروف", summary: "Begin with Arabic letters, short vowels, and joining forms.", cue: "Letters & sounds" },
-  { id: "reading", order: "02", title: "Reading", arabic: "القراءة", summary: "Build from familiar words into steady Quran reading.", cue: "Words & flow" },
-  { id: "advanced", order: "03", title: "Advanced", arabic: "التلاوة", summary: "Practise listening, recall, and guided recitation with care.", cue: "Recitation & hifz" },
+const learningLevels: Array<{ id: LearningLevel; order: string; arabic: string; titleKey: StringKey; summaryKey: StringKey; cueKey: StringKey }> = [
+  { id: "starter", order: "01", arabic: "الحروف", titleKey: "learn.level.starter", summaryKey: "learn.level.starterSummary", cueKey: "learn.level.starterCue" },
+  { id: "reading", order: "02", arabic: "القراءة", titleKey: "learn.level.reading", summaryKey: "learn.level.readingSummary", cueKey: "learn.level.readingCue" },
+  { id: "advanced", order: "03", arabic: "التلاوة", titleKey: "learn.level.advanced", summaryKey: "learn.level.advancedSummary", cueKey: "learn.level.advancedCue" },
 ];
 
 const alphabet = ARABIC_LETTERS;
 
-const readingSteps: Array<{ id: ReadingStepId; order: string; title: string; summary: string }> = [
-  { id: "vowels", order: "01", title: "Short vowels", summary: "Recognise fatha, kasra, and damma with familiar letters." },
-  { id: "joining", order: "02", title: "Joining letters", summary: "Notice how a letter changes at the start, middle, and end of a word." },
-  { id: "first-ayah", order: "03", title: "First ayah reading", summary: "Open Al-Fātiḥah with transliteration and a slower reciter pace." },
+const readingSteps: Array<{ id: ReadingStepId; order: string; titleKey: StringKey; summaryKey: StringKey }> = [
+  { id: "vowels", order: "01", titleKey: "reading.step.vowels", summaryKey: "reading.step.vowelsSummary" },
+  { id: "joining", order: "02", titleKey: "reading.step.joining", summaryKey: "reading.step.joiningSummary" },
+  { id: "first-ayah", order: "03", titleKey: "reading.step.firstAyah", summaryKey: "reading.step.firstAyahSummary" },
 ];
+
+const harakatLabelKeys: Record<Harakat, { label: StringKey; hint: StringKey }> = {
+  fatha: { label: "harakat.fatha", hint: "harakat.fathaHint" },
+  kasra: { label: "harakat.kasra", hint: "harakat.kasraHint" },
+  damma: { label: "harakat.damma", hint: "harakat.dammaHint" },
+};
 
 const stripArabic = (value: string) => value
   .normalize("NFKC")
@@ -111,9 +123,6 @@ const stripArabic = (value: string) => value
 function VerseMedallion({ number }: { number: number }) {
   return <span className="verse-medallion" aria-label={`Ayah ${number}`}>{number}</span>;
 }
-
-/** Quran.com serves ayah audio per reciter, so a surah with no recording is still readable. */
-const MISSING_AUDIO_MESSAGE = "This reciter has no recording for this ayah. Try another reciter.";
 
 function blobToBase64(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -197,6 +206,7 @@ export default function Home() {
   // the src swap that a verse change causes.
   const resumeOnVerseChangeRef = useRef(false);
 
+  const { t, locale, setLocale, locales, letterLesson } = useLocale();
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
 
@@ -222,7 +232,7 @@ export default function Home() {
   const activeIndex = activeVerse ? ayahs.findIndex((verse) => verse.number === activeVerse.number) : -1;
   const nextVerse = activeIndex >= 0 ? ayahs[activeIndex + 1] ?? null : null;
   const previousVerse = activeIndex > 0 ? ayahs[activeIndex - 1] : null;
-  const surahLabel = activeSurah?.nameSimple ?? "Loading";
+  const surahLabel = activeSurah?.nameSimple ?? t("reader.loading");
   // Juz are ordered and contiguous, so the reader's juz is the last one that
   // starts at or before the selected ayah. This keeps the juz picker in step
   // when a long surah is read straight through a juz boundary.
@@ -239,6 +249,9 @@ export default function Home() {
   const activeLevel = useMemo(() => learningLevels.find((level) => level.id === learningLevel) ?? learningLevels[0], [learningLevel]);
   const activeLetter = alphabet[selectedLetter] ?? alphabet[0];
   const soloAudioSrc = letterAudioPath(activeLetter.slug);
+  // Teaching text for this letter in the instruction language, falling back to
+  // English per letter when a pack has not translated it yet.
+  const activeLesson = letterLesson(activeLetter.slug);
   const starterProgress = progressPercent(starterPractised.length, alphabet.length);
   const readingProgress = progressPercent(readingComplete.length, readingSteps.length);
 
@@ -256,7 +269,7 @@ export default function Home() {
     setFeedback(null);
     setLiveTranscript("");
     setLiveMatched([]);
-    setRecorderMessage("Listen to the reciter, then record your own repetition.");
+    setRecorderMessage(t("recorder.intro"));
   }, [selectedVerse, surahNumber]);
 
   // A surah change carries the selection with it (juz navigation lands mid-surah,
@@ -311,7 +324,7 @@ export default function Home() {
     const audio = audioRef.current;
     if (!audio) return;
     if (!activeVerse?.audioUrl) {
-      setRecorderMessage(MISSING_AUDIO_MESSAGE);
+      setRecorderMessage(t("playback.noAudio"));
       return;
     }
     audio.pause();
@@ -322,9 +335,9 @@ export default function Home() {
       await audio.play();
       setIsPlaying(true);
       setLessonStage("listen");
-      setRecorderMessage(rate < 1 ? "Listen slowly. Notice each word, then repeat it back." : "Listen once through. When you are ready, it is your turn.");
+      setRecorderMessage(t(rate < 1 ? "recorder.listenSlow" : "recorder.listenOnce"));
     } catch {
-      setRecorderMessage("Audio could not start. Check your device volume, then try again.");
+      setRecorderMessage(t("recorder.audioFailed"));
     }
   };
 
@@ -392,7 +405,7 @@ export default function Home() {
   const beginLiveGuide = () => {
     const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition;
     if (!Recognition) {
-      setRecorderMessage("Recording is available. Live word guidance works in browsers that support Arabic speech recognition; your recorded attempt will still be reviewed after you stop.");
+      setRecorderMessage(t("recorder.noLiveGuide"));
       return;
     }
     const recognition = new Recognition();
@@ -405,7 +418,7 @@ export default function Home() {
       updateLiveGuide(transcript.trim());
     };
     recognition.onerror = (event) => {
-      if (event.error !== "aborted" && event.error !== "no-speech") setRecorderMessage("Live guidance paused, but the recording will still receive a word-recall review when you stop.");
+      if (event.error !== "aborted" && event.error !== "no-speech") setRecorderMessage(t("recorder.liveGuidePaused"));
     };
     try {
       recognition.start();
@@ -416,7 +429,7 @@ export default function Home() {
   const reviewRecording = async (blob: Blob) => {
     if (!activeVerse) return;
     try {
-      setRecorderMessage("Reviewing the words you recited…");
+      setRecorderMessage(t("recorder.reviewing"));
       const audioBase64 = await blobToBase64(blob);
       const result = await evaluateRecitation.mutateAsync({
         expectedArabic: activeVerse.arabic,
@@ -427,10 +440,10 @@ export default function Home() {
       });
       setFeedback(result as RecitationFeedback);
       setLessonStage("review");
-      setRecorderMessage("Your word-recall review is ready. Replay the reciter, then retry the marked place.");
+      setRecorderMessage(t("recorder.reviewReady"));
       if (coachAudioOn) speakGuidance((result as RecitationFeedback).spokenGuidance);
     } catch (error) {
-      setRecorderMessage(error instanceof Error ? error.message : "The recording could not be reviewed. Please try a shorter clip.");
+      setRecorderMessage(error instanceof Error ? error.message : t("recorder.reviewFailed"));
     }
   };
 
@@ -443,7 +456,7 @@ export default function Home() {
 
   const startRecording = async () => {
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-      setRecorderMessage("This browser cannot record audio. Please use a current browser and allow microphone access.");
+      setRecorderMessage(t("recorder.noRecorder"));
       return;
     }
     try {
@@ -469,10 +482,10 @@ export default function Home() {
       recorder.start();
       setIsRecording(true);
       setLessonStage("repeat");
-      setRecorderMessage("Listening now. Recite the ayah at a calm pace, then press Stop & review.");
+      setRecorderMessage(t("recorder.listening"));
       beginLiveGuide();
     } catch {
-      setRecorderMessage("Microphone access was not granted. Allow it in your browser settings, then try again.");
+      setRecorderMessage(t("recorder.noMicrophone"));
     }
   };
 
@@ -481,7 +494,7 @@ export default function Home() {
     setLiveTranscript("");
     setLiveMatched([]);
     setLessonStage("listen");
-    setRecorderMessage("Start by listening once more, then repeat the ayah in your own voice.");
+    setRecorderMessage(t("recorder.retry"));
     void playReciter(0.8);
   };
 
@@ -498,13 +511,11 @@ export default function Home() {
     setReadingComplete((current) => toggleCompletion(current, step));
   };
 
-  const chapterHeading = view === "learn" ? "Your Quran learning path" : `Surah ${surahLabel}`;
+  const chapterHeading = view === "learn" ? t("learn.heading") : `${t("reader.surahLabel")} ${surahLabel}`;
   const chapterEyebrow = view === "learn"
-    ? "Learn at your level"
-    : `${String(surahNumber).padStart(2, "0")} · ${activeSurah?.translatedName ?? "Loading"}`;
-  const chapterCopy = view === "learn"
-    ? "Start from the alphabet, develop reading confidence, then move into recitation and memorisation practice."
-    : "Read the ayah, hear it from a reciter, repeat it yourself, then return gently to the place that needs practice.";
+    ? t("learn.eyebrow")
+    : `${String(surahNumber).padStart(2, "0")} · ${activeSurah?.translatedName ?? t("reader.loading")}`;
+  const chapterCopy = t(view === "learn" ? "learn.copy" : "reader.chapterCopy");
 
   const readingPercent = ayahs.length && activeVerse ? Math.round(((activeIndex + 1) / ayahs.length) * 100) : 0;
   const contentPending = quranIndex.isPending || surahQuery.isPending;
@@ -518,51 +529,51 @@ export default function Home() {
     <div className="content-state is-error" role="alert">
       <AlertCircle size={20} />
       <p>{contentError.message}</p>
-      <button type="button" onClick={retryContent}><RotateCcw size={15} /> Try again</button>
+      <button type="button" onClick={retryContent}><RotateCcw size={15} /> {t("content.retry")}</button>
     </div>
   ) : (
     <div className="content-state" role="status">
       <span className="content-spinner" aria-hidden="true" />
-      <p>Loading the Quran text and recitation…</p>
+      <p>{t("content.loading")}</p>
     </div>
   );
 
   return (
     <div className="sanctuary-shell">
       <audio ref={audioRef} src={activeVerse?.audioUrl ?? undefined} preload="auto" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={handleAudioEnded} />
-      <aside className="app-rail" aria-label="Primary navigation">
+      <aside className="app-rail" aria-label={t("nav.primaryLabel")}>
         <div className="rail-brand">
           <img src="/manus-storage/quran-open-book-arch-logo_db76dbd9.png" alt="" className="brand-mark" />
           <div><p className="brand-name">Miqra</p><p className="brand-arabic" lang="ar" dir="rtl">مِقْرَأ</p></div>
         </div>
         <nav className="rail-nav">
-          <p className="rail-label">Your place</p>
-          {navigation.map((item) => { const Icon = item.icon; return <button key={item.label} className={`rail-item ${item.active ? "is-active" : ""}`} type="button"><Icon size={17} strokeWidth={1.8} /><span>{item.label}</span></button>; })}
+          <p className="rail-label">{t("nav.sectionLabel")}</p>
+          {navigation.map((item) => { const Icon = item.icon; return <button key={item.key} className={`rail-item ${item.active ? "is-active" : ""}`} type="button"><Icon size={17} strokeWidth={1.8} /><span>{t(item.key)}</span></button>; })}
         </nav>
-        <div className="rail-practice"><div className="practice-orbit" aria-hidden="true"><span>8</span><small>min</small></div><div><p>Today’s practice</p><span>Listen, repeat, return.</span></div></div>
-        <button type="button" className="rail-account"><span className="avatar">S</span><span><strong>Sahil</strong><small>Reading plan</small></span><MoreHorizontal size={18} /></button>
+        <div className="rail-practice"><div className="practice-orbit" aria-hidden="true"><span>8</span><small>{t("nav.minutesShort")}</small></div><div><p>{t("nav.practiceTitle")}</p><span>{t("nav.practiceCopy")}</span></div></div>
+        <button type="button" className="rail-account"><span className="avatar">S</span><span><strong>Sahil</strong><small>{t("app.tagline")}</small></span><MoreHorizontal size={18} /></button>
       </aside>
 
       <main className="reading-desk">
         <header className="desk-header">
           <div className="crumbs">
-            <span className="eyebrow">Quran</span>
+            <span className="eyebrow">{t("reader.eyebrow")}</span>
             <span className="crumb-separator">/</span>
             <label className="quran-picker">
-              <span className="sr-only">Surah</span>
+              <span className="sr-only">{t("reader.surahLabel")}</span>
               <select value={surahNumber} onChange={(event) => selectSurah(Number(event.target.value))} disabled={!surahs.length}>
                 {surahs.length
                   ? surahs.map((surah) => <option key={surah.number} value={surah.number}>{surah.number}. {surah.nameSimple} · {surah.translatedName}</option>)
-                  : <option value={surahNumber}>Loading surahs…</option>}
+                  : <option value={surahNumber}>{t("reader.loadingSurahs")}</option>}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
             <label className="quran-picker">
-              <span className="sr-only">Juz</span>
+              <span className="sr-only">{t("reader.juzLabel")}</span>
               <select value={currentJuz ?? ""} onChange={(event) => selectJuz(Number(event.target.value))} disabled={!juzs.length}>
                 {juzs.length
-                  ? juzs.map((juz) => <option key={juz.number} value={juz.number}>Juz’ {juz.number}</option>)
-                  : <option value="">Loading juz…</option>}
+                  ? juzs.map((juz) => <option key={juz.number} value={juz.number}>{t("reader.juzNumbered", { number: juz.number })}</option>)
+                  : <option value="">{t("reader.loadingJuz")}</option>}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
@@ -570,96 +581,106 @@ export default function Home() {
           <div className="header-tools">
             <label className="quran-picker reciter-picker">
               <Headphones size={15} aria-hidden="true" />
-              <span className="sr-only">Reciter</span>
+              <span className="sr-only">{t("reader.reciterLabel")}</span>
               <select value={activeReciterId ?? ""} onChange={(event) => setReciterId(Number(event.target.value))} disabled={!reciters.length}>
                 {reciters.length
                   ? reciters.map((reciter) => <option key={reciter.id} value={reciter.id}>{reciter.name}{reciter.style ? ` · ${reciter.style}` : ""}</option>)
-                  : <option value="">Loading reciters…</option>}
+                  : <option value="">{t("reader.loadingReciters")}</option>}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
-            <button type="button" className="icon-button" aria-label="Search Quran"><Search size={18} /></button>
-            <button type="button" className="icon-button" aria-label="Reading settings"><Settings2 size={18} /></button>
+            <label className="quran-picker language-picker">
+              <Globe size={15} aria-hidden="true" />
+              <span className="sr-only">{t("language.label")}</span>
+              <select value={locale} onChange={(event) => setLocale(event.target.value)}>
+                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </label>
+            <button type="button" className="icon-button" aria-label={t("reader.searchLabel")}><Search size={18} /></button>
+            <button type="button" className="icon-button" aria-label={t("reader.settingsLabel")}><Settings2 size={18} /></button>
           </div>
         </header>
         <section className="chapter-intro" aria-labelledby="chapter-title"><div><p className="eyebrow">{chapterEyebrow}</p><h1 id="chapter-title">{chapterHeading}</h1><p className="intro-copy">{chapterCopy}</p></div><div className="chapter-arabic" lang="ar" dir="rtl">{view === "learn" ? activeLevel.arabic : "سُورَةُ ٱلْفَاتِحَةِ"}</div></section>
-        <section className="mode-tabs" aria-label="Reading mode">
-          {tabs.map((tab) => { const Icon = tab.icon; const active = view === tab.id; return <button type="button" key={tab.id} className={`mode-tab ${active ? "is-active" : ""}`} aria-pressed={active} onClick={() => setView(tab.id)}><span className="tab-icon"><Icon size={17} /></span><span><strong>{tab.label}</strong><small>{tab.caption}</small></span></button>; })}
+        <section className="mode-tabs" aria-label={t("mode.label")}>
+          {tabs.map((tab) => { const Icon = tab.icon; const active = view === tab.id; return <button type="button" key={tab.id} className={`mode-tab ${active ? "is-active" : ""}`} aria-pressed={active} onClick={() => setView(tab.id)}><span className="tab-icon"><Icon size={17} /></span><span><strong>{t(tab.labelKey)}</strong><small>{t(tab.captionKey)}</small></span></button>; })}
         </section>
 
         <section className={`manuscript-stage stage-${view}`} aria-live="polite">
           <div className="manuscript-light" aria-hidden="true" /><div className="manuscript-frame" />
           {view === "read" && <div className="reader-layout">
-            <div className="manuscript-meta"><span>{surahLabel}</span><span>{activeSurah ? `${activeSurah.versesCount} ayahs · ${activeSurah.revelationPlace === "makkah" ? "Makki" : "Madani"}` : "—"}</span><span>{currentJuz ? `Juz’ ${currentJuz}` : "—"}</span></div>
+            <div className="manuscript-meta"><span>{surahLabel}</span><span>{activeSurah ? `${t("reader.ayahCount", { count: activeSurah.versesCount })} · ${t(activeSurah.revelationPlace === "makkah" ? "reader.makki" : "reader.madani")}` : "—"}</span><span>{currentJuz ? t("reader.juzNumbered", { number: currentJuz }) : "—"}</span></div>
             {contentPending || contentError ? contentFallback : <>
               {activeSurah?.bismillahPre && <div className="basmala" lang="ar" dir="rtl">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>}
-              <div className="quran-flow" dir="rtl" lang="ar" aria-label={`Surah ${surahLabel} verses`}>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={`quran-ayah ${selectedVerse === verse.number ? "is-selected" : ""} ${isPlaying && selectedVerse === verse.number ? "is-playing" : ""}`} onClick={() => selectVerse(verse.number)} aria-pressed={selectedVerse === verse.number}>{verse.arabic} <VerseMedallion number={verse.number} /></button>)}</div>
+              <div className="quran-flow" dir="rtl" lang="ar" aria-label={t("reader.versesLabel", { surah: surahLabel })}>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={`quran-ayah ${selectedVerse === verse.number ? "is-selected" : ""} ${isPlaying && selectedVerse === verse.number ? "is-playing" : ""}`} onClick={() => selectVerse(verse.number)} aria-pressed={selectedVerse === verse.number}>{verse.arabic} <VerseMedallion number={verse.number} /></button>)}</div>
 
               {/* Listening runs forward from the selected ayah: Next hands over to
                   the following one, and with continuous listening on, the end of
                   an ayah does the same without a click. */}
-              <div className="reader-playback" aria-label="Ayah playback">
-                <button type="button" className="playback-step" onClick={() => moveVerse(-1)} disabled={!previousVerse} aria-label="Previous ayah"><ArrowLeft size={16} /></button>
-                <button type="button" className="playback-main" onClick={toggleReaderPlayback} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}{isPlaying ? "Pause" : "Listen"}</button>
-                <button type="button" className="playback-step is-next" onClick={listenToNext} disabled={!nextVerse}>Next <ArrowRight size={16} /></button>
-                <span className="playback-place">Ayah {activeVerse?.number ?? "—"} of {ayahs.length || "—"}</span>
-                <label className="playback-continuous"><input type="checkbox" checked={continuousListening} onChange={(event) => setContinuousListening(event.target.checked)} /> Keep playing</label>
+              <div className="reader-playback" aria-label={t("playback.label")}>
+                <button type="button" className="playback-step" onClick={() => moveVerse(-1)} disabled={!previousVerse} aria-label={t("playback.previous")}><ArrowLeft size={16} /></button>
+                <button type="button" className="playback-main" onClick={toggleReaderPlayback} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}{t(isPlaying ? "playback.pause" : "playback.listen")}</button>
+                <button type="button" className="playback-step is-next" onClick={listenToNext} disabled={!nextVerse}>{t("playback.next")} <ArrowRight size={16} /></button>
+                <span className="playback-place">{t("playback.place", { number: activeVerse?.number ?? "—", total: ayahs.length || "—" })}</span>
+                <label className="playback-continuous"><input type="checkbox" checked={continuousListening} onChange={(event) => setContinuousListening(event.target.checked)} /> {t("playback.keepPlaying")}</label>
               </div>
-              {!activeVerse?.audioUrl && <p className="playback-warning"><AlertCircle size={14} /> {MISSING_AUDIO_MESSAGE}</p>}
+              {!activeVerse?.audioUrl && <p className="playback-warning"><AlertCircle size={14} /> {t("playback.noAudio")}</p>}
             </>}
-            <div className="reader-footer"><span>Tap an ayah, then move to Study to hear and repeat it.</span><button type="button" onClick={() => setShowTranslation((current) => !current)}>{showTranslation ? "Hide meaning" : "Show meaning"}</button></div>
+            <div className="reader-footer"><span>{t("reader.footerHint")}</span><button type="button" onClick={() => setShowTranslation((current) => !current)}>{t(showTranslation ? "reader.hideMeaning" : "reader.showMeaning")}</button></div>
           </div>}
 
           {view === "learn" && <div className="learning-layout">
-            <div className="learning-topline"><div><span className="eyebrow">Choose your pace</span><h2>From first letters to confident recitation.</h2></div><span>{activeLevel.cue}</span></div>
-            <div className="level-picker" role="tablist" aria-label="Learning levels">{learningLevels.map((level) => { const progress = level.id === "starter" ? starterProgress : level.id === "reading" ? readingProgress : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{level.title}</strong><small>{progress ? `${progress}% complete` : level.cue}</small></button>; })}</div>
-            {learningLevel === "starter" && <div className="starter-workspace"><div className="starter-intro"><div><span className="eyebrow">Starter · lesson 1</span><h3>Letters before words.</h3><p>Learn one letter at a time, hear it from a qualified reciter, then practise the sound with a teacher.</p></div><span className="starter-count">{starterPractised.length} / {alphabet.length}<small>practised</small></span></div><div className="alphabet-grid" aria-label="Arabic alphabet">{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${starterPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>Written as {activeLetter.transliteration} · {activeLetter.sound}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => void letterAudio.play(soloAudioSrc)} aria-label={`Play the recitation of ${activeLetter.name} on its own`}><Volume2 size={16} /> Letter</button></div>
+            <div className="learning-topline"><div><span className="eyebrow">{t("learn.paceEyebrow")}</span><h2>{t("learn.paceHeading")}</h2></div><span>{t(activeLevel.cueKey)}</span></div>
+            <div className="level-picker" role="tablist" aria-label={t("learn.levelsLabel")}>{learningLevels.map((level) => { const progress = level.id === "starter" ? starterProgress : level.id === "reading" ? readingProgress : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{t(level.titleKey)}</strong><small>{progress ? t("learn.percentComplete", { percent: progress }) : t(level.cueKey)}</small></button>; })}</div>
+            {learningLevel === "starter" && <div className="starter-workspace"><div className="starter-intro"><div><span className="eyebrow">{t("starter.eyebrow")}</span><h3>{t("starter.heading")}</h3><p>{t("starter.copy")}</p></div><span className="starter-count">{starterPractised.length} / {alphabet.length}<small>{t("starter.practisedCount")}</small></span></div><div className="alphabet-grid" aria-label={t("starter.alphabetLabel")}>{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${starterPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("starter.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => void letterAudio.play(soloAudioSrc)} aria-label={t("starter.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={16} /> {t("starter.playLetter")}</button></div>
 
               {/* One recording per harakat. Nothing here is synthesised: if a
                   reciter's file is not present the control says so rather than
                   approximating the sound with an English voice. */}
-              <div className="harakat-strip">{HARAKAT.map((harakat) => { const src = letterAudioPath(activeLetter.slug, harakat.id); return <button type="button" key={harakat.id} className={`harakat-play ${letterAudio.playingSrc === src ? "is-playing" : ""} ${letterAudio.unavailableSrc === src ? "is-unavailable" : ""}`} onClick={() => void letterAudio.play(src)} aria-label={`Play ${activeLetter.name} with ${harakat.label}`}><span lang="ar" dir="rtl">{activeLetter.letter}{harakat.mark}</span><small>{harakat.label} · {harakat.hint}</small></button>; })}</div>
+              <div className="harakat-strip">{HARAKAT.map((harakat) => { const src = letterAudioPath(activeLetter.slug, harakat.id); return <button type="button" key={harakat.id} className={`harakat-play ${letterAudio.playingSrc === src ? "is-playing" : ""} ${letterAudio.unavailableSrc === src ? "is-unavailable" : ""}`} onClick={() => void letterAudio.play(src)} aria-label={t("starter.playHarakatLabel", { letter: activeLetter.name, harakat: t(harakatLabelKeys[harakat.id].label) })}><span lang="ar" dir="rtl">{activeLetter.letter}{harakat.mark}</span><small>{t(harakatLabelKeys[harakat.id].label)} · {t(harakatLabelKeys[harakat.id].hint)}</small></button>; })}</div>
 
-              <p className="letter-audio-status" role="status">{letterAudio.unavailableSrc ? <><AlertCircle size={13} /> This recording has not been added yet. Recitation audio is recorded by a qualified reciter — the app will not read Arabic with a synthetic English voice.</> : letterAudio.playingSrc ? <><Volume2 size={13} /> Playing the reciter’s recording.</> : <><Headphones size={13} /> Choose the letter alone or with a harakat to hear the reciter.</>}</p>
+              {activeLesson && <div className="letter-lesson-text"><p>{activeLesson.articulation}</p>{activeLesson.tip && <small>{activeLesson.tip}</small>}</div>}
 
-              <div className="letter-actions"><button type="button" className={`quiet-action ${starterPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{starterPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{starterPractised.includes(selectedLetter) ? "Practised" : "Mark practised"}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>Next letter <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">Quick check</span><p>Which letter is <strong lang="ar" dir="rtl">{activeLetter.letter}</strong>?</p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setLetterExerciseResult("correct")}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{letterExerciseResult === "correct" ? "Correct. You can mark this letter as practised when you have said it with your teacher." : "Not yet. Look at the letter shape, then play the reciter’s recording and try again."}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> Single letter sounds are not auto-scored. AI can help you structure practice, but a qualified teacher should confirm articulation and makhraj.</p></div></div>}
-            {learningLevel === "reading" && <div className="path-workspace"><div className="path-copy"><span className="eyebrow">Reading path</span><h3>Build words, then read in flow.</h3><p>Move through vowels, joining forms, and short Quranic words before reading complete ayahs.</p></div><span className="path-progress">{readingComplete.length} / {readingSteps.length} steps</span><div className="path-steps">{readingSteps.map((step) => <button type="button" key={step.id} className={readingComplete.includes(step.id) ? "is-complete" : ""} aria-pressed={readingComplete.includes(step.id)} onClick={() => toggleReadingStep(step.id)}><span>{readingComplete.includes(step.id) ? <Check size={12} /> : step.order}</span><strong>{step.title}</strong><small>{step.summary}</small></button>)}</div><div className="micro-practice vowel-practice"><div><span className="eyebrow">Short vowel check</span><p>How do you read <strong lang="ar" dir="rtl">بِ</strong>?</p></div><div className="answer-options"><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Ba</button><button type="button" className={vowelExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setVowelExerciseResult("correct")}>Bi</button><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Bu</button></div>{vowelExerciseResult && <p className={`exercise-response is-${vowelExerciseResult}`}>{vowelExerciseResult === "correct" ? "Correct. The kasra below the letter gives the short i sound: bi." : "Look below the letter. A kasra gives the short i sound. Try bi."}</p>}</div><button type="button" className="path-cta" onClick={openRecitationPractice}><BookOpen size={17} /> Open first ayah practice <ArrowRight size={17} /></button></div>}
-            {learningLevel === "advanced" && <div className="path-workspace advanced-path"><div className="path-copy"><span className="eyebrow">Advanced path</span><h3>Recitation and hifz, one deliberate return at a time.</h3><p>Listen to a qualified reciter, repeat, review the words your recording captured, and return to your teacher for tajwid correction.</p></div><div className="advanced-principles"><span>Real reciter audio</span><span>AI word-recall review</span><span>Teacher-confirmed tajwid</span></div><button type="button" className="path-cta" onClick={openRecitationPractice}><Mic size={17} /> Begin guided recitation <ArrowRight size={17} /></button></div>}
+              <p className="letter-audio-status" role="status">{letterAudio.unavailableSrc ? <><AlertCircle size={13} /> {t("starter.audioUnavailable")}</> : letterAudio.playingSrc ? <><Volume2 size={13} /> {t("starter.audioPlaying")}</> : <><Headphones size={13} /> {t("starter.audioIdle")}</>}</p>
+
+              <div className="letter-actions"><button type="button" className={`quiet-action ${starterPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{starterPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{t(starterPractised.includes(selectedLetter) ? "starter.practised" : "starter.markPractised")}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>{t("starter.nextLetter")} <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">{t("starter.quickCheck")}</span><p>{t("starter.quickCheckPrompt")} <strong lang="ar" dir="rtl">{activeLetter.letter}</strong></p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setLetterExerciseResult("correct")}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{t(letterExerciseResult === "correct" ? "starter.quickCheckCorrect" : "starter.quickCheckRetry")}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> {t("starter.boundary")}</p></div></div>}
+            {learningLevel === "reading" && <div className="path-workspace"><div className="path-copy"><span className="eyebrow">{t("reading.eyebrow")}</span><h3>{t("reading.heading")}</h3><p>{t("reading.copy")}</p></div><span className="path-progress">{t("reading.stepsProgress", { done: readingComplete.length, total: readingSteps.length })}</span><div className="path-steps">{readingSteps.map((step) => <button type="button" key={step.id} className={readingComplete.includes(step.id) ? "is-complete" : ""} aria-pressed={readingComplete.includes(step.id)} onClick={() => toggleReadingStep(step.id)}><span>{readingComplete.includes(step.id) ? <Check size={12} /> : step.order}</span><strong>{t(step.titleKey)}</strong><small>{t(step.summaryKey)}</small></button>)}</div><div className="micro-practice vowel-practice"><div><span className="eyebrow">{t("reading.vowelCheck")}</span><p>{t("reading.vowelPrompt")} <strong lang="ar" dir="rtl">بِ</strong></p></div><div className="answer-options"><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Ba</button><button type="button" className={vowelExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setVowelExerciseResult("correct")}>Bi</button><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Bu</button></div>{vowelExerciseResult && <p className={`exercise-response is-${vowelExerciseResult}`}>{t(vowelExerciseResult === "correct" ? "reading.vowelCorrect" : "reading.vowelRetry")}</p>}</div><button type="button" className="path-cta" onClick={openRecitationPractice}><BookOpen size={17} /> {t("reading.openFirstAyah")} <ArrowRight size={17} /></button></div>}
+            {learningLevel === "advanced" && <div className="path-workspace advanced-path"><div className="path-copy"><span className="eyebrow">{t("advanced.eyebrow")}</span><h3>{t("advanced.heading")}</h3><p>{t("advanced.copy")}</p></div><div className="advanced-principles"><span>{t("advanced.principleAudio")}</span><span>{t("advanced.principleReview")}</span><span>{t("advanced.principleTeacher")}</span></div><button type="button" className="path-cta" onClick={openRecitationPractice}><Mic size={17} /> {t("advanced.begin")} <ArrowRight size={17} /></button></div>}
           </div>}
 
           {view === "study" && (!activeVerse ? contentFallback : <div className="study-layout">
-            <div className="study-index"><span>Ayah</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>of {String(ayahs.length).padStart(2, "0")}</span></div>
-            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={!activeVerse.audioUrl}><Volume2 size={17} />Listen slowly</button></div>
-            <div className="teacher-loop" aria-label="Recitation lesson">
-              <div className="loop-header"><div><span className="eyebrow">Guided recitation</span><h2>Listen. Repeat. Review.</h2></div><span className="teacher-badge">Teacher loop</span></div>
-              <div className="loop-steps" aria-label={`Current stage: ${lessonStage}`}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> Listen</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> Your turn</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> Review</span></div>
+            <div className="study-index"><span>{t("study.ayah")}</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>{t("study.ayahOf", { total: String(ayahs.length).padStart(2, "0") })}</span></div>
+            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={!activeVerse.audioUrl}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
+            <div className="teacher-loop" aria-label={t("study.lessonLabel")}>
+              <div className="loop-header"><div><span className="eyebrow">{t("study.eyebrow")}</span><h2>{t("study.heading")}</h2></div><span className="teacher-badge">{t("study.badge")}</span></div>
+              <div className="loop-steps" aria-label={t("study.stageLabel", { stage: lessonStage })}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> {t("study.stageListen")}</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> {t("study.stageRepeat")}</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> {t("study.stageReview")}</span></div>
               <div className="loop-actions">
-                <button type="button" className="loop-listen" onClick={() => void playReciter(1)}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{isPlaying ? "Reciter is playing" : "Hear the reciter"}</button>
-                <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? "Stop & review" : evaluateRecitation.isPending ? "Reviewing…" : "I will repeat"}</button>
+                <button type="button" className="loop-listen" onClick={() => void playReciter(1)}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
+                <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
               </div>
               <p className="loop-message" role="status">{recorderMessage}</p>
-              {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{isRecording ? "Live word guide" : "What your browser heard"}</span><small>{liveTranscript ? "device speech recognition" : "waiting for your voice"}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
+              {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
-              {feedback && <div className="feedback-panel"><div className="feedback-summary"><div><span className="eyebrow">{feedback.wordReviewAvailable ? "Word recall review" : "Word review unavailable"}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{feedback.wordReviewAvailable ? "words matched in the transcript" : "the service did not recognise Arabic words"}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">AI audio coach</span><p>Hear the practice cue in English, then use the qualified reciter for Quranic Arabic.</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> Play guidance</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable"><AlertCircle size={16} /><span>The recording is saved, but this response cannot support a reliable word-by-word score. Replay the qualified reciter and retry in a quieter place; use a teacher for pronunciation and tajwid.</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? `Word ${item.wordIndex}` : "Extra"}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? "Not heard" : item.status === "review" ? "Review" : "Extra"}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> Every expected word was recognised in this recording.</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> Read new guidance aloud</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> Listen and try again</button></div>}
+              {feedback && <div className="feedback-panel"><div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable"><AlertCircle size={16} /><span>{t("feedback.reviewUnavailable")}</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("feedback.tryAgain")}</button></div>}
             </div>
             {/* A dot per ayah reads well for short surahs; al-Baqarah's 286 would
                 not, so longer surahs get a counter instead. */}
-            <div className="study-pagination"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={17} /> Previous</button>{ayahs.length <= 20 ? <div>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={selectedVerse === verse.number ? "dot is-current" : "dot"} aria-label={`Choose ayah ${verse.number}`} onClick={() => selectVerse(verse.number)} />)}</div> : <span className="pagination-count">{activeVerse.number} / {ayahs.length}</span>}<button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>Next <ArrowRight size={17} /></button></div>
+            <div className="study-pagination"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={17} /> {t("study.previous")}</button>{ayahs.length <= 20 ? <div>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={selectedVerse === verse.number ? "dot is-current" : "dot"} aria-label={t("study.chooseAyah", { number: verse.number })} onClick={() => selectVerse(verse.number)} />)}</div> : <span className="pagination-count">{activeVerse.number} / {ayahs.length}</span>}<button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("study.next")} <ArrowRight size={17} /></button></div>
           </div>)}
 
-          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">Recall gently</span><span>Ayah {activeVerse.number} of {ayahs.length}</span></div><p className="memory-prompt">Read aloud, then let the teacher loop help you check your place.</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">The ayah is covered</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : "Meaning hidden for a focused recall."}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{covered ? "Reveal ayah" : "Cover ayah"}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> Toggle meaning</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> Practise aloud</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={`Practise ayah ${verse.number}`}><span>{verse.number}</span></button>)}</div></div>)}
+          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">{t("memorise.eyebrow")}</span><span>{t("memorise.place", { number: activeVerse.number, total: ayahs.length })}</span></div><p className="memory-prompt">{t("memorise.prompt")}</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">{t("memorise.covered")}</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : t("memorise.meaningHidden")}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{t(covered ? "memorise.reveal" : "memorise.cover")}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> {t("memorise.toggleMeaning")}</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> {t("memorise.practise")}</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={t("memorise.practiseAyah", { number: verse.number })}><span>{verse.number}</span></button>)}</div></div>)}
         </section>
-        <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> Previous ayah</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>Next ayah <ArrowRight size={16} /></button></div>
+        <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> {t("reader.previousAyah")}</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("reader.nextAyah")} <ArrowRight size={16} /></button></div>
       </main>
 
-      <aside className="study-panel" aria-label="Selected ayah details">
-        <div className="panel-topbar"><p className="eyebrow">Keep your place</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={() => setSaved((current) => !current)} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {saved ? "Saved" : "Save"}</button></div>
+      <aside className="study-panel" aria-label={t("panel.label")}>
+        <div className="panel-topbar"><p className="eyebrow">{t("panel.keepPlace")}</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={() => setSaved((current) => !current)} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {t(saved ? "panel.saved" : "panel.save")}</button></div>
         {activeVerse && <div className="selected-ayah"><div className="ayah-reference"><span>{surahLabel}</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <>{activeVerse.transliteration && <p className="panel-transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="panel-translation">{activeVerse.translation}</p>}</>}</div>}
-        <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{isPlaying ? "Reciter audio playing" : "Listen & repeat"}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{reciters.find((reciter) => reciter.id === activeReciterId)?.name ?? "Reciter"}</span><span>Ayah {activeVerse?.number ?? "—"}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {isPlaying ? "Playing reciter" : "Listen to selected"}</button><p className="audio-note"><Headphones size={14} /> Real reciter audio at full device volume. Use headphones for focused practice.</p></div>
-        <div className="practice-note"><img src="/manus-storage/quran-study-lantern-illustration_3d7eaf67.png" alt="" /><div><span className="eyebrow">Today’s sequence</span><p>Hear the ayah once, repeat it in your own voice, then return calmly to the one place that needs practice.</p></div></div>
-        <div className="completion-card"><div><span className="eyebrow">This reading</span><strong>{readingPercent}%</strong></div><div className="completion-track"><span style={{ width: `${readingPercent}%` }} /></div><p>One attentive repetition is useful progress.</p></div>
+        <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{t(isPlaying ? "panel.audioPlaying" : "panel.listenRepeat")}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{reciters.find((reciter) => reciter.id === activeReciterId)?.name ?? t("panel.reciterFallback")}</span><span>{t("panel.ayahNumber", { number: activeVerse?.number ?? "—" })}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {t(isPlaying ? "panel.playingReciter" : "panel.listenSelected")}</button><p className="audio-note"><Headphones size={14} /> {t("panel.audioNote")}</p></div>
+        <div className="practice-note"><img src="/manus-storage/quran-study-lantern-illustration_3d7eaf67.png" alt="" /><div><span className="eyebrow">{t("panel.sequenceEyebrow")}</span><p>{t("panel.sequenceCopy")}</p></div></div>
+        <div className="completion-card"><div><span className="eyebrow">{t("panel.thisReading")}</span><strong>{readingPercent}%</strong></div><div className="completion-track"><span style={{ width: `${readingPercent}%` }} /></div><p>{t("panel.progressNote")}</p></div>
       </aside>
-      <div className="mobile-dock" aria-label="Mobile reading actions"><button type="button" onClick={() => setView("read")} className={view === "read" ? "is-active" : ""}><BookOpen size={18} /><span>Read</span></button><button type="button" onClick={() => setView("study")} className="dock-listen"><Mic size={19} /><span>Practise</span></button><button type="button" onClick={() => setView("memorise")} className={view === "memorise" ? "is-active" : ""}><Sparkles size={18} /><span>Recall</span></button></div>
+      <div className="mobile-dock" aria-label={t("dock.label")}><button type="button" onClick={() => setView("read")} className={view === "read" ? "is-active" : ""}><BookOpen size={18} /><span>{t("dock.read")}</span></button><button type="button" onClick={() => setView("study")} className="dock-listen"><Mic size={19} /><span>{t("dock.practise")}</span></button><button type="button" onClick={() => setView("memorise")} className={view === "memorise" ? "is-active" : ""}><Sparkles size={18} /><span>{t("dock.recall")}</span></button></div>
     </div>
   );
 }

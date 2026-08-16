@@ -9,6 +9,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(templateRoot, "client", "src"),
       "@shared": path.resolve(templateRoot, "shared"),
+      "@locales": path.resolve(templateRoot, "locales"),
       "@assets": path.resolve(templateRoot, "attached_assets"),
     },
   },
@@ -19,6 +20,7 @@ export default defineConfig({
       "server/**/*.spec.ts",
       "client/src/**/*.test.ts",
       "client/src/**/*.spec.ts",
+      "locales/**/*.test.ts",
     ],
   },
 });
