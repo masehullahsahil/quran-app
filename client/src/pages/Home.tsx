@@ -29,6 +29,8 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { markIndexComplete, progressPercent, toggleCompletion, type ReadingStepId } from "@/lib/learningProgress";
+import { ARABIC_LETTERS, HARAKAT, letterAudioPath } from "@/lib/arabicLetters";
+import { useLetterAudio } from "@/hooks/useLetterAudio";
 import type { Ayah } from "@shared/quran";
 
 type View = "read" | "learn" | "study" | "memorise";
@@ -90,15 +92,7 @@ const learningLevels: Array<{ id: LearningLevel; order: string; title: string; a
   { id: "advanced", order: "03", title: "Advanced", arabic: "التلاوة", summary: "Practise listening, recall, and guided recitation with care.", cue: "Recitation & hifz" },
 ];
 
-const alphabet = [
-  { letter: "ا", name: "Alif", sound: "a" }, { letter: "ب", name: "Baa", sound: "b" }, { letter: "ت", name: "Taa", sound: "t" }, { letter: "ث", name: "Thaa", sound: "th" },
-  { letter: "ج", name: "Jeem", sound: "j" }, { letter: "ح", name: "Haa", sound: "ḥ" }, { letter: "خ", name: "Khaa", sound: "kh" }, { letter: "د", name: "Daal", sound: "d" },
-  { letter: "ذ", name: "Dhaal", sound: "dh" }, { letter: "ر", name: "Raa", sound: "r" }, { letter: "ز", name: "Zaay", sound: "z" }, { letter: "س", name: "Seen", sound: "s" },
-  { letter: "ش", name: "Sheen", sound: "sh" }, { letter: "ص", name: "Saad", sound: "ṣ" }, { letter: "ض", name: "Daad", sound: "ḍ" }, { letter: "ط", name: "Taa", sound: "ṭ" },
-  { letter: "ظ", name: "Zaa", sound: "ẓ" }, { letter: "ع", name: "Ayn", sound: "ʿ" }, { letter: "غ", name: "Ghayn", sound: "gh" }, { letter: "ف", name: "Faa", sound: "f" },
-  { letter: "ق", name: "Qaaf", sound: "q" }, { letter: "ك", name: "Kaaf", sound: "k" }, { letter: "ل", name: "Laam", sound: "l" }, { letter: "م", name: "Meem", sound: "m" },
-  { letter: "ن", name: "Noon", sound: "n" }, { letter: "ه", name: "Haa", sound: "h" }, { letter: "و", name: "Waaw", sound: "w" }, { letter: "ي", name: "Yaa", sound: "y" },
-];
+const alphabet = ARABIC_LETTERS;
 
 const readingSteps: Array<{ id: ReadingStepId; order: string; title: string; summary: string }> = [
   { id: "vowels", order: "01", title: "Short vowels", summary: "Recognise fatha, kasra, and damma with familiar letters." },
@@ -130,6 +124,14 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * Speaks English coaching text — practice cues from the recitation review.
+ *
+ * Never pass Arabic letters, harakat, or Quranic text to this. An English voice
+ * has no phoneme for ح ع ص ض ط ظ ق غ and renders them as unrelated English
+ * sounds ("Taa" comes out as "Te AA"). Arabic is played from a reciter's
+ * recording (see useLetterAudio) or not at all.
+ */
 function speakGuidance(text: string) {
   if (!("speechSynthesis" in window)) return false;
   window.speechSynthesis.cancel();
@@ -195,6 +197,7 @@ export default function Home() {
   // the src swap that a verse change causes.
   const resumeOnVerseChangeRef = useRef(false);
 
+  const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
 
   // The Quran's text does not change, so both queries are cached indefinitely
@@ -235,6 +238,7 @@ export default function Home() {
   const expectedWords = useMemo(() => (activeVerse?.arabic ?? "").split(/\s+/).filter(Boolean), [activeVerse]);
   const activeLevel = useMemo(() => learningLevels.find((level) => level.id === learningLevel) ?? learningLevels[0], [learningLevel]);
   const activeLetter = alphabet[selectedLetter] ?? alphabet[0];
+  const soloAudioSrc = letterAudioPath(activeLetter.slug);
   const starterProgress = progressPercent(starterPractised.length, alphabet.length);
   const readingProgress = progressPercent(readingComplete.length, readingSteps.length);
 
@@ -273,7 +277,8 @@ export default function Home() {
 
   useEffect(() => {
     setLetterExerciseResult(null);
-  }, [selectedLetter]);
+    letterAudio.stop();
+  }, [selectedLetter, letterAudio.stop]);
 
   const selectVerse = (number: number) => {
     setSelectedVerse(number);
@@ -608,8 +613,17 @@ export default function Home() {
           {view === "learn" && <div className="learning-layout">
             <div className="learning-topline"><div><span className="eyebrow">Choose your pace</span><h2>From first letters to confident recitation.</h2></div><span>{activeLevel.cue}</span></div>
             <div className="level-picker" role="tablist" aria-label="Learning levels">{learningLevels.map((level) => { const progress = level.id === "starter" ? starterProgress : level.id === "reading" ? readingProgress : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{level.title}</strong><small>{progress ? `${progress}% complete` : level.cue}</small></button>; })}</div>
-            {learningLevel === "starter" && <div className="starter-workspace"><div className="starter-intro"><div><span className="eyebrow">Starter · lesson 1</span><h3>Letters before words.</h3><p>Learn one letter at a time, hear a short lesson in English, then practise the sound with a qualified teacher.</p></div><span className="starter-count">{starterPractised.length} / {alphabet.length}<small>practised</small></span></div><div className="alphabet-grid" aria-label="Arabic alphabet">{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${starterPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>Sound guide: {activeLetter.sound}</small></div></div><div className="harakat-strip" lang="ar" dir="rtl"><span>{activeLetter.letter}َ</span><span>{activeLetter.letter}ِ</span><span>{activeLetter.letter}ُ</span></div><div className="letter-actions"><button type="button" className="quiet-action" onClick={() => speakGuidance(`This is ${activeLetter.name}. The sound guide is ${activeLetter.sound}. Practise slowly with a qualified teacher before moving on.`)}><Volume2 size={16} /> Hear lesson guidance</button><button type="button" className={`quiet-action ${starterPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{starterPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{starterPractised.includes(selectedLetter) ? "Practised" : "Mark practised"}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>Next letter <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">Quick check</span><p>Which letter is <strong lang="ar" dir="rtl">{activeLetter.letter}</strong>?</p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => { setLetterExerciseResult("correct"); speakGuidance(`Yes. This is ${activeLetter.name}.`); }}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{letterExerciseResult === "correct" ? "Correct. You can mark this letter as practised when you have said it with your teacher." : "Not yet. Look at the letter shape, then listen to the lesson guidance and try again."}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> Single letter sounds are not auto-scored. AI can help you structure practice, but a qualified teacher should confirm articulation and makhraj.</p></div></div>}
-            {learningLevel === "reading" && <div className="path-workspace"><div className="path-copy"><span className="eyebrow">Reading path</span><h3>Build words, then read in flow.</h3><p>Move through vowels, joining forms, and short Quranic words before reading complete ayahs.</p></div><span className="path-progress">{readingComplete.length} / {readingSteps.length} steps</span><div className="path-steps">{readingSteps.map((step) => <button type="button" key={step.id} className={readingComplete.includes(step.id) ? "is-complete" : ""} aria-pressed={readingComplete.includes(step.id)} onClick={() => toggleReadingStep(step.id)}><span>{readingComplete.includes(step.id) ? <Check size={12} /> : step.order}</span><strong>{step.title}</strong><small>{step.summary}</small></button>)}</div><div className="micro-practice vowel-practice"><div><span className="eyebrow">Short vowel check</span><p>How do you read <strong lang="ar" dir="rtl">بِ</strong>?</p></div><div className="answer-options"><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Ba</button><button type="button" className={vowelExerciseResult === "correct" ? "is-correct" : ""} onClick={() => { setVowelExerciseResult("correct"); speakGuidance("Correct. Ba with kasra is read as bi."); }}>Bi</button><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Bu</button></div>{vowelExerciseResult && <p className={`exercise-response is-${vowelExerciseResult}`}>{vowelExerciseResult === "correct" ? "Correct. The kasra below the letter gives the short i sound: bi." : "Look below the letter. A kasra gives the short i sound. Try bi."}</p>}</div><button type="button" className="path-cta" onClick={openRecitationPractice}><BookOpen size={17} /> Open first ayah practice <ArrowRight size={17} /></button></div>}
+            {learningLevel === "starter" && <div className="starter-workspace"><div className="starter-intro"><div><span className="eyebrow">Starter · lesson 1</span><h3>Letters before words.</h3><p>Learn one letter at a time, hear it from a qualified reciter, then practise the sound with a teacher.</p></div><span className="starter-count">{starterPractised.length} / {alphabet.length}<small>practised</small></span></div><div className="alphabet-grid" aria-label="Arabic alphabet">{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${starterPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>Written as {activeLetter.transliteration} · {activeLetter.sound}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => void letterAudio.play(soloAudioSrc)} aria-label={`Play the recitation of ${activeLetter.name} on its own`}><Volume2 size={16} /> Letter</button></div>
+
+              {/* One recording per harakat. Nothing here is synthesised: if a
+                  reciter's file is not present the control says so rather than
+                  approximating the sound with an English voice. */}
+              <div className="harakat-strip">{HARAKAT.map((harakat) => { const src = letterAudioPath(activeLetter.slug, harakat.id); return <button type="button" key={harakat.id} className={`harakat-play ${letterAudio.playingSrc === src ? "is-playing" : ""} ${letterAudio.unavailableSrc === src ? "is-unavailable" : ""}`} onClick={() => void letterAudio.play(src)} aria-label={`Play ${activeLetter.name} with ${harakat.label}`}><span lang="ar" dir="rtl">{activeLetter.letter}{harakat.mark}</span><small>{harakat.label} · {harakat.hint}</small></button>; })}</div>
+
+              <p className="letter-audio-status" role="status">{letterAudio.unavailableSrc ? <><AlertCircle size={13} /> This recording has not been added yet. Recitation audio is recorded by a qualified reciter — the app will not read Arabic with a synthetic English voice.</> : letterAudio.playingSrc ? <><Volume2 size={13} /> Playing the reciter’s recording.</> : <><Headphones size={13} /> Choose the letter alone or with a harakat to hear the reciter.</>}</p>
+
+              <div className="letter-actions"><button type="button" className={`quiet-action ${starterPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{starterPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{starterPractised.includes(selectedLetter) ? "Practised" : "Mark practised"}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>Next letter <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">Quick check</span><p>Which letter is <strong lang="ar" dir="rtl">{activeLetter.letter}</strong>?</p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setLetterExerciseResult("correct")}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{letterExerciseResult === "correct" ? "Correct. You can mark this letter as practised when you have said it with your teacher." : "Not yet. Look at the letter shape, then play the reciter’s recording and try again."}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> Single letter sounds are not auto-scored. AI can help you structure practice, but a qualified teacher should confirm articulation and makhraj.</p></div></div>}
+            {learningLevel === "reading" && <div className="path-workspace"><div className="path-copy"><span className="eyebrow">Reading path</span><h3>Build words, then read in flow.</h3><p>Move through vowels, joining forms, and short Quranic words before reading complete ayahs.</p></div><span className="path-progress">{readingComplete.length} / {readingSteps.length} steps</span><div className="path-steps">{readingSteps.map((step) => <button type="button" key={step.id} className={readingComplete.includes(step.id) ? "is-complete" : ""} aria-pressed={readingComplete.includes(step.id)} onClick={() => toggleReadingStep(step.id)}><span>{readingComplete.includes(step.id) ? <Check size={12} /> : step.order}</span><strong>{step.title}</strong><small>{step.summary}</small></button>)}</div><div className="micro-practice vowel-practice"><div><span className="eyebrow">Short vowel check</span><p>How do you read <strong lang="ar" dir="rtl">بِ</strong>?</p></div><div className="answer-options"><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Ba</button><button type="button" className={vowelExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setVowelExerciseResult("correct")}>Bi</button><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Bu</button></div>{vowelExerciseResult && <p className={`exercise-response is-${vowelExerciseResult}`}>{vowelExerciseResult === "correct" ? "Correct. The kasra below the letter gives the short i sound: bi." : "Look below the letter. A kasra gives the short i sound. Try bi."}</p>}</div><button type="button" className="path-cta" onClick={openRecitationPractice}><BookOpen size={17} /> Open first ayah practice <ArrowRight size={17} /></button></div>}
             {learningLevel === "advanced" && <div className="path-workspace advanced-path"><div className="path-copy"><span className="eyebrow">Advanced path</span><h3>Recitation and hifz, one deliberate return at a time.</h3><p>Listen to a qualified reciter, repeat, review the words your recording captured, and return to your teacher for tajwid correction.</p></div><div className="advanced-principles"><span>Real reciter audio</span><span>AI word-recall review</span><span>Teacher-confirmed tajwid</span></div><button type="button" className="path-cta" onClick={openRecitationPractice}><Mic size={17} /> Begin guided recitation <ArrowRight size={17} /></button></div>}
           </div>}
 

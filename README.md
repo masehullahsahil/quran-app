@@ -233,13 +233,62 @@ The Arabic text is the point of the app, so it is the last thing to be given up:
 
 ---
 
+## Letter recitation audio (Learn · Starter)
+
+The Starter level plays each Arabic letter — alone and carrying fatha, kasra, or
+damma — from recordings by a qualified reciter.
+
+**It does not use speech synthesis, and must not.** An English voice has no
+phoneme for ح ع ص ض ط ظ ق غ, so it does not approximate those letters, it says a
+different sound ("Taa" came out as "Te AA"). English explanations of
+articulation are still spoken; Arabic never is.
+
+The playback path is in place and the recordings are not yet — until a file
+exists the control says the recording is unavailable, which is the intended
+behaviour rather than a bug.
+
+### Adding recordings
+
+Drop `.mp3` files into `client/public/audio/letters/`. No code change is needed.
+
+```
+{slug}.mp3          alif.mp3          the letter alone
+{slug}-fatha.mp3    alif-fatha.mp3    with fatha  َ
+{slug}-kasra.mp3    alif-kasra.mp3    with kasra  ِ
+{slug}-damma.mp3    alif-damma.mp3    with damma  ُ
+```
+
+28 letters × 4 = 112 files. Slugs are an explicit field in
+`client/src/lib/arabicLetters.ts` rather than derived from the display name,
+because the names collide: ت and ط are both written "Taa", ح and ه both "Haa".
+
+| Where | What |
+| ----- | ---- |
+| `docs/letter-recordings.md` | The checklist to hand to the reciter — all 112 files, with recording guidance. |
+| `client/public/audio/letters/README.md` | The naming convention, next to where the files go. |
+| `client/src/lib/arabicLetters.ts` | The letter table and path helpers — the source of truth. |
+| `client/src/hooks/useLetterAudio.ts` | Playback, and the missing-recording state. |
+
+`docs/letter-recordings.md` is generated. After changing the letter table, run:
+
+```bash
+node scripts/generate-letter-recording-list.mjs
+```
+
+A test fails if the committed list and the paths the app requests disagree, so
+the reciter is never handed a filename the app will not look for.
+
+---
+
 ## Project layout
 
 ```
 client/          React app (Vite root)
   src/pages/       Route components
   src/components/  UI components, incl. shadcn/ui primitives
-  src/lib/         Client helpers
+  src/hooks/       Client hooks, incl. letter audio playback
+  src/lib/         Client helpers, incl. the Arabic letter table
+  public/audio/    Reciter recordings served as static assets
 server/          Express + tRPC backend
   _core/           Server bootstrap, OAuth, storage, AI integrations
   routers.ts       tRPC router definitions
@@ -249,7 +298,7 @@ server/          Express + tRPC backend
   db.ts            Drizzle queries
 shared/          Types and constants shared across client and server
 drizzle/         Schema and migrations
-scripts/         Manual smoke tests
+scripts/         Manual smoke tests and generators
 ```
 
 Path aliases: `@/` → `client/src/`, `@shared/` → `shared/`.
