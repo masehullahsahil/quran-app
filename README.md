@@ -17,6 +17,11 @@ TanStack Query · Express 4 · Drizzle ORM (MySQL) · Vitest
 | **pnpm**    | 10.4.1  | Pinned via `packageManager` in `package.json`.               |
 | **MySQL**   | 8+      | Optional for local dev — see [Database](#database-optional). |
 
+Windows, macOS, and Linux are all supported. The scripts that need an
+environment variable set them through [`cross-env`](https://www.npmjs.com/package/cross-env),
+so `pnpm dev` and `pnpm start` work the same in PowerShell, cmd, and POSIX
+shells — no WSL or Git Bash required.
+
 The repo pins pnpm, so the easiest path is to let Corepack manage it:
 
 ```bash
@@ -135,6 +140,12 @@ bound to.
 | `pnpm test`    | Runs the Vitest suite once.                                                   |
 | `pnpm format`  | Formats the repo with Prettier.                                               |
 | `pnpm db:push` | Generates and applies Drizzle migrations.                                     |
+
+`dev` and `start` prefix their command with `cross-env` to set `NODE_ENV`
+(`development` and `production` respectively). Keep that prefix when editing
+them — a bare `NODE_ENV=... <command>` is POSIX shell syntax and fails in
+PowerShell and cmd. Any new script that needs an inline environment variable
+should use `cross-env` too.
 
 There are also two manual smoke tests in `scripts/`, run with `node`. They hit
 live services rather than mocks, so they are deliberately outside `pnpm test`:
