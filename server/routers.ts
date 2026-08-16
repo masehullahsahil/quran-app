@@ -5,7 +5,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
-import { MAX_AUDIO_BYTES, transcribeAudio } from "./_core/voiceTranscription";
+import { transcribeAudio } from "./_core/voiceTranscription";
+import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import { isStorageConfigured, storagePut } from "./storage";
@@ -18,7 +19,7 @@ const MAX_AYAH_CHARS = 4000;
 
 const recitationInput = z.object({
   expectedArabic: z.string().min(1).max(MAX_AYAH_CHARS),
-  audioBase64: z.string().min(20).max(22_500_000),
+  audioBase64: z.string().min(20).max(MAX_AUDIO_BASE64_LENGTH),
   mimeType: z.enum(["audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4"]),
   surah: z.number().int().min(1).max(114),
   ayah: z.number().int().min(1).max(286),
@@ -144,8 +145,17 @@ export const appRouter = router({
         ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
         : input.audioBase64;
       const audioBuffer = Buffer.from(rawBase64, "base64");
-      if (!audioBuffer.length || audioBuffer.length > MAX_AUDIO_BYTES) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "Please submit an audio clip below 16 MB." });
+      if (!audioBuffer.length) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The recording was empty. Please record again." });
+      }
+      // The recorder enforces this before uploading, so reaching it here means a
+      // client that skipped the check. Serverless platforms reject an oversized
+      // body before the function runs, so this is a backstop, not the guard.
+      if (audioBuffer.length > MAX_AUDIO_BYTES) {
+        throw new TRPCError({
+          code: "PAYLOAD_TOO_LARGE",
+          message: `That recording is ${formatMegabytes(audioBuffer.length)} MB. Please record a clip under ${formatMegabytes(MAX_AUDIO_BYTES)} MB — one ayah at a calm pace is well within it.`,
+        });
       }
 
       // Archiving the attempt is a side effect, not a prerequisite: storage

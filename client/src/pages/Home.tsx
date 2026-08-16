@@ -36,6 +36,7 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { SurahPicker } from "@/components/SurahPicker";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
+import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
 
 type View = "read" | "learn" | "study" | "memorise";
 type LessonStage = "listen" | "repeat" | "review";
@@ -466,6 +467,18 @@ export default function Home() {
 
   const reviewRecording = async (blob: Blob) => {
     if (!activeVerse) return;
+    // Checked before encoding: base64 inflates the payload by a third, and a
+    // serverless host rejects an oversized body before our code can explain
+    // why. Failing here means the learner gets a sentence instead of a dead
+    // request.
+    if (isRecordingTooLarge(blob.size)) {
+      setRecorderMessage(t("recorder.tooLarge", {
+        size: formatMegabytes(blob.size),
+        limit: formatMegabytes(MAX_AUDIO_BYTES),
+      }));
+      setLessonStage("listen");
+      return;
+    }
     try {
       setRecorderMessage(t("recorder.reviewing"));
       const audioBase64 = await blobToBase64(blob);
