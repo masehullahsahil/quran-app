@@ -32,6 +32,19 @@ export type Reciter = {
   style: string | null;
 };
 
+/** One translation resource advertised by the API, e.g. a Pashto translation. */
+export type Translation = {
+  id: number;
+  /** Display name of the translation itself. */
+  name: string;
+  /** Translator, used as the option label within a language group. */
+  authorName: string;
+  /** Language this translation is written in, title-cased for grouping. */
+  languageName: string;
+  /** ISO code when the API supplies one, for matching against a locale pack. */
+  languageCode: string | null;
+};
+
 export type Ayah = {
   number: number;
   /** "2:255" — the canonical Quran.com identifier for the ayah. */
@@ -46,6 +59,8 @@ export type Ayah = {
 export type SurahContent = {
   surah: SurahSummary;
   reciterId: number;
+  /** The translation the ayah text below was fetched with. */
+  translationId: number;
   ayahs: Ayah[];
 };
 
@@ -53,4 +68,10 @@ export type QuranIndex = {
   surahs: SurahSummary[];
   juzs: JuzSummary[];
   reciters: Reciter[];
+  /**
+   * Every translation the API offers, straight from it rather than a curated
+   * list — a language added upstream shows up with no code change. Empty when
+   * the metadata call failed; the reader still gets its default translation.
+   */
+  translations: Translation[];
 };

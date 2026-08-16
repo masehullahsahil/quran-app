@@ -38,6 +38,7 @@ export const LOCALES: Record<LocaleCode, LocaleEntry> = {
       englishName: "Urdu",
       direction: "rtl",
       instructionAudioDir: "/audio/instruction/ur",
+      preferredTranslationLanguage: "urdu",
     },
     load: async () => (await import("./ur")).default as LocalePack<TranslatableStrings>,
   },

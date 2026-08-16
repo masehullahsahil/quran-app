@@ -6,7 +6,7 @@ import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { MAX_AUDIO_BYTES, transcribeAudio } from "./_core/voiceTranscription";
-import { DEFAULT_RECITER_ID, getQuranIndex, getSurahContent } from "./quranApi";
+import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import { isStorageConfigured, storagePut } from "./storage";
 
@@ -104,8 +104,9 @@ export const appRouter = router({
   }),
 
   quran: router({
-    // One call covers every navigation control: 114 surahs, 30 juz, and the
-    // reciter list. All three are cached upstream of this procedure.
+    // One call covers every navigation control: 114 surahs, 30 juz, the reciter
+    // list, and every translation the API offers. All are cached upstream of
+    // this procedure.
     index: publicProcedure.query(async () => {
       try {
         return await getQuranIndex();
@@ -122,10 +123,11 @@ export const appRouter = router({
       .input(z.object({
         surah: z.number().int().min(1).max(114),
         reciterId: z.number().int().positive().default(DEFAULT_RECITER_ID),
+        translationId: z.number().int().positive().default(DEFAULT_TRANSLATION_ID),
       }))
       .query(async ({ input }) => {
         try {
-          return await getSurahContent(input.surah, input.reciterId);
+          return await getSurahContent(input.surah, input.reciterId, input.translationId);
         } catch (error) {
           throw new TRPCError({
             code: "BAD_GATEWAY",

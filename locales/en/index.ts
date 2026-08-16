@@ -20,6 +20,7 @@ export const manifest: LocaleManifest = {
   englishName: "English",
   direction: "ltr",
   instructionAudioDir: "/audio/instruction/en",
+  preferredTranslationLanguage: "english",
 };
 
 export const strings = {
@@ -44,6 +45,11 @@ export const strings = {
   "reader.juzLabel": "Juz",
   "reader.juzNumbered": "Juz’ {number}",
   "reader.reciterLabel": "Reciter",
+  "reader.translationLabel": "Translation",
+  "reader.loadingTranslations": "Loading translations…",
+  "reader.surahSearch": "Search surahs…",
+  "reader.surahNoMatch": "No surah matches that.",
+  "reader.translationUnavailable": "Translations could not be listed. Showing the default English translation.",
   "reader.searchLabel": "Search Quran",
   "reader.settingsLabel": "Reading settings",
   "reader.loadingSurahs": "Loading surahs…",

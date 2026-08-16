@@ -28,6 +28,7 @@ export const manifest: LocaleManifest = {
   // Spoken instruction audio in Urdu goes here. The shared Arabic letter
   // recordings stay at /audio/letters/ and are not duplicated per language.
   instructionAudioDir: "/audio/instruction/ur",
+  preferredTranslationLanguage: "urdu",
 };
 
 export const strings: TranslatableStrings = {

@@ -62,7 +62,12 @@ dynamic `import()`, so languages cost nothing until selected.
    ready to paste in. It reads the English pack, so it can never list a key the
    app does not use.
 
-4. Set `direction: "rtl"` if the language is written right to left. The provider
+4. Optionally set `preferredTranslationLanguage` to the Quran.com language name
+   (`"urdu"`, `"pashto"`, …). It sorts that language's translations to the top of
+   the translation picker for readers on this pack. It is a preference only —
+   every translation the API offers stays selectable, and a language the API
+   does not carry simply falls back to English being listed first.
+5. Set `direction: "rtl"` if the language is written right to left. The provider
    applies it to `<html dir>`; Quranic Arabic sets its own direction regardless,
    so it is unaffected.
 

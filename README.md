@@ -190,10 +190,10 @@ api.quran.com/api/v4
 
 Two procedures serve the reader:
 
-| Procedure      | Returns                                                              |
-| -------------- | -------------------------------------------------------------------- |
-| `quran.index`  | All 114 surahs, the 30 juz, and the reciter list — one call on load. |
-| `quran.surah`  | One surah's ayahs: Arabic, translation, transliteration, audio URL.  |
+| Procedure      | Returns                                                                          |
+| -------------- | --------------------------------------------------------------------------------- |
+| `quran.index`  | All 114 surahs, the 30 juz, the reciter list, and every translation the API offers. |
+| `quran.surah`  | One surah's ayahs: Arabic, translation, transliteration, audio URL.               |
 
 ### Caching
 
@@ -204,13 +204,30 @@ Every upstream response passes through the TTL cache in `server/quranCache.ts`:
 - **Single-flight.** Al-Baqarah is six upstream pages (the API caps `per_page`
   at 50). Concurrent readers opening it share one fetch chain instead of
   starting one each.
-- **Text and audio are cached separately,** keyed by surah and by
-  surah + reciter. Switching reciter refetches audio only; the text is reused.
+- **Text and audio are cached separately,** keyed by surah + translation and by
+  surah + reciter. Switching reciter refetches audio only; switching translation
+  refetches text only. The Arabic is identical either way, but the text beneath
+  it is not, so the two cannot share an entry.
 - **Failures are not cached,** so a transient upstream error is retried by the
   next reader rather than pinned for the day.
 
 On the client both queries are held with `staleTime: Infinity`, so paging back
 to a surah already read in the session costs no request at all.
+
+### Translations
+
+The translation picker is built from `/resources/translations` rather than a
+list in the code, so a language Quran.com adds appears on its own — nothing here
+names English, Urdu, Pashto, or Dari. Options are grouped by language, and the
+instruction pack's `preferredTranslationLanguage` only sorts its own language to
+the top; it never filters what is on offer.
+
+The Latin transliteration is excluded from the choices: it is shown alongside
+whatever translation is selected rather than being one of them.
+
+Surah names come from the same `/chapters` response the picker already used —
+`name_arabic` is rendered in Amiri with the transliteration beneath it, in both
+the picker and the current-surah heading.
 
 ### Reciters
 
@@ -228,6 +245,8 @@ The Arabic text is the point of the app, so it is the last thing to be given up:
   to try another reciter.
 - Translation or transliteration missing → that line is hidden, nothing else
   changes.
+- Translation list unavailable → the picker is empty and the reader falls back
+  to the default English translation; the Quran still loads.
 - Quran.com unreachable → the reading area shows the reason and a retry
   control rather than an empty page.
 
