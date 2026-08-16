@@ -33,8 +33,9 @@ import { markIndexComplete, progressPercent, toggleCompletion, type ReadingStepI
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
 import { useLocale } from "@/contexts/LocaleContext";
+import { SurahPicker } from "@/components/SurahPicker";
 import type { StringKey } from "@locales/index";
-import type { Ayah } from "@shared/quran";
+import type { Ayah, Translation } from "@shared/quran";
 
 type View = "read" | "learn" | "study" | "memorise";
 type LessonStage = "listen" | "repeat" | "review";
@@ -174,6 +175,7 @@ export default function Home() {
   const [view, setView] = useState<View>("read");
   const [surahNumber, setSurahNumber] = useState(1);
   const [reciterId, setReciterId] = useState<number | null>(null);
+  const [translationId, setTranslationId] = useState<number | null>(null);
   const [selectedVerse, setSelectedVerse] = useState(1);
   const [continuousListening, setContinuousListening] = useState(true);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -206,7 +208,7 @@ export default function Home() {
   // the src swap that a verse change causes.
   const resumeOnVerseChangeRef = useRef(false);
 
-  const { t, locale, setLocale, locales, letterLesson } = useLocale();
+  const { t, locale, setLocale, locales, letterLesson, manifest } = useLocale();
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
 
@@ -215,8 +217,44 @@ export default function Home() {
   // Quran.com. Paging back to a surah you have already opened costs nothing.
   const quranIndex = trpc.quran.index.useQuery(undefined, { staleTime: Infinity, gcTime: Infinity });
   const activeReciterId = reciterId ?? quranIndex.data?.reciters[0]?.id ?? null;
+  const translations = quranIndex.data?.translations ?? [];
+
+  /**
+   * Translations grouped by language for the picker's optgroups. The groups are
+   * built from whatever the API returned, so a language Quran.com adds appears
+   * without a code change here; the pack's preferred language is only sorted to
+   * the top, never used to filter.
+   */
+  const translationGroups = useMemo(() => {
+    const byLanguage = new Map<string, Translation[]>();
+    for (const item of translations) {
+      const group = byLanguage.get(item.languageName) ?? [];
+      group.push(item);
+      byLanguage.set(item.languageName, group);
+    }
+    const preferred = manifest.preferredTranslationLanguage?.toLowerCase();
+    const rank = (languageName: string) => {
+      const name = languageName.toLowerCase();
+      if (preferred && name === preferred) return 0;
+      if (name === "english") return 1;
+      return 2;
+    };
+    return Array.from(byLanguage.entries())
+      .map(([languageName, items]: [string, Translation[]]) => ({ languageName, items }))
+      .sort((a, b) => rank(a.languageName) - rank(b.languageName) || a.languageName.localeCompare(b.languageName));
+  }, [translations, manifest]);
+
+  // Nothing chosen yet: take the first translation of the pack's preferred
+  // language, which the sort above has already put first.
+  const defaultTranslationId = translationGroups[0]?.items[0]?.id ?? null;
+  const activeTranslationId = translationId ?? defaultTranslationId;
+
   const surahQuery = trpc.quran.surah.useQuery(
-    { surah: surahNumber, ...(activeReciterId === null ? {} : { reciterId: activeReciterId }) },
+    {
+      surah: surahNumber,
+      ...(activeReciterId === null ? {} : { reciterId: activeReciterId }),
+      ...(activeTranslationId === null ? {} : { translationId: activeTranslationId }),
+    },
     { enabled: quranIndex.isSuccess, staleTime: Infinity, gcTime: Infinity },
   );
 
@@ -559,15 +597,7 @@ export default function Home() {
           <div className="crumbs">
             <span className="eyebrow">{t("reader.eyebrow")}</span>
             <span className="crumb-separator">/</span>
-            <label className="quran-picker">
-              <span className="sr-only">{t("reader.surahLabel")}</span>
-              <select value={surahNumber} onChange={(event) => selectSurah(Number(event.target.value))} disabled={!surahs.length}>
-                {surahs.length
-                  ? surahs.map((surah) => <option key={surah.number} value={surah.number}>{surah.number}. {surah.nameSimple} · {surah.translatedName}</option>)
-                  : <option value={surahNumber}>{t("reader.loadingSurahs")}</option>}
-              </select>
-              <ChevronDown size={14} aria-hidden="true" />
-            </label>
+            <SurahPicker surahs={surahs} value={surahNumber} onSelect={(surah) => selectSurah(surah)} />
             <label className="quran-picker">
               <span className="sr-only">{t("reader.juzLabel")}</span>
               <select value={currentJuz ?? ""} onChange={(event) => selectJuz(Number(event.target.value))} disabled={!juzs.length}>
@@ -597,11 +627,27 @@ export default function Home() {
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
+            {/* Straight from the API's translation list, grouped by language —
+                a language Quran.com adds appears here with no code change. */}
+            <label className="quran-picker translation-picker">
+              <Languages size={15} aria-hidden="true" />
+              <span className="sr-only">{t("reader.translationLabel")}</span>
+              <select value={activeTranslationId ?? ""} onChange={(event) => setTranslationId(Number(event.target.value))} disabled={!translations.length}>
+                {translations.length
+                  ? translationGroups.map((group) => (
+                      <optgroup key={group.languageName} label={group.languageName}>
+                        {group.items.map((item) => <option key={item.id} value={item.id}>{item.authorName}</option>)}
+                      </optgroup>
+                    ))
+                  : <option value="">{t("reader.loadingTranslations")}</option>}
+              </select>
+              <ChevronDown size={14} aria-hidden="true" />
+            </label>
             <button type="button" className="icon-button" aria-label={t("reader.searchLabel")}><Search size={18} /></button>
             <button type="button" className="icon-button" aria-label={t("reader.settingsLabel")}><Settings2 size={18} /></button>
           </div>
         </header>
-        <section className="chapter-intro" aria-labelledby="chapter-title"><div><p className="eyebrow">{chapterEyebrow}</p><h1 id="chapter-title">{chapterHeading}</h1><p className="intro-copy">{chapterCopy}</p></div><div className="chapter-arabic" lang="ar" dir="rtl">{view === "learn" ? activeLevel.arabic : "سُورَةُ ٱلْفَاتِحَةِ"}</div></section>
+        <section className="chapter-intro" aria-labelledby="chapter-title"><div><p className="eyebrow">{chapterEyebrow}</p><h1 id="chapter-title">{chapterHeading}</h1><p className="intro-copy">{chapterCopy}</p></div><div className="chapter-arabic">{view === "learn" ? <span lang="ar" dir="rtl">{activeLevel.arabic}</span> : <span className="chapter-surah-name"><span lang="ar" dir="rtl">{activeSurah?.nameArabic ?? ""}</span><small>{activeSurah?.nameSimple ?? ""}</small></span>}</div></section>
         <section className="mode-tabs" aria-label={t("mode.label")}>
           {tabs.map((tab) => { const Icon = tab.icon; const active = view === tab.id; return <button type="button" key={tab.id} className={`mode-tab ${active ? "is-active" : ""}`} aria-pressed={active} onClick={() => setView(tab.id)}><span className="tab-icon"><Icon size={17} /></span><span><strong>{t(tab.labelKey)}</strong><small>{t(tab.captionKey)}</small></span></button>; })}
         </section>
@@ -609,7 +655,7 @@ export default function Home() {
         <section className={`manuscript-stage stage-${view}`} aria-live="polite">
           <div className="manuscript-light" aria-hidden="true" /><div className="manuscript-frame" />
           {view === "read" && <div className="reader-layout">
-            <div className="manuscript-meta"><span>{surahLabel}</span><span>{activeSurah ? `${t("reader.ayahCount", { count: activeSurah.versesCount })} · ${t(activeSurah.revelationPlace === "makkah" ? "reader.makki" : "reader.madani")}` : "—"}</span><span>{currentJuz ? t("reader.juzNumbered", { number: currentJuz }) : "—"}</span></div>
+            <div className="manuscript-meta"><span className="meta-surah"><b lang="ar" dir="rtl">{activeSurah?.nameArabic ?? ""}</b> {surahLabel}</span><span>{activeSurah ? `${t("reader.ayahCount", { count: activeSurah.versesCount })} · ${t(activeSurah.revelationPlace === "makkah" ? "reader.makki" : "reader.madani")}` : "—"}</span><span>{currentJuz ? t("reader.juzNumbered", { number: currentJuz }) : "—"}</span></div>
             {contentPending || contentError ? contentFallback : <>
               {activeSurah?.bismillahPre && <div className="basmala" lang="ar" dir="rtl">بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ</div>}
               <div className="quran-flow" dir="rtl" lang="ar" aria-label={t("reader.versesLabel", { surah: surahLabel })}>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={`quran-ayah ${selectedVerse === verse.number ? "is-selected" : ""} ${isPlaying && selectedVerse === verse.number ? "is-playing" : ""}`} onClick={() => selectVerse(verse.number)} aria-pressed={selectedVerse === verse.number}>{verse.arabic} <VerseMedallion number={verse.number} /></button>)}</div>

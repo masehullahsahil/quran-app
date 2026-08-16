@@ -12,7 +12,7 @@
  */
 import { ENV } from "./_core/env";
 import { TtlCache } from "./quranCache";
-import type { Ayah, JuzSummary, QuranIndex, Reciter, SurahContent, SurahSummary } from "@shared/quran";
+import type { Ayah, JuzSummary, QuranIndex, Reciter, SurahContent, SurahSummary, Translation } from "@shared/quran";
 
 /**
  * Ayah audio URLs come back relative to this host (e.g. "Alafasy/mp3/001001.mp3").
@@ -21,15 +21,22 @@ import type { Ayah, JuzSummary, QuranIndex, Reciter, SurahContent, SurahSummary 
 const AUDIO_CDN_BASE = "https://verses.quran.com/";
 
 /**
- * Translation resources requested alongside the Arabic text.
- *
- * 131 is Dr. Mustafa Khattab's "The Clear Quran", which matches the English
- * register the reader already used. 57 is the Latin transliteration, which the
- * study and memorise panels show under the Arabic. Both are optional in the
- * response path below: if either resource stops being served, the ayah still
- * renders with its Arabic text and audio, and the missing line is hidden.
+ * The translation shown under each ayah is chosen by the reader from the list
+ * the API advertises, so no translation id is hardcoded here. This is only the
+ * fallback used when no choice has been made yet: Dr. Mustafa Khattab's "The
+ * Clear Quran", which matches the English register the reader already used.
  */
-const TRANSLATION_RESOURCE_ID = 131;
+export const DEFAULT_TRANSLATION_ID = 131;
+
+/**
+ * The Latin transliteration is not a translation choice — it is the same
+ * romanisation of the Arabic whichever language a reader has selected, so it is
+ * always requested alongside whatever translation they picked.
+ *
+ * Both are optional in the response path below: if either resource stops being
+ * served, the ayah still renders with its Arabic text and audio, and the
+ * missing line is hidden.
+ */
 const TRANSLITERATION_RESOURCE_ID = 57;
 
 /** The API caps per_page at 50; the longest surah (al-Baqarah) is 286 ayahs. */
@@ -198,6 +205,57 @@ export async function listReciters(): Promise<Reciter[]> {
   });
 }
 
+type TranslationResponse = {
+  translations: Array<{
+    id: number;
+    name: string;
+    author_name?: string;
+    slug?: string;
+    language_name?: string;
+    iso_code?: string;
+    translated_name?: { name?: string };
+  }>;
+};
+
+/** "english" → "English", "chinese traditional" → "Chinese Traditional". */
+function titleCase(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
+ * Every translation the API advertises, grouped by language on the client.
+ *
+ * Deliberately unfiltered: the reader offers whatever Quran.com serves, so a
+ * language added upstream — Pashto, Dari, or anything else — appears here with
+ * no code change. The only entry removed is the Latin transliteration, which is
+ * shown alongside every translation rather than being one of them.
+ */
+export async function listTranslations(): Promise<Translation[]> {
+  return cache.fetch("translations", DAY_MS, async () => {
+    const payload = await fetchJson<TranslationResponse>("/resources/translations?language=en");
+
+    return payload.translations
+      .filter((item) => item.id !== TRANSLITERATION_RESOURCE_ID)
+      .map((item) => {
+        const languageName = item.language_name?.trim();
+        return {
+          id: item.id,
+          name: item.translated_name?.name?.trim() || item.name,
+          authorName: item.author_name?.trim() || item.name,
+          languageName: languageName ? titleCase(languageName) : "Other",
+          languageCode: item.iso_code?.trim() || null,
+        };
+      })
+      .sort((a, b) => (
+        a.languageName.localeCompare(b.languageName) || a.authorName.localeCompare(b.authorName)
+      ));
+  });
+}
+
 type VerseResponse = {
   verses: Array<{
     verse_number: number;
@@ -220,15 +278,18 @@ function stripMarkup(text: string): string {
 
 type VerseText = Omit<Ayah, "audioUrl">;
 
-async function listVerseText(surah: number): Promise<VerseText[]> {
-  return cache.fetch(`verses:${surah}`, DAY_MS, async () => {
+async function listVerseText(surah: number, translationId: number): Promise<VerseText[]> {
+  // The translation is part of the cache key: the Arabic is the same either way,
+  // but the text under it is not, so two readers on different translations must
+  // not share an entry.
+  return cache.fetch(`verses:${surah}:${translationId}`, DAY_MS, async () => {
     const collected: VerseText[] = [];
     let page: number | null = 1;
 
     while (page !== null && page <= MAX_VERSE_PAGES) {
       const query = new URLSearchParams({
         fields: "text_uthmani",
-        translations: `${TRANSLATION_RESOURCE_ID},${TRANSLITERATION_RESOURCE_ID}`,
+        translations: `${translationId},${TRANSLITERATION_RESOURCE_ID}`,
         per_page: String(VERSES_PER_PAGE),
         page: String(page),
       });
@@ -247,7 +308,7 @@ async function listVerseText(surah: number): Promise<VerseText[]> {
           number: verse.verse_number,
           verseKey: verse.verse_key,
           arabic: verse.text_uthmani ?? verse.text_imlaei ?? "",
-          translation: byResource(TRANSLATION_RESOURCE_ID),
+          translation: byResource(translationId),
           transliteration: byResource(TRANSLITERATION_RESOURCE_ID),
         });
       }
@@ -282,8 +343,18 @@ async function listAudioByVerseKey(surah: number, reciterId: number): Promise<Re
 }
 
 export async function getQuranIndex(): Promise<QuranIndex> {
-  const [surahs, juzs, reciters] = await Promise.all([listSurahs(), listJuzs(), listReciters()]);
-  return { surahs, juzs, reciters };
+  const [surahs, juzs, reciters, translations] = await Promise.all([
+    listSurahs(),
+    listJuzs(),
+    listReciters(),
+    // The translation list is metadata: losing it should cost the reader the
+    // picker, not the Quran. The default translation still resolves without it.
+    listTranslations().catch((error) => {
+      console.warn("[quran] Translation list unavailable", error);
+      return [] as Translation[];
+    }),
+  ]);
+  return { surahs, juzs, reciters, translations };
 }
 
 /**
@@ -292,8 +363,12 @@ export async function getQuranIndex(): Promise<QuranIndex> {
  * Text and audio are cached separately because the text is the same whichever
  * reciter is selected — switching reciter refetches audio only.
  */
-export async function getSurahContent(surah: number, reciterId: number): Promise<SurahContent> {
-  const [surahs, verses] = await Promise.all([listSurahs(), listVerseText(surah)]);
+export async function getSurahContent(
+  surah: number,
+  reciterId: number,
+  translationId: number = DEFAULT_TRANSLATION_ID,
+): Promise<SurahContent> {
+  const [surahs, verses] = await Promise.all([listSurahs(), listVerseText(surah, translationId)]);
   const summary = surahs.find((chapter) => chapter.number === surah);
   if (!summary) throw new Error(`Unknown surah ${surah}`);
 
@@ -309,6 +384,7 @@ export async function getSurahContent(surah: number, reciterId: number): Promise
   return {
     surah: summary,
     reciterId,
+    translationId,
     ayahs: verses.map((verse) => ({ ...verse, audioUrl: audio[verse.verseKey] ?? null })),
   };
 }

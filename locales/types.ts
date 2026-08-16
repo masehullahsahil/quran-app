@@ -35,6 +35,13 @@ export type LocaleManifest = {
    * stay in /audio/letters/ for every pack.
    */
   instructionAudioDir: string;
+  /**
+   * Which of the API's translation languages to surface first for a reader on
+   * this pack, matched case-insensitively against Quran.com's `language_name`.
+   * A preference only — the reader can pick any translation the API offers, and
+   * a pack naming a language the API does not carry simply gets English first.
+   */
+  preferredTranslationLanguage?: string;
 };
 
 /** Teaching text for one Arabic letter. Keyed by the slug in arabicLetters.ts. */
