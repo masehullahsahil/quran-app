@@ -23,8 +23,13 @@
  * ```
  */
 import { ENV } from "./env";
+import { MAX_AUDIO_BYTES } from "@shared/recording";
 
-export const MAX_AUDIO_BYTES = 16 * 1024 * 1024; // OpenAI's upload limit is 25MB; this is the app's own cap
+// Re-exported so callers of this module get the same number the recorder and
+// the review endpoint enforce. OpenAI's own upload limit is 25 MB; the app's
+// cap is far lower because the request has to fit a serverless body limit long
+// before Whisper sees it — see shared/recording.ts.
+export { MAX_AUDIO_BYTES };
 
 export type TranscribeOptions = {
   audio: Buffer | Uint8Array; // Raw audio bytes

@@ -148,6 +148,7 @@ bound to.
 | -------------- | ----------------------------------------------------------------------------- |
 | `pnpm dev`     | Dev server with HMR on port 3000.                                             |
 | `pnpm build`   | Builds the client with Vite and bundles the server with esbuild into `dist/`. |
+| `pnpm build:client` | Client only. Used by Vercel, where the function is built from `api/`.    |
 | `pnpm start`   | Runs the production build (`pnpm build` first).                               |
 | `pnpm check`   | TypeScript type check, no emit.                                               |
 | `pnpm test`    | Runs the Vitest suite once.                                                   |
@@ -167,6 +168,92 @@ live services rather than mocks, so they are deliberately outside `pnpm test`:
 node scripts/recitation-smoke-test.mjs   # needs RECITATION_TEST_APP_URL + a running app
 node scripts/audio-llm-smoke-test.mjs    # needs BUILT_IN_FORGE_API_URL + BUILT_IN_FORGE_API_KEY
 ```
+
+---
+
+## Deploying to Vercel
+
+The app runs on Vercel as one serverless function plus static files on the CDN.
+`api/index.ts` exports the Express app built by `server/_core/app.ts`; the
+client build in `dist/public` is served directly by the CDN and never passes
+through the function.
+
+```
+CDN            dist/public — index.html, /assets, /audio
+function       /api/trpc/*, /api/oauth/*, /manus-storage/*   (api/index.ts)
+```
+
+`server/_core/index.ts` is untouched by this: it is still the long-running
+server for `pnpm dev` and `pnpm start`, and it is the only entry that binds a
+port or mounts the Vite dev middleware.
+
+### First deploy
+
+1. Import the repository in Vercel. `vercel.json` sets the build command
+   (`pnpm build:client`), the output directory, the routes, and the function's
+   `maxDuration` — no dashboard configuration is needed.
+2. Add the environment variables below under **Settings → Environment
+   Variables**.
+3. Deploy.
+
+### Environment variables
+
+Nothing is required to get a working reader — the Quran text, navigation, and
+recitation audio come from the public Quran.com API, which needs no key.
+
+| Variable | Needed for | If unset |
+| -------- | ---------- | -------- |
+| `OPENAI_API_KEY` | Recitation review (Whisper + coaching) | Recording still works; the review returns an error |
+| `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID` | Sign-in | Sign-in unavailable; a startup warning is logged. Everything else works |
+| `DATABASE_URL` | Persisting users | User writes log a warning and no-op |
+| `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY` | Archiving recitation attempts, uploads | Attempts are reviewed but not archived |
+| `QURAN_API_BASE_URL` | Pointing at a mirror | Defaults to `api.quran.com` — leave unset |
+
+Two things specific to Vercel:
+
+- **`VITE_`-prefixed variables are read at build time,** not at request time.
+  Set them before the build that should contain them, and remember they are
+  inlined into the client bundle and therefore public.
+- **The analytics placeholders ship verbatim if unset.** `client/index.html`
+  contains `src="%VITE_ANALYTICS_ENDPOINT%/umami"`, and Vite leaves the
+  placeholder in place when the variable is missing, so the deployed page
+  requests a broken script URL on every load. Either set
+  `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID`, or delete that
+  `<script>` line from `client/index.html`.
+
+### What the platform constrains
+
+- **Request bodies are capped at ~4.5 MB**, and Vercel rejects an oversized body
+  before the function runs. The recitation cap is set from that ceiling rather
+  than from Whisper's — see [Recitation limits](#recitation-limits).
+- **Functions are capped at 60s on the Hobby plan**, which `vercel.json` sets
+  explicitly. The review path is two sequential calls (transcription, then the
+  coaching summary) and typically completes in well under ten seconds.
+- **The Quran cache is per instance.** `server/quranCache.ts` lives in memory,
+  so each warm function instance keeps its own copy and a cold start begins
+  empty. Correctness is unaffected — failures are still not cached, and
+  single-flight still collapses concurrent misses within an instance — but
+  Quran.com sees more traffic than it would from a single long-running server.
+
+---
+
+## Recitation limits
+
+A recitation attempt is sent as base64 inside a JSON body, which makes the
+request about a third larger than the recording. `shared/recording.ts` holds the
+numbers so the recorder and the review endpoint enforce the same cap:
+
+| | |
+| --- | --- |
+| Largest recording | 3 MB (roughly five minutes of MediaRecorder's Opus) |
+| Encoded request at that size | ~4.2 MB |
+| Platform limit | 4.5 MB |
+
+The check runs **in the browser, before encoding**. That is deliberate: a
+serverless host rejects an oversized body before any of our code executes, so a
+server-side check alone would leave the learner with an opaque failure. Going
+over the cap shows a sentence naming the actual size, and nothing is uploaded.
+The server keeps the same limit as a backstop for clients that skip the check.
 
 ---
 
@@ -351,14 +438,18 @@ client/          React app (Vite root)
   src/lib/         Client helpers, incl. the Arabic letter table
   public/audio/    Reciter recordings served as static assets
 locales/         Instruction-language packs (en reference, ur scaffold)
+api/             Vercel serverless entry (exports the Express app)
 server/          Express + tRPC backend
-  _core/           Server bootstrap, OAuth, storage, AI integrations
+  _core/app.ts     Express app: routes and middleware, no listener
+  _core/index.ts   Local entry: HTTP server, port scan, Vite dev middleware
+  _core/           OAuth, storage, AI integrations
   routers.ts       tRPC router definitions
   quranApi.ts      Quran.com API client (surahs, juz, verses, audio)
   quranCache.ts    TTL cache in front of Quran.com
   recitation.ts    Word-recall alignment for recorded attempts
   db.ts            Drizzle queries
 shared/          Types and constants shared across client and server
+                 (incl. recording.ts — the audio size cap both sides enforce)
 drizzle/         Schema and migrations
 scripts/         Manual smoke tests and generators
 ```
