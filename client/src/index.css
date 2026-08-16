@@ -84,6 +84,23 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .quran-picker select:disabled { color: #9aa39b; cursor: progress; }
 .quran-picker svg { flex: none; color: #8d968c; }
 .reciter-picker { color: #53635a; }
+.language-picker select { max-width: 96px; }
+
+/* An instruction pack is allowed to be incomplete, so English fallback text can
+   appear inside an RTL layout. `plaintext` lets each run take its direction from
+   its own first strong character, which keeps an English sentence's full stop at
+   the end instead of flipping it to the front. Elements that declare their own
+   dir — the Quranic Arabic — are excluded and keep their explicit direction. */
+[dir="rtl"] .sanctuary-shell :where(p, h1, h2, h3, small, strong, span, li, td):not([dir]):not([lang]) {
+  unicode-bidi: plaintext;
+  text-align: start;
+}
+
+/* Teaching text for the selected letter, supplied by the instruction-language
+   pack. Falls back to English per letter, so this is never empty. */
+.letter-lesson-text { flex-basis: 100%; margin: 0; padding: 9px 11px; color: #46564c; background: #fffdf8; border: 1px solid #e5dfd2; border-radius: 9px; }
+.letter-lesson-text p { margin: 0; font-size: 12px; line-height: 1.55; }
+.letter-lesson-text small { display: block; margin-top: 4px; color: #7d887f; font-size: 10px; line-height: 1.5; }
 
 /* Read-view playback: previous / listen / next, with the handover toggle. */
 .reader-playback { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; max-width: 850px; margin: 28px auto 0; padding: 13px 16px; background: #fffdf8; border: 1px solid #e7e1d6; border-radius: 14px; }
@@ -286,6 +303,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .quran-picker { max-width: 100%; padding: 5px 7px; }
   .quran-picker select { max-width: 140px; }
   .reciter-picker select { max-width: 116px; }
+  .language-picker select { max-width: 74px; }
   .reader-playback { gap: 8px; margin-top: 20px; padding: 11px 12px; }
   .playback-place { display: none; }
   .chapter-intro { align-items: flex-start; margin-bottom: 24px; }

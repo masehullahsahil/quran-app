@@ -233,6 +233,47 @@ The Arabic text is the point of the app, so it is the last thing to be given up:
 
 ---
 
+## Instruction languages
+
+The language a learner is *taught in* is separate from the Quran itself. Each
+language is a self-contained pack under `locales/`:
+
+```
+locales/
+  types.ts       the pack shape
+  index.ts       registry, loader, per-key fallback
+  en/index.ts    reference pack — every key defined here
+  ur/index.ts    scaffold — empty, falls back to English
+```
+
+A pack holds UI strings, lesson explanation text, and a path to spoken
+instruction audio in that language. **It never holds Quranic content.** The
+Arabic text comes from the Quran.com API and the Arabic letter recordings from
+`client/public/audio/letters/` — one shared set for every language. A test
+asserts no pack string contains Arabic script, so scripture cannot drift into
+the instruction layer.
+
+**Fallback is per key, not per pack.** A language with three strings translated
+shows those three and English everywhere else, so it is usable from its first
+translated line instead of being gated on completeness. Empty strings count as
+missing, so a half-filled key never renders as a blank label.
+
+English is bundled, because it is the fallback and must be present before any
+other language can render; every other pack is a dynamic `import()` and costs
+nothing until selected. The learner's choice is remembered in `localStorage`,
+and the pack's `direction` is applied to `<html dir>` — Quranic Arabic sets its
+own direction regardless.
+
+To add a language, see [`locales/README.md`](locales/README.md). The key list to
+translate from is generated:
+
+```bash
+node scripts/scaffold-locale.mjs <code> --full   # every key with its English text
+node scripts/scaffold-locale.mjs <code>          # only what is still missing
+```
+
+---
+
 ## Letter recitation audio (Learn · Starter)
 
 The Starter level plays each Arabic letter — alone and carrying fatha, kasra, or
@@ -286,9 +327,11 @@ the reciter is never handed a filename the app will not look for.
 client/          React app (Vite root)
   src/pages/       Route components
   src/components/  UI components, incl. shadcn/ui primitives
+  src/contexts/    Theme and instruction-language providers
   src/hooks/       Client hooks, incl. letter audio playback
   src/lib/         Client helpers, incl. the Arabic letter table
   public/audio/    Reciter recordings served as static assets
+locales/         Instruction-language packs (en reference, ur scaffold)
 server/          Express + tRPC backend
   _core/           Server bootstrap, OAuth, storage, AI integrations
   routers.ts       tRPC router definitions
@@ -301,7 +344,8 @@ drizzle/         Schema and migrations
 scripts/         Manual smoke tests and generators
 ```
 
-Path aliases: `@/` → `client/src/`, `@shared/` → `shared/`.
+Path aliases: `@/` → `client/src/`, `@shared/` → `shared/`,
+`@locales/` → `locales/`.
 
 ---
 
