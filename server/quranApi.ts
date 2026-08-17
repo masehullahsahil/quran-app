@@ -61,8 +61,9 @@ export function clearQuranCache(): void {
  * available the pattern wins, so a renumbering upstream cannot silently swap
  * Husary's audio for someone else's. `preferStyle` disambiguates reciters who
  * have several recordings — the measured murattal reading is the one to learn
- * from. See pickRecitation() for how a reciter with more than one style is
- * resolved, and why "no preferred style found" must not mean "take any".
+ * from. See rankRecitations() for how a reciter with more than one style is
+ * ordered, and resolveReciter() for why being listed is not enough to be
+ * offered.
  */
 const CURATED_RECITERS: Array<{
   fallbackId: number;
@@ -78,40 +79,65 @@ const CURATED_RECITERS: Array<{
 export const DEFAULT_RECITER_ID = CURATED_RECITERS[0].fallbackId;
 
 /**
- * Choose which of a reciter's recordings to offer.
+ * Order a reciter's recordings by how well they suit this app, best first.
  *
- * A reciter can appear several times in the API with different `style` values.
+ * A reciter appears several times in the API with different `style` values.
  * Husary is the case that matters: alongside his standard reading there is a
  * *Muallim* recording — a teaching take that repeats each word for the learner
  * to copy. It is a fine thing to study with, but it is not the same recitation,
- * and it breaks this app's listen-then-repeat loop and its word-recall review,
- * which both assume one clean reading of the ayah.
+ * and it sits badly with a listen-then-repeat loop that assumes one clean
+ * reading of the ayah.
  *
- * The previous code did `matches.find(preferredStyle) ?? matches[0]`, which
- * treated "no preferred style found" as "any recording will do" and handed back
- * whichever entry the API happened to list first. When the standard reading
- * carries no `style` at all — which is how the API marks a reciter's default —
- * nothing matched /murattal/ and the styled Muallim entry won on position
- * alone.
+ * This returns an ordered list rather than one pick, because a recitation being
+ * listed is not the same as it serving audio — see resolveReciter(), which
+ * walks this order and takes the first that actually has files.
  *
- * So the order is explicit:
  *   1. the preferred style, when the API labels one;
  *   2. the entry with no style — a reciter's unlabelled recording is their
  *      standard reading;
- *   3. nothing. A named variant is a deliberate deviation and is never
- *      substituted silently; the caller falls back to the known-good id.
+ *   3. any other style, last. Offered only if nothing better serves audio, and
+ *      labelled with its real style so it never promises a reading it is not.
  */
-export function pickRecitation<T extends { style?: string | null }>(
+export function rankRecitations<T extends { style?: string | null }>(
   matches: T[],
   preferStyle: RegExp,
-): T | null {
-  const styled = matches.find((option) => preferStyle.test(option.style ?? ""));
-  if (styled) return styled;
+): T[] {
+  const preferred: T[] = [];
+  const unstyled: T[] = [];
+  const other: T[] = [];
 
-  const unstyled = matches.find((option) => !option.style?.trim());
-  if (unstyled) return unstyled;
+  for (const option of matches) {
+    if (preferStyle.test(option.style ?? "")) preferred.push(option);
+    else if (!option.style?.trim()) unstyled.push(option);
+    else other.push(option);
+  }
 
-  return null;
+  return [...preferred, ...unstyled, ...other];
+}
+
+/**
+ * Chapters probed when confirming a recitation actually serves audio.
+ *
+ * Spread across the mushaf rather than clustered at the front, because "surah 1
+ * works" was exactly the assumption that let a broken reciter ship. Kept short —
+ * al-Fatiha (7 ayahs), Ya-Sin (83), al-Ikhlas (4) — so the check stays cheap,
+ * and the responses go through the same cache the reader uses, so probing warms
+ * it rather than wasting it.
+ */
+const AUDIO_PROBE_CHAPTERS = [1, 36, 112];
+
+/** Whether a recitation id serves audio for every probed chapter. */
+async function recitationServesAudio(reciterId: number): Promise<boolean> {
+  const probes = await Promise.all(
+    AUDIO_PROBE_CHAPTERS.map(async (surah) => {
+      try {
+        return Object.keys(await listAudioByVerseKey(surah, reciterId)).length > 0;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  return probes.every(Boolean);
 }
 
 async function fetchJson<T>(path: string): Promise<T> {
@@ -212,43 +238,60 @@ type RecitationResponse = {
   }>;
 };
 
+/**
+ * Resolve one curated reciter to a recitation that actually plays.
+ *
+ * Being listed by the API is not the same as serving audio — that gap is what
+ * left Husary silent. So each candidate is probed in rank order and the first
+ * that serves files across AUDIO_PROBE_CHAPTERS wins. The label always reports
+ * the style of whatever was chosen, so the picker cannot promise a reading the
+ * reader is not getting.
+ */
+async function resolveReciter(
+  entry: (typeof CURATED_RECITERS)[number],
+  available: RecitationResponse["recitations"],
+): Promise<Reciter> {
+  const matches = available.filter((option) => entry.pattern.test(option.reciter_name));
+  const ranked = rankRecitations(matches, entry.preferStyle);
+
+  for (const candidate of ranked) {
+    if (await recitationServesAudio(candidate.id)) {
+      return {
+        id: candidate.id,
+        name: candidate.reciter_name,
+        style: candidate.style?.trim() ? candidate.style : null,
+        available: true,
+      };
+    }
+    console.warn(
+      `[quran] ${entry.name}: recitation ${candidate.id} (${candidate.style ?? "unstyled"}) serves no audio; trying the next`,
+    );
+  }
+
+  // Nothing the API listed under this name plays. The known id is the last
+  // thing to try — it predates the list and may still serve files.
+  if (await recitationServesAudio(entry.fallbackId)) {
+    return { id: entry.fallbackId, name: entry.name, style: null, available: true };
+  }
+
+  console.warn(
+    `[quran] ${entry.name}: no recitation serves audio (tried ${[...ranked.map((c) => c.id), entry.fallbackId].join(", ")})`,
+  );
+  return { id: entry.fallbackId, name: entry.name, style: null, available: false };
+}
+
 export async function listReciters(): Promise<Reciter[]> {
   return cache.fetch("reciters", DAY_MS, async () => {
-    const fallback = CURATED_RECITERS.map((entry) => ({
-      id: entry.fallbackId,
-      name: entry.name,
-      style: null,
-    }));
-
-    let available: RecitationResponse["recitations"];
+    let available: RecitationResponse["recitations"] = [];
     try {
       available = (await fetchJson<RecitationResponse>("/resources/recitations?language=en")).recitations;
     } catch (error) {
-      // The recitation list is metadata, not content. If it is unavailable the
-      // known ids still resolve to real audio, so the reader keeps working.
-      console.warn("[quran] Recitation list unavailable; using known reciter ids", error);
-      return fallback;
+      // The recitation list is metadata, not content. Without it the known ids
+      // are all we have, but they are still probed below rather than trusted.
+      console.warn("[quran] Recitation list unavailable; falling back to known reciter ids", error);
     }
 
-    return CURATED_RECITERS.map((entry, index) => {
-      const matches = available.filter((option) => entry.pattern.test(option.reciter_name));
-      const preferred = pickRecitation(matches, entry.preferStyle);
-      if (!preferred) {
-        if (matches.length) {
-          console.warn(
-            `[quran] ${entry.name}: no standard recording upstream (only ${matches
-              .map((option) => option.style ?? "unstyled")
-              .join(", ")}); using known id ${entry.fallbackId}`,
-          );
-        }
-        return fallback[index];
-      }
-      return {
-        id: preferred.id,
-        name: preferred.reciter_name,
-        style: preferred.style?.trim() ? preferred.style : null,
-      };
-    });
+    return Promise.all(CURATED_RECITERS.map((entry) => resolveReciter(entry, available)));
   });
 }
 

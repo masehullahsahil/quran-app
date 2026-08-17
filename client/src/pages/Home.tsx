@@ -220,7 +220,11 @@ export default function Home() {
   // for the session and the server keeps its own TTL cache in front of
   // Quran.com. Paging back to a surah you have already opened costs nothing.
   const quranIndex = trpc.quran.index.useQuery(undefined, { staleTime: Infinity, gcTime: Infinity });
-  const activeReciterId = reciterId ?? quranIndex.data?.reciters[0]?.id ?? null;
+  const allReciters = quranIndex.data?.reciters ?? [];
+  // Default to one that plays. Landing on a silent reciter would look exactly
+  // like the bug this replaced.
+  const defaultReciterId = (allReciters.find((option) => option.available) ?? allReciters[0])?.id ?? null;
+  const activeReciterId = reciterId ?? defaultReciterId;
   const translations = quranIndex.data?.translations ?? [];
 
   /**
@@ -664,7 +668,14 @@ export default function Home() {
               <span className="sr-only">{t("reader.reciterLabel")}</span>
               <select value={activeReciterId ?? ""} onChange={(event) => setReciterId(Number(event.target.value))} disabled={!reciters.length}>
                 {reciters.length
-                  ? reciters.map((reciter) => <option key={reciter.id} value={reciter.id}>{reciter.name}{reciter.style ? ` · ${reciter.style}` : ""}</option>)
+                  ? reciters.map((reciter) => {
+                      const label = `${reciter.name}${reciter.style ? ` · ${reciter.style}` : ""}`;
+                      return (
+                        <option key={reciter.id} value={reciter.id} disabled={!reciter.available}>
+                          {reciter.available ? label : t("reader.reciterUnavailable", { reciter: label })}
+                        </option>
+                      );
+                    })
                   : <option value="">{t("reader.loadingReciters")}</option>}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
