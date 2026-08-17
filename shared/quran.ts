@@ -30,6 +30,12 @@ export type Reciter = {
   id: number;
   name: string;
   style: string | null;
+  /**
+   * Whether this recitation was confirmed to serve audio. False means every
+   * recitation listed under the reciter's name came back empty, so the picker
+   * should say so rather than offer a control that cannot work.
+   */
+  available: boolean;
 };
 
 /** One translation resource advertised by the API, e.g. a Pashto translation. */

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearQuranCache, getQuranIndex, getSurahContent, listJuzs, listReciters, listTranslations, pickRecitation } from "./quranApi";
+import { clearQuranCache, getQuranIndex, getSurahContent, listJuzs, listReciters, listTranslations, rankRecitations } from "./quranApi";
 
 const originalFetch = global.fetch;
 
@@ -42,6 +42,11 @@ function stubQuranApi(options: {
   audioFiles?: Array<{ verse_key: string; url: string }>;
   recitations?: Array<{ id: number; reciter_name: string; style?: string | null }>;
   translationResources?: Array<Record<string, unknown>>;
+  /** Recitation ids that are listed by the API but return no audio files. */
+  silentReciters?: number[];
+  /** Recitation ids that serve audio only for the chapters in audioFilesByChapter. */
+  partialReciters?: number[];
+  audioFilesByChapter?: Record<number, Array<{ verse_key: string; url: string }>>;
   failRecitations?: boolean;
   failTranslations?: boolean;
   failAudio?: boolean;
@@ -53,7 +58,9 @@ function stubQuranApi(options: {
     calls.push(url);
 
     if (url.includes("/chapters")) {
-      return new Response(JSON.stringify({ chapters: options.chapters ?? [chapter(1, 7, false), chapter(2, 286)] }));
+      return new Response(JSON.stringify({
+        chapters: options.chapters ?? [chapter(1, 7, false), chapter(2, 286), chapter(36, 83), chapter(112, 4)],
+      }));
     }
 
     if (url.includes("/juzs")) {
@@ -104,10 +111,19 @@ function stubQuranApi(options: {
 
     if (url.includes("/quran/recitations/")) {
       if (options.failAudio) return new Response("nope", { status: 503 });
+      const reciterId = Number(url.match(/recitations\/(\d+)/)?.[1]);
+      // A recitation the API lists but serves no files for — the Husary case.
+      if (options.silentReciters?.includes(reciterId)) {
+        return new Response(JSON.stringify({ audio_files: [] }));
+      }
+      const chapter = Number(new URL(url).searchParams.get("chapter_number") ?? "1");
+      if (options.partialReciters?.includes(reciterId)) {
+        return new Response(JSON.stringify({ audio_files: options.audioFilesByChapter?.[chapter] ?? [] }));
+      }
       return new Response(JSON.stringify({
         audio_files: options.audioFiles ?? [
-          { verse_key: "1:1", url: "Alafasy/mp3/001001.mp3" },
-          { verse_key: "1:2", url: "Alafasy/mp3/001002.mp3" },
+          { verse_key: `${chapter}:1`, url: `Alafasy/mp3/${String(chapter).padStart(3, "0")}001.mp3` },
+          { verse_key: `${chapter}:2`, url: `Alafasy/mp3/${String(chapter).padStart(3, "0")}002.mp3` },
         ],
       }));
     }
@@ -284,54 +300,41 @@ describe("listTranslations", () => {
   });
 });
 
-describe("pickRecitation", () => {
+describe("rankRecitations", () => {
   const murattal = /murattal/i;
+  const ids = (list: Array<{ id: number }>) => list.map((option) => option.id);
 
-  it("takes the preferred style when the API labels one", () => {
-    const picked = pickRecitation(
-      [{ id: 1, style: "Muallim" }, { id: 2, style: "Murattal" }],
+  it("puts the preferred style first, then the unstyled reading, then the rest", () => {
+    const ranked = rankRecitations(
+      [{ id: 13, style: "Muallim" }, { id: 6, style: null }, { id: 12, style: "Murattal" }],
       murattal,
     );
-    expect(picked?.id).toBe(2);
-  });
-
-  /**
-   * The reported bug. Husary's standard reading carries no `style`, and his
-   * only *labelled* recording is the Muallim teaching take. The old code fell
-   * through to matches[0] and handed back whichever came first — Muallim.
-   */
-  it("prefers the unstyled standard reading over a named variant", () => {
-    const picked = pickRecitation(
-      [{ id: 13, style: "Muallim" }, { id: 6, style: null }],
-      murattal,
-    );
-    expect(picked?.id).toBe(6);
+    expect(ids(ranked)).toEqual([12, 6, 13]);
   });
 
   it("does not depend on the order the API lists them in", () => {
     const listed = [{ id: 6, style: null }, { id: 13, style: "Muallim" }];
-    expect(pickRecitation(listed, murattal)?.id).toBe(6);
-    expect(pickRecitation([...listed].reverse(), murattal)?.id).toBe(6);
+    expect(ids(rankRecitations(listed, murattal))).toEqual([6, 13]);
+    expect(ids(rankRecitations([...listed].reverse(), murattal))).toEqual([6, 13]);
   });
 
   it("treats a blank style string as unstyled", () => {
-    const picked = pickRecitation([{ id: 13, style: "Muallim" }, { id: 6, style: "   " }], murattal);
-    expect(picked?.id).toBe(6);
+    expect(ids(rankRecitations([{ id: 13, style: "Muallim" }, { id: 6, style: "   " }], murattal)))
+      .toEqual([6, 13]);
   });
 
-  // A named variant is a different recitation, not a substitute: the teaching
-  // take repeats each word, which breaks listen-then-repeat and word recall.
-  it("returns nothing rather than substituting a named variant", () => {
-    expect(pickRecitation([{ id: 13, style: "Muallim" }], murattal)).toBeNull();
-    expect(pickRecitation([{ id: 9, style: "Mujawwad" }], murattal)).toBeNull();
-    expect(pickRecitation([], murattal)).toBeNull();
+  // Still a candidate — but ranked last, and only used if it actually plays,
+  // in which case it is labelled with its real style.
+  it("keeps a named variant as a last resort rather than discarding it", () => {
+    expect(ids(rankRecitations([{ id: 13, style: "Muallim" }], murattal))).toEqual([13]);
+    expect(rankRecitations([], murattal)).toEqual([]);
   });
 });
 
 describe("listReciters", () => {
+  const husaryOf = async () => (await listReciters()).find((reciter) => /husary/i.test(reciter.name));
+
   it("offers Husary's standard reading, not the Muallim teaching recording", async () => {
-    // Mirrors the upstream shape: the standard reading unlabelled, the teaching
-    // variant labelled, and the variant listed first.
     stubQuranApi({
       recitations: [
         { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
@@ -341,42 +344,113 @@ describe("listReciters", () => {
       ],
     });
 
-    const husary = (await listReciters()).find((reciter) => /husary/i.test(reciter.name));
-
+    const husary = await husaryOf();
     expect(husary?.id).toBe(6);
     expect(husary?.style).toBeNull();
+    expect(husary?.available).toBe(true);
   });
 
-  it("falls back to the known id when only a named variant exists upstream", async () => {
+  /**
+   * The reported situation: the entry we would pick on name and style alone is
+   * listed by the API but serves no files. Ranking is not enough — the resolver
+   * has to move on to one that actually plays.
+   */
+  it("skips a listed recitation that serves no audio and takes the next that does", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     stubQuranApi({
       recitations: [
         { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
+        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
+        { id: 12, reciter_name: "Mahmoud Khalil Al-Husary", style: "Murattal" },
         { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
         { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
       ],
+      // The murattal entry ranks first but is silent; the unstyled one plays.
+      silentReciters: [12, 13],
     });
 
-    const husary = (await listReciters()).find((reciter) => /husary/i.test(reciter.name));
-
-    // The curated fallback id, never the Muallim recording.
+    const husary = await husaryOf();
     expect(husary?.id).toBe(6);
-    expect(husary?.id).not.toBe(13);
+    expect(husary?.available).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("confirms audio across several surahs, not just al-Fatiha", async () => {
+    const calls = stubQuranApi();
+    await listReciters();
+
+    const probed = calls
+      .filter((url) => url.includes("/quran/recitations/"))
+      .map((url) => Number(new URL(url).searchParams.get("chapter_number")));
+    expect(new Set(probed).size).toBeGreaterThan(1);
+    expect(probed).toContain(1);
+    expect(probed).toContain(36);
+    expect(probed).toContain(112);
+  });
+
+  it("requires every probed surah to have audio, not just one", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // Husary's only entry serves al-Fatiha but nothing else.
+    stubQuranApi({
+      recitations: [
+        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
+        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
+        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+      ],
+      audioFilesByChapter: { 1: [{ verse_key: "1:1", url: "Husary/mp3/001001.mp3" }] },
+      partialReciters: [6],
+    });
+
+    const husary = await husaryOf();
+    expect(husary?.available).toBe(false);
+    warn.mockRestore();
+  });
+
+  it("marks a reciter unavailable when nothing under that name plays", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubQuranApi({
+      recitations: [
+        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
+        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
+        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
+        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+      ],
+      silentReciters: [6, 13],
+    });
+
+    const husary = await husaryOf();
+    expect(husary?.available).toBe(false);
+    // Never labelled with a style it is not serving.
+    expect(husary?.style).toBeNull();
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
   });
 
+  it("labels a chosen variant with its real style rather than implying the standard reading", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubQuranApi({
+      recitations: [
+        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
+        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
+        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
+        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+      ],
+      silentReciters: [6],
+    });
+
+    const husary = await husaryOf();
+    expect(husary?.id).toBe(13);
+    expect(husary?.style).toBe("Muallim");
+    warn.mockRestore();
+  });
 
   it("resolves the curated reciters by name and prefers the murattal reading", async () => {
-    const reciters = await (async () => {
-      stubQuranApi();
-      return listReciters();
-    })();
-
+    stubQuranApi();
+    const reciters = await listReciters();
     expect(reciters).toEqual([
-      { id: 62, name: "Mishari Rashid al-`Afasy", style: "Murattal" },
-      { id: 61, name: "Mahmoud Khalil Al-Husary", style: "Murattal" },
-      { id: 64, name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+      { id: 62, name: "Mishari Rashid al-`Afasy", style: "Murattal", available: true },
+      { id: 61, name: "Mahmoud Khalil Al-Husary", style: "Murattal", available: true },
+      { id: 64, name: "Mohamed Siddiq al-Minshawi", style: "Murattal", available: true },
     ]);
   });
 
@@ -388,6 +462,7 @@ describe("listReciters", () => {
 
     expect(reciters.map((reciter) => reciter.id)).toEqual([7, 6, 8]);
     expect(reciters[0].name).toContain("Afasy");
+    expect(reciters.every((reciter) => reciter.available)).toBe(true);
   });
 });
 
@@ -410,7 +485,7 @@ describe("getQuranIndex", () => {
 
     const index = await getQuranIndex();
 
-    expect(index.surahs.map((surah) => surah.number)).toEqual([1, 2]);
+    expect(index.surahs.map((surah) => surah.number)).toEqual([1, 2, 36, 112]);
     expect(index.juzs.map((juz) => juz.number)).toEqual([1, 2]);
     expect(index.reciters.length).toBe(3);
     expect(index.translations.map((item) => item.languageName)).toContain("Pashto");
