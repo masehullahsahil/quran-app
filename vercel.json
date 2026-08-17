@@ -1,10 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "buildCommand": "pnpm build:client",
+  "buildCommand": "pnpm build:client && pnpm exec esbuild api/index.ts --bundle --platform=node --format=esm --outfile=api/index.js --packages=external --tsconfig=tsconfig.json && rm api/index.ts",
   "outputDirectory": "dist/public",
   "functions": {
-    "api/index.ts": {
+    "api/index.js": {
       "maxDuration": 60
     }
   },
