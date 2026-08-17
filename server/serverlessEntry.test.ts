@@ -53,7 +53,10 @@ describe("vercel.json", () => {
 
   it("serves the built client from the CDN, not through the function", () => {
     expect(config.outputDirectory).toBe("dist/public");
-    expect(config.buildCommand).toBe("pnpm build:client");
+    // Intent, not an exact string: the build has to produce the client bundle.
+    // It may do more besides — pre-bundling the function, for instance — and an
+    // equality check here fails on changes that are perfectly correct.
+    expect(config.buildCommand).toContain("build:client");
   });
 
   it("routes every server path to the function", () => {

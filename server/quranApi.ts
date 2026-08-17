@@ -60,8 +60,9 @@ export function clearQuranCache(): void {
  * used as-is when the upstream recitation list is unavailable; when it is
  * available the pattern wins, so a renumbering upstream cannot silently swap
  * Husary's audio for someone else's. `preferStyle` disambiguates reciters who
- * have both a murattal and a mujawwad recording — the measured murattal reading
- * is the one to learn from.
+ * have several recordings — the measured murattal reading is the one to learn
+ * from. See pickRecitation() for how a reciter with more than one style is
+ * resolved, and why "no preferred style found" must not mean "take any".
  */
 const CURATED_RECITERS: Array<{
   fallbackId: number;
@@ -75,6 +76,43 @@ const CURATED_RECITERS: Array<{
 ];
 
 export const DEFAULT_RECITER_ID = CURATED_RECITERS[0].fallbackId;
+
+/**
+ * Choose which of a reciter's recordings to offer.
+ *
+ * A reciter can appear several times in the API with different `style` values.
+ * Husary is the case that matters: alongside his standard reading there is a
+ * *Muallim* recording — a teaching take that repeats each word for the learner
+ * to copy. It is a fine thing to study with, but it is not the same recitation,
+ * and it breaks this app's listen-then-repeat loop and its word-recall review,
+ * which both assume one clean reading of the ayah.
+ *
+ * The previous code did `matches.find(preferredStyle) ?? matches[0]`, which
+ * treated "no preferred style found" as "any recording will do" and handed back
+ * whichever entry the API happened to list first. When the standard reading
+ * carries no `style` at all — which is how the API marks a reciter's default —
+ * nothing matched /murattal/ and the styled Muallim entry won on position
+ * alone.
+ *
+ * So the order is explicit:
+ *   1. the preferred style, when the API labels one;
+ *   2. the entry with no style — a reciter's unlabelled recording is their
+ *      standard reading;
+ *   3. nothing. A named variant is a deliberate deviation and is never
+ *      substituted silently; the caller falls back to the known-good id.
+ */
+export function pickRecitation<T extends { style?: string | null }>(
+  matches: T[],
+  preferStyle: RegExp,
+): T | null {
+  const styled = matches.find((option) => preferStyle.test(option.style ?? ""));
+  if (styled) return styled;
+
+  const unstyled = matches.find((option) => !option.style?.trim());
+  if (unstyled) return unstyled;
+
+  return null;
+}
 
 async function fetchJson<T>(path: string): Promise<T> {
   const base = ENV.quranApiBaseUrl.replace(/\/+$/, "");
@@ -194,8 +232,17 @@ export async function listReciters(): Promise<Reciter[]> {
 
     return CURATED_RECITERS.map((entry, index) => {
       const matches = available.filter((option) => entry.pattern.test(option.reciter_name));
-      const preferred = matches.find((option) => entry.preferStyle.test(option.style ?? "")) ?? matches[0];
-      if (!preferred) return fallback[index];
+      const preferred = pickRecitation(matches, entry.preferStyle);
+      if (!preferred) {
+        if (matches.length) {
+          console.warn(
+            `[quran] ${entry.name}: no standard recording upstream (only ${matches
+              .map((option) => option.style ?? "unstyled")
+              .join(", ")}); using known id ${entry.fallbackId}`,
+          );
+        }
+        return fallback[index];
+      }
       return {
         id: preferred.id,
         name: preferred.reciter_name,

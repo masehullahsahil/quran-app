@@ -179,6 +179,9 @@ export default function Home() {
   const [translationId, setTranslationId] = useState<number | null>(null);
   const [selectedVerse, setSelectedVerse] = useState(1);
   const [continuousListening, setContinuousListening] = useState(true);
+  // The audio source the browser could not load. Kept as a URL rather than a
+  // flag so a stale failure never suppresses the next ayah's playback.
+  const [failedAudioSrc, setFailedAudioSrc] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [covered, setCovered] = useState(false);
   const [showTranslation, setShowTranslation] = useState(true);
@@ -319,6 +322,11 @@ export default function Home() {
     if (!ayahs.some((verse) => verse.number === selectedVerse)) setSelectedVerse(ayahs[0].number);
   }, [ayahs, selectedVerse]);
 
+  // A new ayah or a new reciter is a new source; forget the previous failure.
+  useEffect(() => {
+    setFailedAudioSrc(null);
+  }, [selectedVerse, surahNumber, activeReciterId]);
+
   useEffect(() => {
     window.localStorage.setItem("miqra-starter-practised", JSON.stringify(starterPractised));
   }, [starterPractised]);
@@ -362,8 +370,8 @@ export default function Home() {
   const playReciter = async (rate = 1) => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (!activeVerse?.audioUrl) {
-      setRecorderMessage(t("playback.noAudio"));
+    if (audioUnavailable) {
+      setRecorderMessage(audioUnavailableMessage);
       return;
     }
     audio.pause();
@@ -376,7 +384,15 @@ export default function Home() {
       setLessonStage("listen");
       setRecorderMessage(t(rate < 1 ? "recorder.listenSlow" : "recorder.listenOnce"));
     } catch {
-      setRecorderMessage(t("recorder.audioFailed"));
+      // A source that cannot be decoded rejects here as well as firing `error`.
+      // Reporting the device volume for that would send the reader looking in
+      // the wrong place.
+      if (audio.error) {
+        setFailedAudioSrc(activeVerse.audioUrl);
+        setRecorderMessage(t("playback.audioFailed", { reciter: activeReciterName }));
+      } else {
+        setRecorderMessage(t("recorder.audioFailed"));
+      }
     }
   };
 
@@ -400,6 +416,19 @@ export default function Home() {
       return;
     }
     void playReciter(1);
+  };
+
+  /**
+   * The source failed to load — a 404 at the CDN, an unplayable file, a network
+   * drop. Without this the element fails silently: the play button does nothing
+   * and the reader is told nothing, which is how a broken reciter looked before.
+   */
+  const handleAudioError = () => {
+    setIsPlaying(false);
+    // Don't hand over into the next ayah on a broken chain.
+    resumeOnVerseChangeRef.current = false;
+    const src = audioRef.current?.currentSrc || activeVerse?.audioUrl;
+    if (src) setFailedAudioSrc(activeVerse?.audioUrl ?? src);
   };
 
   // Continuous listening: the ayah that just finished hands over to the next one.
@@ -568,6 +597,14 @@ export default function Home() {
     : `${String(surahNumber).padStart(2, "0")} · ${activeSurah?.translatedName ?? t("reader.loading")}`;
   const chapterCopy = t(view === "learn" ? "learn.copy" : "reader.chapterCopy");
 
+  const activeReciterName = reciters.find((reciter) => reciter.id === activeReciterId)?.name ?? t("panel.reciterFallback");
+  // Two different failures, two different messages: the API returned no file at
+  // all, or it returned one the browser could not play.
+  const audioLoadFailed = Boolean(activeVerse?.audioUrl) && failedAudioSrc === activeVerse?.audioUrl;
+  const audioUnavailable = !activeVerse?.audioUrl || audioLoadFailed;
+  const audioUnavailableMessage = audioLoadFailed
+    ? t("playback.audioFailed", { reciter: activeReciterName })
+    : t("playback.noAudio");
   const readingPercent = ayahs.length && activeVerse ? Math.round(((activeIndex + 1) / ayahs.length) * 100) : 0;
   const contentPending = quranIndex.isPending || surahQuery.isPending;
   const contentError = quranIndex.error ?? surahQuery.error;
@@ -591,7 +628,7 @@ export default function Home() {
 
   return (
     <div className="sanctuary-shell">
-      <audio ref={audioRef} src={activeVerse?.audioUrl ?? undefined} preload="auto" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={handleAudioEnded} />
+      <audio ref={audioRef} src={activeVerse?.audioUrl ?? undefined} preload="auto" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={handleAudioEnded} onError={handleAudioError} />
       <aside className="app-rail" aria-label={t("nav.primaryLabel")}>
         <div className="rail-brand">
           <img src="/manus-storage/quran-open-book-arch-logo_db76dbd9.png" alt="" className="brand-mark" />
@@ -678,12 +715,12 @@ export default function Home() {
                   an ayah does the same without a click. */}
               <div className="reader-playback" aria-label={t("playback.label")}>
                 <button type="button" className="playback-step" onClick={() => moveVerse(-1)} disabled={!previousVerse} aria-label={t("playback.previous")}><ArrowLeft size={16} /></button>
-                <button type="button" className="playback-main" onClick={toggleReaderPlayback} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}{t(isPlaying ? "playback.pause" : "playback.listen")}</button>
+                <button type="button" className="playback-main" onClick={toggleReaderPlayback} disabled={audioUnavailable}>{isPlaying ? <Pause size={17} fill="currentColor" /> : <Play size={17} fill="currentColor" />}{t(isPlaying ? "playback.pause" : "playback.listen")}</button>
                 <button type="button" className="playback-step is-next" onClick={listenToNext} disabled={!nextVerse}>{t("playback.next")} <ArrowRight size={16} /></button>
                 <span className="playback-place">{t("playback.place", { number: activeVerse?.number ?? "—", total: ayahs.length || "—" })}</span>
                 <label className="playback-continuous"><input type="checkbox" checked={continuousListening} onChange={(event) => setContinuousListening(event.target.checked)} /> {t("playback.keepPlaying")}</label>
               </div>
-              {!activeVerse?.audioUrl && <p className="playback-warning"><AlertCircle size={14} /> {t("playback.noAudio")}</p>}
+              {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
             </>}
             <div className="reader-footer"><span>{t("reader.footerHint")}</span><button type="button" onClick={() => setShowTranslation((current) => !current)}>{t(showTranslation ? "reader.hideMeaning" : "reader.showMeaning")}</button></div>
           </div>}
@@ -709,14 +746,15 @@ export default function Home() {
 
           {view === "study" && (!activeVerse ? contentFallback : <div className="study-layout">
             <div className="study-index"><span>{t("study.ayah")}</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>{t("study.ayahOf", { total: String(ayahs.length).padStart(2, "0") })}</span></div>
-            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={!activeVerse.audioUrl}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
+            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
             <div className="teacher-loop" aria-label={t("study.lessonLabel")}>
               <div className="loop-header"><div><span className="eyebrow">{t("study.eyebrow")}</span><h2>{t("study.heading")}</h2></div><span className="teacher-badge">{t("study.badge")}</span></div>
               <div className="loop-steps" aria-label={t("study.stageLabel", { stage: lessonStage })}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> {t("study.stageListen")}</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> {t("study.stageRepeat")}</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> {t("study.stageReview")}</span></div>
               <div className="loop-actions">
-                <button type="button" className="loop-listen" onClick={() => void playReciter(1)}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
+                <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
                 <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
               </div>
+              {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               <p className="loop-message" role="status">{recorderMessage}</p>
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
@@ -735,7 +773,7 @@ export default function Home() {
       <aside className="study-panel" aria-label={t("panel.label")}>
         <div className="panel-topbar"><p className="eyebrow">{t("panel.keepPlace")}</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={() => setSaved((current) => !current)} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {t(saved ? "panel.saved" : "panel.save")}</button></div>
         {activeVerse && <div className="selected-ayah"><div className="ayah-reference"><span>{surahLabel}</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <>{activeVerse.transliteration && <p className="panel-transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="panel-translation">{activeVerse.translation}</p>}</>}</div>}
-        <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{t(isPlaying ? "panel.audioPlaying" : "panel.listenRepeat")}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{reciters.find((reciter) => reciter.id === activeReciterId)?.name ?? t("panel.reciterFallback")}</span><span>{t("panel.ayahNumber", { number: activeVerse?.number ?? "—" })}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={!activeVerse?.audioUrl}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {t(isPlaying ? "panel.playingReciter" : "panel.listenSelected")}</button><p className="audio-note"><Headphones size={14} /> {t("panel.audioNote")}</p></div>
+        <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{t(isPlaying ? "panel.audioPlaying" : "panel.listenRepeat")}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{activeReciterName}</span><span>{t("panel.ayahNumber", { number: activeVerse?.number ?? "—" })}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {t(isPlaying ? "panel.playingReciter" : "panel.listenSelected")}</button><p className="audio-note"><Headphones size={14} /> {t("panel.audioNote")}</p></div>
         <div className="practice-note"><img src="/manus-storage/quran-study-lantern-illustration_3d7eaf67.png" alt="" /><div><span className="eyebrow">{t("panel.sequenceEyebrow")}</span><p>{t("panel.sequenceCopy")}</p></div></div>
         <div className="completion-card"><div><span className="eyebrow">{t("panel.thisReading")}</span><strong>{readingPercent}%</strong></div><div className="completion-track"><span style={{ width: `${readingPercent}%` }} /></div><p>{t("panel.progressNote")}</p></div>
       </aside>

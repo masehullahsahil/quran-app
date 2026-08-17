@@ -76,6 +76,7 @@ export const strings = {
   "playback.place": "Ayah {number} of {total}",
   "playback.keepPlaying": "Keep playing",
   "playback.noAudio": "This reciter has no recording for this ayah. Try another reciter.",
+  "playback.audioFailed": "Audio unavailable for {reciter}. This recording could not be played — try another reciter.",
 
   // -- Loading and failure -------------------------------------------------
   "content.loading": "Loading the Quran text and recitation…",
