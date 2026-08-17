@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { clearQuranCache, getQuranIndex, getSurahContent, listJuzs, listReciters, listTranslations } from "./quranApi";
+import { clearQuranCache, getQuranIndex, getSurahContent, listJuzs, listReciters, listTranslations, pickRecitation } from "./quranApi";
 
 const originalFetch = global.fetch;
 
@@ -284,7 +284,89 @@ describe("listTranslations", () => {
   });
 });
 
+describe("pickRecitation", () => {
+  const murattal = /murattal/i;
+
+  it("takes the preferred style when the API labels one", () => {
+    const picked = pickRecitation(
+      [{ id: 1, style: "Muallim" }, { id: 2, style: "Murattal" }],
+      murattal,
+    );
+    expect(picked?.id).toBe(2);
+  });
+
+  /**
+   * The reported bug. Husary's standard reading carries no `style`, and his
+   * only *labelled* recording is the Muallim teaching take. The old code fell
+   * through to matches[0] and handed back whichever came first — Muallim.
+   */
+  it("prefers the unstyled standard reading over a named variant", () => {
+    const picked = pickRecitation(
+      [{ id: 13, style: "Muallim" }, { id: 6, style: null }],
+      murattal,
+    );
+    expect(picked?.id).toBe(6);
+  });
+
+  it("does not depend on the order the API lists them in", () => {
+    const listed = [{ id: 6, style: null }, { id: 13, style: "Muallim" }];
+    expect(pickRecitation(listed, murattal)?.id).toBe(6);
+    expect(pickRecitation([...listed].reverse(), murattal)?.id).toBe(6);
+  });
+
+  it("treats a blank style string as unstyled", () => {
+    const picked = pickRecitation([{ id: 13, style: "Muallim" }, { id: 6, style: "   " }], murattal);
+    expect(picked?.id).toBe(6);
+  });
+
+  // A named variant is a different recitation, not a substitute: the teaching
+  // take repeats each word, which breaks listen-then-repeat and word recall.
+  it("returns nothing rather than substituting a named variant", () => {
+    expect(pickRecitation([{ id: 13, style: "Muallim" }], murattal)).toBeNull();
+    expect(pickRecitation([{ id: 9, style: "Mujawwad" }], murattal)).toBeNull();
+    expect(pickRecitation([], murattal)).toBeNull();
+  });
+});
+
 describe("listReciters", () => {
+  it("offers Husary's standard reading, not the Muallim teaching recording", async () => {
+    // Mirrors the upstream shape: the standard reading unlabelled, the teaching
+    // variant labelled, and the variant listed first.
+    stubQuranApi({
+      recitations: [
+        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
+        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
+        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
+        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+      ],
+    });
+
+    const husary = (await listReciters()).find((reciter) => /husary/i.test(reciter.name));
+
+    expect(husary?.id).toBe(6);
+    expect(husary?.style).toBeNull();
+  });
+
+  it("falls back to the known id when only a named variant exists upstream", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubQuranApi({
+      recitations: [
+        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
+        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
+        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+      ],
+    });
+
+    const husary = (await listReciters()).find((reciter) => /husary/i.test(reciter.name));
+
+    // The curated fallback id, never the Muallim recording.
+    expect(husary?.id).toBe(6);
+    expect(husary?.id).not.toBe(13);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+
   it("resolves the curated reciters by name and prefers the murattal reading", async () => {
     const reciters = await (async () => {
       stubQuranApi();
