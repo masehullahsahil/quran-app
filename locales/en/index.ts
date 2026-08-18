@@ -55,6 +55,7 @@ export const strings = {
   "reader.loadingSurahs": "Loading surahs…",
   "reader.loadingJuz": "Loading juz…",
   "reader.loadingReciters": "Loading reciters…",
+  "reader.noReciters": "No reciter audio available",
   "reader.reciterUnavailable": "{reciter} (audio unavailable)",
   "reader.makki": "Makki",
   "reader.madani": "Madani",

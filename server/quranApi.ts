@@ -53,30 +53,45 @@ export function clearQuranCache(): void {
   cache.clear();
 }
 
+const RECITER_ABDUL_BASIT = /abdul[\s-]*ba[sz][ei]t/i;
+const RECITER_SHURAIM = /shura[iy]m/i;
+
 /**
  * The reciters the app offers, in the order they appear in the picker.
  *
- * Each entry carries both a known recitation id and a name pattern. The ids are
- * used as-is when the upstream recitation list is unavailable; when it is
- * available the pattern wins, so a renumbering upstream cannot silently swap
- * Husary's audio for someone else's. `preferStyle` disambiguates reciters who
- * have several recordings — the measured murattal reading is the one to learn
- * from. See rankRecitations() for how a reciter with more than one style is
- * ordered, and resolveReciter() for why being listed is not enough to be
- * offered.
+ * A reciter is matched by *name* against /resources/recitations, and whichever
+ * of their recordings actually serves audio is what gets offered — see
+ * rankRecitations() for the ordering and resolveReciter() for the probe. Nothing
+ * here is trusted to work simply because it is written down.
+ *
+ * `fallbackId` is a recitation id already known to serve audio, used only when
+ * the recitations list itself is unreachable. It is deliberately absent for
+ * reciters whose id has not been confirmed: an unverified id is worse than none,
+ * because a wrong one points at a different reciter's audio instead of failing
+ * honestly. Those entries resolve by name from the live API, or are not offered.
+ *
+ * Al-Husary was removed after his recordings kept resolving to recitations that
+ * serve no audio. To bring him back, add him the way the id-less entries below
+ * are written — by name, and let the probe decide.
  */
 const CURATED_RECITERS: Array<{
-  fallbackId: number;
+  fallbackId?: number;
   name: string;
   pattern: RegExp;
   preferStyle: RegExp;
 }> = [
+  // Written "Alafasy", "al-`Afasy" and "Al-Afasy" upstream at different times.
   { fallbackId: 7, name: "Mishari Rashid al-Afasy", pattern: /afasy/i, preferStyle: /murattal/i },
-  { fallbackId: 6, name: "Mahmoud Khalil Al-Husary", pattern: /husary/i, preferStyle: /murattal/i },
-  { fallbackId: 8, name: "Mohamed Siddiq al-Minshawi", pattern: /minsh[aā]w/i, preferStyle: /murattal/i },
+  // "AbdulBaset AbdulSamad" upstream; also written "Abdul Basit Abdul Samad".
+  // He has both a mujawwad and a murattal reading; the murattal is the measured
+  // one to learn from, which is what preferStyle selects.
+  { name: "AbdulBaset AbdulSamad", pattern: RECITER_ABDUL_BASIT, preferStyle: /murattal/i },
+  // "Saud ash-Shuraym" / "Saud Al-Shuraim".
+  { name: "Saud Al-Shuraim", pattern: RECITER_SHURAIM, preferStyle: /murattal/i },
+  { fallbackId: 8, name: "Mohamed Siddiq al-Minshawi", pattern: /minsh[a\u0101]w/i, preferStyle: /murattal/i },
 ];
 
-export const DEFAULT_RECITER_ID = CURATED_RECITERS[0].fallbackId;
+export const DEFAULT_RECITER_ID = CURATED_RECITERS[0].fallbackId ?? 7;
 
 /**
  * Order a reciter's recordings by how well they suit this app, best first.
@@ -250,7 +265,7 @@ type RecitationResponse = {
 async function resolveReciter(
   entry: (typeof CURATED_RECITERS)[number],
   available: RecitationResponse["recitations"],
-): Promise<Reciter> {
+): Promise<Reciter | null> {
   const matches = available.filter((option) => entry.pattern.test(option.reciter_name));
   const ranked = rankRecitations(matches, entry.preferStyle);
 
@@ -268,16 +283,26 @@ async function resolveReciter(
     );
   }
 
-  // Nothing the API listed under this name plays. The known id is the last
+  // Nothing the API listed under this name plays. A known-good id is the last
   // thing to try — it predates the list and may still serve files.
-  if (await recitationServesAudio(entry.fallbackId)) {
-    return { id: entry.fallbackId, name: entry.name, style: null, available: true };
+  if (entry.fallbackId !== undefined) {
+    if (await recitationServesAudio(entry.fallbackId)) {
+      return { id: entry.fallbackId, name: entry.name, style: null, available: true };
+    }
+    console.warn(
+      `[quran] ${entry.name}: no recitation serves audio (tried ${[...ranked.map((c) => c.id), entry.fallbackId].join(", ")})`,
+    );
+    return { id: entry.fallbackId, name: entry.name, style: null, available: false };
   }
 
+  // No confirmed id to fall back to, so there is nothing honest to show. Leave
+  // the reciter out rather than offer a control pointing at a guess.
   console.warn(
-    `[quran] ${entry.name}: no recitation serves audio (tried ${[...ranked.map((c) => c.id), entry.fallbackId].join(", ")})`,
+    `[quran] ${entry.name}: not offered — nothing under that name serves audio${
+      ranked.length ? ` (tried ${ranked.map((c) => c.id).join(", ")})` : " and the API lists none"
+    }`,
   );
-  return { id: entry.fallbackId, name: entry.name, style: null, available: false };
+  return null;
 }
 
 export async function listReciters(): Promise<Reciter[]> {
@@ -291,7 +316,8 @@ export async function listReciters(): Promise<Reciter[]> {
       console.warn("[quran] Recitation list unavailable; falling back to known reciter ids", error);
     }
 
-    return Promise.all(CURATED_RECITERS.map((entry) => resolveReciter(entry, available)));
+    const resolved = await Promise.all(CURATED_RECITERS.map((entry) => resolveReciter(entry, available)));
+    return resolved.filter((reciter): reciter is Reciter => reciter !== null);
   });
 }
 

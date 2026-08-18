@@ -676,7 +676,7 @@ export default function Home() {
                         </option>
                       );
                     })
-                  : <option value="">{t("reader.loadingReciters")}</option>}
+                  : <option value="">{quranIndex.isSuccess ? t("reader.noReciters") : t("reader.loadingReciters")}</option>}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
