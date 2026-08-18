@@ -90,6 +90,8 @@ function stubQuranApi(options: {
       return new Response(JSON.stringify({
         recitations: options.recitations ?? [
           { id: 1, reciter_name: "AbdulBaset AbdulSamad", style: "Mujawwad" },
+          { id: 2, reciter_name: "AbdulBaset AbdulSamad", style: "Murattal" },
+          { id: 10, reciter_name: "Saud ash-Shuraym", style: "Murattal" },
           { id: 61, reciter_name: "Mahmoud Khalil Al-Husary", style: "Murattal" },
           { id: 62, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
           { id: 63, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Mujawwad" },
@@ -332,46 +334,89 @@ describe("rankRecitations", () => {
 });
 
 describe("listReciters", () => {
-  const husaryOf = async () => (await listReciters()).find((reciter) => /husary/i.test(reciter.name));
+  const named = async (pattern: RegExp) =>
+    (await listReciters()).find((reciter) => pattern.test(reciter.name));
 
-  it("offers Husary's standard reading, not the Muallim teaching recording", async () => {
+  it("offers the curated lineup and no longer offers Al-Husary", async () => {
+    stubQuranApi();
+    const reciters = await listReciters();
+
+    expect(reciters.map((reciter) => reciter.name)).toEqual([
+      "Mishari Rashid al-`Afasy",
+      "AbdulBaset AbdulSamad",
+      "Saud ash-Shuraym",
+      "Mohamed Siddiq al-Minshawi",
+    ]);
+    // Removed after his recordings kept resolving to silent recitations.
+    expect(reciters.some((reciter) => /husary/i.test(reciter.name))).toBe(false);
+  });
+
+  it("picks Abdul Basit's murattal reading over his mujawwad one", async () => {
+    stubQuranApi();
+    const abdulBasit = await named(/abdulbaset/i);
+    expect(abdulBasit?.id).toBe(2);
+    expect(abdulBasit?.style).toBe("Murattal");
+    expect(abdulBasit?.available).toBe(true);
+  });
+
+  it("matches Al-Shuraim however the API spells him", async () => {
+    stubQuranApi();
+    expect((await named(/shuray?m/i))?.id).toBe(10);
+
+    clearQuranCache();
     stubQuranApi({
       recitations: [
-        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
-        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
-        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
-        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
+        { id: 62, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
+        { id: 99, reciter_name: "Saud Al-Shuraim", style: "Murattal" },
       ],
     });
+    expect((await named(/shurai?m/i))?.id).toBe(99);
+  });
 
-    const husary = await husaryOf();
-    expect(husary?.id).toBe(6);
-    expect(husary?.style).toBeNull();
-    expect(husary?.available).toBe(true);
+  // Falling back to another of the same reciter's readings is intended — as
+  // long as the label says which one it is.
+  it("falls through to a reciter's other style when the preferred one is silent", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubQuranApi({ silentReciters: [2] });
+
+    const abdulBasit = await named(/abdulbaset/i);
+
+    expect(abdulBasit?.id).toBe(1);
+    expect(abdulBasit?.style).toBe("Mujawwad");
+    expect(abdulBasit?.available).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("only offers a reciter whose audio was confirmed across the probed surahs", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    stubQuranApi({ silentReciters: [1, 2, 10] });
+
+    const reciters = await listReciters();
+
+    // Both new reciters were listed upstream but serve nothing, and neither has
+    // a confirmed id to fall back on, so neither is offered at all.
+    expect(reciters.some((reciter) => /abdulbaset/i.test(reciter.name))).toBe(false);
+    expect(reciters.some((reciter) => /shuray?m/i.test(reciter.name))).toBe(false);
+    expect(reciters.map((reciter) => reciter.id)).toEqual([62, 64]);
+    warn.mockRestore();
   });
 
   /**
-   * The reported situation: the entry we would pick on name and style alone is
-   * listed by the API but serves no files. Ranking is not enough — the resolver
-   * has to move on to one that actually plays.
+   * The rule that keeps an unverified id from ever reaching a reader: entries
+   * without a confirmed fallbackId are dropped rather than pointed at a guess.
    */
-  it("skips a listed recitation that serves no audio and takes the next that does", async () => {
+  it("drops an id-less reciter the API does not list, rather than inventing one", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     stubQuranApi({
-      recitations: [
-        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
-        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
-        { id: 12, reciter_name: "Mahmoud Khalil Al-Husary", style: "Murattal" },
-        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
-        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
-      ],
-      // The murattal entry ranks first but is silent; the unstyled one plays.
-      silentReciters: [12, 13],
+      recitations: [{ id: 62, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" }],
     });
 
-    const husary = await husaryOf();
-    expect(husary?.id).toBe(6);
-    expect(husary?.available).toBe(true);
+    const reciters = await listReciters();
+
+    expect(reciters.map((reciter) => reciter.name)).toEqual([
+      "Mishari Rashid al-`Afasy",
+      "Mohamed Siddiq al-Minshawi",
+    ]);
     warn.mockRestore();
   });
 
@@ -382,7 +427,6 @@ describe("listReciters", () => {
     const probed = calls
       .filter((url) => url.includes("/quran/recitations/"))
       .map((url) => Number(new URL(url).searchParams.get("chapter_number")));
-    expect(new Set(probed).size).toBeGreaterThan(1);
     expect(probed).toContain(1);
     expect(probed).toContain(36);
     expect(probed).toContain(112);
@@ -390,78 +434,25 @@ describe("listReciters", () => {
 
   it("requires every probed surah to have audio, not just one", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // Husary's only entry serves al-Fatiha but nothing else.
     stubQuranApi({
-      recitations: [
-        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
-        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
-        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
-      ],
-      audioFilesByChapter: { 1: [{ verse_key: "1:1", url: "Husary/mp3/001001.mp3" }] },
-      partialReciters: [6],
+      audioFilesByChapter: { 1: [{ verse_key: "1:1", url: "AbdulBaset/mp3/001001.mp3" }] },
+      partialReciters: [1, 2],
     });
 
-    const husary = await husaryOf();
-    expect(husary?.available).toBe(false);
+    // Serves al-Fatiha only, so it does not qualify and is not offered.
+    expect(await named(/abdulbaset/i)).toBeUndefined();
     warn.mockRestore();
   });
 
-  it("marks a reciter unavailable when nothing under that name plays", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    stubQuranApi({
-      recitations: [
-        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
-        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
-        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
-        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
-      ],
-      silentReciters: [6, 13],
-    });
-
-    const husary = await husaryOf();
-    expect(husary?.available).toBe(false);
-    // Never labelled with a style it is not serving.
-    expect(husary?.style).toBeNull();
-    expect(warn).toHaveBeenCalled();
-    warn.mockRestore();
-  });
-
-  it("labels a chosen variant with its real style rather than implying the standard reading", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    stubQuranApi({
-      recitations: [
-        { id: 13, reciter_name: "Mahmoud Khalil Al-Husary", style: "Muallim" },
-        { id: 6, reciter_name: "Mahmoud Khalil Al-Husary", style: null },
-        { id: 7, reciter_name: "Mishari Rashid al-`Afasy", style: "Murattal" },
-        { id: 8, reciter_name: "Mohamed Siddiq al-Minshawi", style: "Murattal" },
-      ],
-      silentReciters: [6],
-    });
-
-    const husary = await husaryOf();
-    expect(husary?.id).toBe(13);
-    expect(husary?.style).toBe("Muallim");
-    warn.mockRestore();
-  });
-
-  it("resolves the curated reciters by name and prefers the murattal reading", async () => {
-    stubQuranApi();
-    const reciters = await listReciters();
-    expect(reciters).toEqual([
-      { id: 62, name: "Mishari Rashid al-`Afasy", style: "Murattal", available: true },
-      { id: 61, name: "Mahmoud Khalil Al-Husary", style: "Murattal", available: true },
-      { id: 64, name: "Mohamed Siddiq al-Minshawi", style: "Murattal", available: true },
-    ]);
-  });
-
-  it("falls back to known ids when the recitation list is unavailable", async () => {
+  it("keeps reciters that do have a confirmed id when the list is unavailable", async () => {
     stubQuranApi({ failRecitations: true });
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const reciters = await listReciters();
 
-    expect(reciters.map((reciter) => reciter.id)).toEqual([7, 6, 8]);
-    expect(reciters[0].name).toContain("Afasy");
+    // Only Alafasy and Minshawi carry confirmed ids; the id-less pair cannot be
+    // resolved without the list and are left out.
+    expect(reciters.map((reciter) => reciter.id)).toEqual([7, 8]);
     expect(reciters.every((reciter) => reciter.available)).toBe(true);
   });
 });
@@ -487,7 +478,7 @@ describe("getQuranIndex", () => {
 
     expect(index.surahs.map((surah) => surah.number)).toEqual([1, 2, 36, 112]);
     expect(index.juzs.map((juz) => juz.number)).toEqual([1, 2]);
-    expect(index.reciters.length).toBe(3);
+    expect(index.reciters.length).toBe(4);
     expect(index.translations.map((item) => item.languageName)).toContain("Pashto");
     // Al-Fatiha's basmala is ayah 1, so it gets no separate basmala line.
     expect(index.surahs[0].bismillahPre).toBe(false);
