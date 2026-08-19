@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARABIC_LETTERS, HARAKAT, allLetterAudioPaths, letterAudioPath } from "./arabicLetters";
+import { ARABIC_LETTERS, HARAKAT, allLetterAudioPaths, hafizLetterAudioPath } from "./arabicLetters";
 
 describe("Arabic letter table", () => {
   it("covers all 28 letters", () => {
@@ -31,12 +31,13 @@ describe("Arabic letter table", () => {
   });
 });
 
-describe("letterAudioPath", () => {
+describe("hafizLetterAudioPath", () => {
+  // The naming the reciter records to, independent of which source is active.
   it("builds the documented paths", () => {
-    expect(letterAudioPath("alif")).toBe("/audio/letters/alif.mp3");
-    expect(letterAudioPath("alif", "fatha")).toBe("/audio/letters/alif-fatha.mp3");
-    expect(letterAudioPath("alif", "kasra")).toBe("/audio/letters/alif-kasra.mp3");
-    expect(letterAudioPath("alif", "damma")).toBe("/audio/letters/alif-damma.mp3");
+    expect(hafizLetterAudioPath("alif")).toBe("/audio/letters/alif.mp3");
+    expect(hafizLetterAudioPath("alif", "fatha")).toBe("/audio/letters/alif-fatha.mp3");
+    expect(hafizLetterAudioPath("alif", "kasra")).toBe("/audio/letters/alif-kasra.mp3");
+    expect(hafizLetterAudioPath("alif", "damma")).toBe("/audio/letters/alif-damma.mp3");
   });
 
   it("enumerates 112 distinct recordings", () => {

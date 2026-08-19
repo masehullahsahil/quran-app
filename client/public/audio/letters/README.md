@@ -1,13 +1,33 @@
 # Arabic letter recordings
 
-Drop the reciter's `.mp3` files straight into this directory. Nothing else has
-to change — the Learn · Starter controls build their paths from the filename
-convention below, so a file appears in the app as soon as it is here.
+Drop the reciter's `.mp3` files straight into this directory. The Learn · Starter
+controls build their paths from the filename convention below, so a file is
+picked up by its name alone — with one switch to flip first, see the next
+section.
 
 Until a file exists the app says the recording is unavailable. It never
 substitutes speech synthesis: several of these letters (ح ع ص ض ط ظ ق غ) have no
 English phoneme, so a synthetic English voice does not approximate them, it says
 a different sound.
+
+## Placeholder audio is currently switched on
+
+This directory is empty, and while it is, the app is serving **temporary
+stand-in recordings from islamcan.com** for the bare letters. They are borrowed
+audio, not ours, and they are marked as temporary everywhere the learner sees
+them. The harakat controls stay disabled — the placeholder set has no vowelled
+forms, and playing the bare letter for them would teach the wrong sound.
+
+Dropping the reciter's files in here is not enough on its own; the active source
+is chosen in `client/src/lib/letterAudioSources.ts`, one line:
+
+```ts
+export const ACTIVE_LETTER_AUDIO_SOURCE: LetterAudioSource = ISLAMCAN_PLACEHOLDER;
+//                                                           ^ HAFIZ_RECORDINGS
+```
+
+Change that to `HAFIZ_RECORDINGS` and the app reads this directory again, all
+112 files, harakat controls included. Nothing else moves.
 
 ## Naming
 

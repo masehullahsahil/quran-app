@@ -19,6 +19,8 @@
  * nothing at all.
  */
 
+import { ACTIVE_LETTER_AUDIO_SOURCE, HAFIZ_RECORDINGS } from "./letterAudioSources";
+
 export type Harakat = "fatha" | "kasra" | "damma";
 
 export type ArabicLetter = {
@@ -71,25 +73,43 @@ export const ARABIC_LETTERS: ArabicLetter[] = [
   { letter: "ي", name: "Yaa", slug: "ya", transliteration: "yāʾ", sound: "y" },
 ];
 
-/** Public directory the recordings are served from. */
+/** Public directory our own recordings are served from. */
 export const LETTER_AUDIO_DIR = "/audio/letters";
 
 /**
- * Path to a letter's recording: the letter alone, or carrying one harakat.
+ * URL for a letter's recording from whichever source is currently active, or
+ * null when that source has no file for it.
  *
- *   letterAudioPath("alif")          → /audio/letters/alif.mp3
- *   letterAudioPath("alif", "fatha") → /audio/letters/alif-fatha.mp3
+ * The source is chosen in letterAudioSources.ts. While the placeholder set is
+ * active this returns islamcan.com URLs for bare letters and null for the
+ * harakat forms, which that source does not carry.
  */
-export function letterAudioPath(slug: string, harakat?: Harakat): string {
-  return `${LETTER_AUDIO_DIR}/${harakat ? `${slug}-${harakat}` : slug}.mp3`;
+export function letterAudioPath(slug: string, harakat?: Harakat): string | null {
+  return ACTIVE_LETTER_AUDIO_SOURCE.url(slug, harakat);
 }
 
-/** Every recording the Learn section can ask for: 28 letters × (alone + 3 harakat). */
+/**
+ * Path to a letter's recording in *our own* set, regardless of which source is
+ * active — the naming the reciter is recording to.
+ *
+ *   hafizLetterAudioPath("alif")          → /audio/letters/alif.mp3
+ *   hafizLetterAudioPath("alif", "fatha") → /audio/letters/alif-fatha.mp3
+ */
+export function hafizLetterAudioPath(slug: string, harakat?: Harakat): string {
+  // Never null for this source: it defines a path for every letter and harakat.
+  return HAFIZ_RECORDINGS.url(slug, harakat) as string;
+}
+
+/**
+ * Every recording the reciter is asked to deliver: 28 letters × (alone + 3
+ * harakat). Deliberately tied to our own set rather than the active source —
+ * the hand-off list must not shrink because a placeholder is switched on.
+ */
 export function allLetterAudioPaths(): string[] {
   const paths: string[] = [];
   for (const letter of ARABIC_LETTERS) {
-    paths.push(letterAudioPath(letter.slug));
-    for (const harakat of HARAKAT) paths.push(letterAudioPath(letter.slug, harakat.id));
+    paths.push(hafizLetterAudioPath(letter.slug));
+    for (const harakat of HARAKAT) paths.push(hafizLetterAudioPath(letter.slug, harakat.id));
   }
   return paths;
 }

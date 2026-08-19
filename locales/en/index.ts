@@ -128,7 +128,14 @@ export const strings = {
   "starter.nextLetter": "Next letter",
   "starter.audioIdle": "Choose the letter alone or with a harakat to hear the reciter.",
   "starter.audioPlaying": "Playing the reciter’s recording.",
+  "starter.audioAttribution": "Stand-in letter audio courtesy of {source}.",
+  "starter.audioIdlePlaceholder":
+    "Choose a letter to hear it. These are temporary stand-in recordings until the reciter’s set is delivered.",
+  "starter.audioPlayingPlaceholder": "Playing a temporary stand-in recording, not the reciter’s.",
   "starter.audioUnavailable": "This recording has not been added yet. Recitation audio is recorded by a qualified reciter — the app will not read Arabic with a synthetic English voice.",
+  "starter.audioUnavailablePlaceholder":
+    "This stand-in recording would not load. The placeholder set is borrowed audio and may move or disappear; it goes away once the reciter’s own set arrives. The app will not read Arabic with a synthetic English voice.",
+  "starter.audioFormUnavailable": "The placeholder recordings cover the letters on their own. Vowelled forms arrive with the reciter’s set — the app will not substitute a different sound for them.",
   "starter.quickCheck": "Quick check",
   "starter.quickCheckPrompt": "Which letter is this?",
   "starter.quickCheckCorrect": "Correct. You can mark this letter as practised when you have said it with your teacher.",
