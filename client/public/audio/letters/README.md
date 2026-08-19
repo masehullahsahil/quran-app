@@ -1,33 +1,41 @@
 # Arabic letter recordings
 
-Drop the reciter's `.mp3` files straight into this directory. The Learn · Starter
-controls build their paths from the filename convention below, so a file is
-picked up by its name alone — with one switch to flip first, see the next
-section.
+Drop the reciter's `.mp3` files straight into this directory, over the generated
+clips of the same name. The Learn · Starter controls build their paths from the
+filename convention below, so a file is picked up by its name alone — with one
+switch to flip, see the next section.
 
-Until a file exists the app says the recording is unavailable. It never
-substitutes speech synthesis: several of these letters (ح ع ص ض ط ظ ق غ) have no
-English phoneme, so a synthetic English voice does not approximate them, it says
-a different sound.
+Arabic is never read by an English voice here. Several of these letters
+(ح ع ص ض ط ظ ق غ) have no English phoneme, so an English voice does not
+approximate them, it says a different sound. When a file is missing the app says
+so and plays nothing.
 
-## Placeholder audio is currently switched on
+## The clips here are synthesised for now
 
-This directory is empty, and while it is, the app is serving **temporary
-stand-in recordings from islamcan.com** for the bare letters. They are borrowed
-audio, not ours, and they are marked as temporary everywhere the learner sees
-them. The harakat controls stay disabled — the placeholder set has no vowelled
-forms, and playing the bare letter for them would teach the wrong sound.
+Until a hafiz records the set, these files are generated once by an Arabic
+text-to-speech voice:
 
-Dropping the reciter's files in here is not enough on its own; the active source
-is chosen in `client/src/lib/letterAudioSources.ts`, one line:
+```bash
+OPENAI_API_KEY=sk-... node scripts/generate-letter-audio.mjs
+```
+
+`generated.json` in this directory records the model, the voice and the exact
+Arabic text behind each clip — that is how you tell a synthesised clip from a
+recorded one after both have lived here. The app discloses the synthesised voice
+to the learner and does not credit a reciter for it.
+
+Replacing them is a copy plus one line. The active source is chosen in
+`client/src/lib/letterAudioSources.ts`:
 
 ```ts
-export const ACTIVE_LETTER_AUDIO_SOURCE: LetterAudioSource = ISLAMCAN_PLACEHOLDER;
+export const ACTIVE_LETTER_AUDIO_SOURCE: LetterAudioSource = OPENAI_TTS;
 //                                                           ^ HAFIZ_RECORDINGS
 ```
 
-Change that to `HAFIZ_RECORDINGS` and the app reads this directory again, all
-112 files, harakat controls included. Nothing else moves.
+Both sources read this directory under the same filenames, so the recordings
+replace the generated clips by sitting on top of them. Changing that line only
+changes how the audio is described. Remove each replaced entry from
+`generated.json` — or delete the file once every clip is a recording.
 
 ## Naming
 

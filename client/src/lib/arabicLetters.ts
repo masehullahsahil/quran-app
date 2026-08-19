@@ -32,6 +32,15 @@ export type ArabicLetter = {
   slug: string;
   /** Academic transliteration, for the reciter's recording list. */
   transliteration: string;
+  /**
+   * The letter's name written in Arabic, vowelled — أَلِف, بَاء, تَاء.
+   *
+   * This is the text sent to a speech engine when audio is generated, and it
+   * is why the generated audio says the letter rather than mangling a
+   * transliteration: a voice handed "Alif" reads English spelling and produces
+   * something that is not the letter. See scripts/generate-letter-audio.mjs.
+   */
+  arabicName: string;
   /** Rough written hint at the sound. Never spoken aloud by the app. */
   sound: string;
 };
@@ -43,38 +52,55 @@ export const HARAKAT: Array<{ id: Harakat; label: string; mark: string; hint: st
 ];
 
 export const ARABIC_LETTERS: ArabicLetter[] = [
-  { letter: "ا", name: "Alif", slug: "alif", transliteration: "ʾalif", sound: "a" },
-  { letter: "ب", name: "Baa", slug: "ba", transliteration: "bāʾ", sound: "b" },
-  { letter: "ت", name: "Taa", slug: "ta", transliteration: "tāʾ", sound: "t" },
-  { letter: "ث", name: "Thaa", slug: "tha", transliteration: "thāʾ", sound: "th" },
-  { letter: "ج", name: "Jeem", slug: "jeem", transliteration: "jīm", sound: "j" },
-  { letter: "ح", name: "Haa", slug: "hha", transliteration: "ḥāʾ", sound: "ḥ" },
-  { letter: "خ", name: "Khaa", slug: "kha", transliteration: "khāʾ", sound: "kh" },
-  { letter: "د", name: "Daal", slug: "dal", transliteration: "dāl", sound: "d" },
-  { letter: "ذ", name: "Dhaal", slug: "dhal", transliteration: "dhāl", sound: "dh" },
-  { letter: "ر", name: "Raa", slug: "ra", transliteration: "rāʾ", sound: "r" },
-  { letter: "ز", name: "Zaay", slug: "zay", transliteration: "zāy", sound: "z" },
-  { letter: "س", name: "Seen", slug: "seen", transliteration: "sīn", sound: "s" },
-  { letter: "ش", name: "Sheen", slug: "sheen", transliteration: "shīn", sound: "sh" },
-  { letter: "ص", name: "Saad", slug: "sad", transliteration: "ṣād", sound: "ṣ" },
-  { letter: "ض", name: "Daad", slug: "dad", transliteration: "ḍād", sound: "ḍ" },
-  { letter: "ط", name: "Taa", slug: "tta", transliteration: "ṭāʾ", sound: "ṭ" },
-  { letter: "ظ", name: "Zaa", slug: "zza", transliteration: "ẓāʾ", sound: "ẓ" },
-  { letter: "ع", name: "Ayn", slug: "ayn", transliteration: "ʿayn", sound: "ʿ" },
-  { letter: "غ", name: "Ghayn", slug: "ghayn", transliteration: "ghayn", sound: "gh" },
-  { letter: "ف", name: "Faa", slug: "fa", transliteration: "fāʾ", sound: "f" },
-  { letter: "ق", name: "Qaaf", slug: "qaf", transliteration: "qāf", sound: "q" },
-  { letter: "ك", name: "Kaaf", slug: "kaf", transliteration: "kāf", sound: "k" },
-  { letter: "ل", name: "Laam", slug: "lam", transliteration: "lām", sound: "l" },
-  { letter: "م", name: "Meem", slug: "meem", transliteration: "mīm", sound: "m" },
-  { letter: "ن", name: "Noon", slug: "noon", transliteration: "nūn", sound: "n" },
-  { letter: "ه", name: "Haa", slug: "ha", transliteration: "hāʾ", sound: "h" },
-  { letter: "و", name: "Waaw", slug: "waw", transliteration: "wāw", sound: "w" },
-  { letter: "ي", name: "Yaa", slug: "ya", transliteration: "yāʾ", sound: "y" },
+  { letter: "ا", name: "Alif", slug: "alif", transliteration: "ʾalif", sound: "a", arabicName: "أَلِف" },
+  { letter: "ب", name: "Baa", slug: "ba", transliteration: "bāʾ", sound: "b", arabicName: "بَاء" },
+  { letter: "ت", name: "Taa", slug: "ta", transliteration: "tāʾ", sound: "t", arabicName: "تَاء" },
+  { letter: "ث", name: "Thaa", slug: "tha", transliteration: "thāʾ", sound: "th", arabicName: "ثَاء" },
+  { letter: "ج", name: "Jeem", slug: "jeem", transliteration: "jīm", sound: "j", arabicName: "جِيم" },
+  { letter: "ح", name: "Haa", slug: "hha", transliteration: "ḥāʾ", sound: "ḥ", arabicName: "حَاء" },
+  { letter: "خ", name: "Khaa", slug: "kha", transliteration: "khāʾ", sound: "kh", arabicName: "خَاء" },
+  { letter: "د", name: "Daal", slug: "dal", transliteration: "dāl", sound: "d", arabicName: "دَال" },
+  { letter: "ذ", name: "Dhaal", slug: "dhal", transliteration: "dhāl", sound: "dh", arabicName: "ذَال" },
+  { letter: "ر", name: "Raa", slug: "ra", transliteration: "rāʾ", sound: "r", arabicName: "رَاء" },
+  { letter: "ز", name: "Zaay", slug: "zay", transliteration: "zāy", sound: "z", arabicName: "زَاي" },
+  { letter: "س", name: "Seen", slug: "seen", transliteration: "sīn", sound: "s", arabicName: "سِين" },
+  { letter: "ش", name: "Sheen", slug: "sheen", transliteration: "shīn", sound: "sh", arabicName: "شِين" },
+  { letter: "ص", name: "Saad", slug: "sad", transliteration: "ṣād", sound: "ṣ", arabicName: "صَاد" },
+  { letter: "ض", name: "Daad", slug: "dad", transliteration: "ḍād", sound: "ḍ", arabicName: "ضَاد" },
+  { letter: "ط", name: "Taa", slug: "tta", transliteration: "ṭāʾ", sound: "ṭ", arabicName: "طَاء" },
+  { letter: "ظ", name: "Zaa", slug: "zza", transliteration: "ẓāʾ", sound: "ẓ", arabicName: "ظَاء" },
+  { letter: "ع", name: "Ayn", slug: "ayn", transliteration: "ʿayn", sound: "ʿ", arabicName: "عَيْن" },
+  { letter: "غ", name: "Ghayn", slug: "ghayn", transliteration: "ghayn", sound: "gh", arabicName: "غَيْن" },
+  { letter: "ف", name: "Faa", slug: "fa", transliteration: "fāʾ", sound: "f", arabicName: "فَاء" },
+  { letter: "ق", name: "Qaaf", slug: "qaf", transliteration: "qāf", sound: "q", arabicName: "قَاف" },
+  { letter: "ك", name: "Kaaf", slug: "kaf", transliteration: "kāf", sound: "k", arabicName: "كَاف" },
+  { letter: "ل", name: "Laam", slug: "lam", transliteration: "lām", sound: "l", arabicName: "لَام" },
+  { letter: "م", name: "Meem", slug: "meem", transliteration: "mīm", sound: "m", arabicName: "مِيم" },
+  { letter: "ن", name: "Noon", slug: "noon", transliteration: "nūn", sound: "n", arabicName: "نُون" },
+  { letter: "ه", name: "Haa", slug: "ha", transliteration: "hāʾ", sound: "h", arabicName: "هَاء" },
+  { letter: "و", name: "Waaw", slug: "waw", transliteration: "wāw", sound: "w", arabicName: "وَاو" },
+  { letter: "ي", name: "Yaa", slug: "ya", transliteration: "yāʾ", sound: "y", arabicName: "يَاء" },
 ];
 
+/**
+ * The Arabic text a speech engine is given for one recording.
+ *
+ *   letterSpeechText(alif)          → أَلِف   (the letter's name)
+ *   letterSpeechText(ba, "fatha")   → بَ      (the letter carrying the vowel)
+ *
+ * The vowelled forms are the glyph, not the name, because that is what the
+ * lesson teaches: the Fatha control is asking for the sound *ba*, not for the
+ * word "bāʾ". Live here rather than in the generator so the app, the generator
+ * and the tests cannot drift apart about what a given file contains.
+ */
+export function letterSpeechText(letter: ArabicLetter, harakat?: Harakat): string {
+  if (!harakat) return letter.arabicName;
+  const mark = HARAKAT.find((entry) => entry.id === harakat)?.mark ?? "";
+  return `${letter.letter}${mark}`;
+}
+
 /** Public directory our own recordings are served from. */
-export const LETTER_AUDIO_DIR = "/audio/letters";
+export { LETTER_AUDIO_DIR } from "./letterAudioSources";
 
 /**
  * URL for a letter's recording from whichever source is currently active, or
