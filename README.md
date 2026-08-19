@@ -394,9 +394,44 @@ The playback path is in place and the recordings are not yet — until a file
 exists the control says the recording is unavailable, which is the intended
 behaviour rather than a bug.
 
+### Placeholder audio (temporary)
+
+The reciter's set has not been delivered, so the app currently serves borrowed
+per-letter audio from **islamcan.com** as a stand-in, for the 28 letters on
+their own. The learner is told it is temporary; the harakat controls are
+disabled because the placeholder set has no vowelled forms, and playing the bare
+letter in their place would teach *ba* where the lesson asked for *bi*.
+
+Sources live in [`client/src/lib/letterAudioSources.ts`](client/src/lib/letterAudioSources.ts).
+Swapping to the recorded set is one line:
+
+```ts
+export const ACTIVE_LETTER_AUDIO_SOURCE: LetterAudioSource = ISLAMCAN_PLACEHOLDER;
+//                                                           ^ HAFIZ_RECORDINGS
+```
+
+`HAFIZ_RECORDINGS` builds exactly the `/audio/letters/{slug}[-{harakat}].mp3`
+paths documented below, so the two sources share one naming and lookup pattern
+and nothing else changes.
+
+The islamcan URL pattern could not be reached from the network this was written
+on, so it is a best guess isolated to two constants and a `FILE_NAME_OVERRIDES`
+map in that file. Check all 28 from a machine that can reach the site:
+
+```bash
+node scripts/check-letter-audio.mjs
+```
+
+It HEADs every URL the active source produces, prints which letters fail, and
+emits ready-to-paste `FILE_NAME_OVERRIDES` entries. A URL that turns out wrong
+fails visibly — the control says the recording would not load — it never falls
+back to speech synthesis.
+
 ### Adding recordings
 
-Drop `.mp3` files into `client/public/audio/letters/`. No code change is needed.
+Drop `.mp3` files into `client/public/audio/letters/`, then flip
+`ACTIVE_LETTER_AUDIO_SOURCE` to `HAFIZ_RECORDINGS` — that one line is the whole
+change, and it is only needed while the placeholder set is switched on.
 
 ```
 {slug}.mp3          alif.mp3          the letter alone
@@ -413,6 +448,7 @@ because the names collide: ت and ط are both written "Taa", ح and ه both "Haa
 | ----- | ---- |
 | `docs/letter-recordings.md` | The checklist to hand to the reciter — all 112 files, with recording guidance. |
 | `client/public/audio/letters/README.md` | The naming convention, next to where the files go. |
+| `client/src/lib/letterAudioSources.ts` | Which set of recordings is playing, and the one-line switch between them. |
 | `client/src/lib/arabicLetters.ts` | The letter table and path helpers — the source of truth. |
 | `client/src/hooks/useLetterAudio.ts` | Playback, and the missing-recording state. |
 

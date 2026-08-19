@@ -270,7 +270,12 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .letter-play.is-playing, .harakat-play.is-playing { border-color: #3d765d; background: #e8f2eb; }
 .letter-play.is-unavailable, .harakat-play.is-unavailable { color: #8a6a3c; border-color: #e0cba4; background: #fbf4e6; }
 .letter-play.is-unavailable small, .harakat-play.is-unavailable small { color: #8a6a3c; }
+/* A control the active audio source has no file for. Dimmed rather than hidden
+   so the letter's vowelled forms still read as part of the lesson. */
+.letter-play:disabled, .harakat-play:disabled { opacity: .45; cursor: not-allowed; }
+.letter-play:disabled:hover, .harakat-play:disabled:hover { background: #fffdf8; }
 .letter-audio-status { display: flex; align-items: center; gap: 6px; flex-basis: 100%; margin: 0; color: #7e877f; font-size: 10px; line-height: 1.5; }
+.letter-audio-credit { flex-basis: 100%; margin: 0; color: #9aa39b; font-size: 9px; letter-spacing: .02em; }
 .letter-audio-status svg { flex: none; }
 
 .quiet-action { display: inline-flex; align-items: center; gap: 7px; padding: 10px 13px; color: #174d42; border: 1px solid #c9d8cf; background: rgba(255,253,248,.68); border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 700; transition: background .18s cubic-bezier(.23,1,.32,1), transform .18s cubic-bezier(.23,1,.32,1); }

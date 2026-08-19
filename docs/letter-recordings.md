@@ -36,8 +36,10 @@ letter: ت `ta` / ط `tta` · س `seen` / ص `sad` · د `dal` / ض `dad` ·
 
 ## Where the files go
 
-`client/public/audio/letters/`. No code change is needed — a recording appears
-in the app as soon as the file is in place.
+`client/public/audio/letters/`. The app is playing temporary stand-in audio
+until the set is delivered; switching over to these files is a one-line change
+in `client/src/lib/letterAudioSources.ts`, described in that directory's
+README.
 
 ## The list
 
