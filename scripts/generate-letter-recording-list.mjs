@@ -9,24 +9,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { HARAKAT, ROOT, readLetters } from "./letterTable.mjs";
 
-const root = path.resolve(import.meta.dirname, "..");
-const source = fs.readFileSync(path.join(root, "client/src/lib/arabicLetters.ts"), "utf-8");
-
-// The module is TypeScript, so parse the literal rather than importing it.
-const letters = [...source.matchAll(
-  /\{ letter: "(.+?)", name: "(.+?)", slug: "(.+?)", transliteration: "(.+?)", sound: "(.+?)" \}/g,
-)].map(([, letter, name, slug, transliteration, sound]) => ({ letter, name, slug, transliteration, sound }));
-
-if (letters.length !== 28) {
-  throw new Error(`Expected 28 letters in arabicLetters.ts, found ${letters.length}`);
-}
-
-const HARAKAT = [
-  { id: "fatha", label: "Fatha", mark: "َ", hint: "short a" },
-  { id: "kasra", label: "Kasra", mark: "ِ", hint: "short i" },
-  { id: "damma", label: "Damma", mark: "ُ", hint: "short u" },
-];
+const root = ROOT;
+const letters = readLetters();
 
 const rows = [];
 for (const entry of letters) {
@@ -74,10 +60,10 @@ letter: ت \`ta\` / ط \`tta\` · س \`seen\` / ص \`sad\` · د \`dal\` / ض \`
 
 ## Where the files go
 
-\`client/public/audio/letters/\`. The app is playing temporary stand-in audio
-until the set is delivered; switching over to these files is a one-line change
-in \`client/src/lib/letterAudioSources.ts\`, described in that directory's
-README.
+\`client/public/audio/letters/\`, replacing the synthesised clips of the same
+name that the app is playing until this set is delivered. Switching over is a
+one-line change in \`client/src/lib/letterAudioSources.ts\`, described in that
+directory's README.
 
 ## The list
 
