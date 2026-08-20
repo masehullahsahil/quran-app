@@ -7,6 +7,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
+import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import { isStorageConfigured, storagePut } from "./storage";
@@ -23,6 +24,7 @@ const recitationInput = z.object({
   mimeType: z.enum(["audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4"]),
   surah: z.number().int().min(1).max(114),
   ayah: z.number().int().min(1).max(286),
+  learningLevel: z.enum(["beginner", "intermediate", "advanced"]).default("intermediate"),
 });
 
 type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };
@@ -33,14 +35,16 @@ async function createCoachSummary(input: {
   totalWords: number;
   corrections: Array<{ expected: string; heard: string | null; status: string; wordIndex: number | null }>;
   fallbackNextStep: string;
+  learningLevel: LearningLevel;
 }): Promise<CoachSummary> {
+  const plan = getLearningCoachPlan(input.learningLevel);
   const fallback: CoachSummary = {
     encouragement: input.score === 100
       ? "The expected words were all recognised. Keep the same calm pace for one more repetition."
       : "A good attempt. Keep the ayah together, then return only to the word marked for review.",
-    nextStep: input.fallbackNextStep,
+    nextStep: input.score === 100 ? plan.afterRecordingCue : input.fallbackNextStep,
     spokenGuidance: input.score === 100
-      ? "Every expected word was recognised. Listen once more, then repeat at the same calm pace."
+      ? `Every expected word was recognised. ${plan.afterRecordingCue}`
       : `Good attempt. ${input.fallbackNextStep}`,
   };
 
@@ -58,6 +62,9 @@ async function createCoachSummary(input: {
             matchedWords: input.matchedCount,
             totalWords: input.totalWords,
             score: input.score,
+            learningLevel: input.learningLevel,
+            lessonGoal: plan.lessonGoal,
+            focus: plan.focus,
             corrections: input.corrections.slice(0, 3),
             fallbackNextStep: input.fallbackNextStep,
           }),
@@ -141,6 +148,7 @@ export const appRouter = router({
 
   recitation: router({
     evaluate: publicProcedure.input(recitationInput).mutation(async ({ input }) => {
+      const learningPlan = getLearningCoachPlan(input.learningLevel);
       const rawBase64 = input.audioBase64.includes(",")
         ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
         : input.audioBase64;
@@ -213,15 +221,29 @@ export const appRouter = router({
           nextStep: "Use the live word guide if your browser supports it, then try a quieter recording or review the ayah with a qualified teacher.",
           spokenGuidance: "The audio service returned a translation instead of Arabic words. It cannot give a reliable word-by-word review for this recording. Listen to the reciter and try again in a quieter place.",
           wordReviewAvailable: false,
+          learningPlan: {
+            level: learningPlan.level,
+            title: learningPlan.title,
+            focus: learningPlan.focus,
+            practiceLoop: learningPlan.practiceLoop,
+            boundary: learningPlan.boundary,
+          },
           note: "No word score was calculated. This review tool only aligns Arabic words recognised by speech-to-text; it does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
         };
       }
 
       const assessment = assessRecitationTranscript(input.expectedArabic, transcription.text);
-      const coach = await createCoachSummary(assessment);
+      const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel });
 
       return {
         ...assessment,
+        learningPlan: {
+          level: learningPlan.level,
+          title: learningPlan.title,
+          focus: learningPlan.focus,
+          practiceLoop: learningPlan.practiceLoop,
+          boundary: learningPlan.boundary,
+        },
         transcript: transcription.text,
         encouragement: coach.encouragement,
         nextStep: coach.nextStep,
