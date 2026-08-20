@@ -38,6 +38,7 @@ import { SurahPicker } from "@/components/SurahPicker";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
 import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
+import { getLearningCoachPlan, uiLevelToLearningLevel } from "@shared/learningPath";
 
 type View = "read" | "learn" | "study" | "memorise";
 type LessonStage = "listen" | "repeat" | "review";
@@ -56,6 +57,13 @@ type RecitationFeedback = {
   nextStep: string;
   spokenGuidance: string;
   wordReviewAvailable: boolean;
+  learningPlan: {
+    level: "beginner" | "intermediate" | "advanced";
+    title: string;
+    focus: string;
+    practiceLoop: readonly string[];
+    boundary: string;
+  };
   note: string;
 };
 
@@ -294,6 +302,7 @@ export default function Home() {
   }, [juzs, surahNumber, selectedVerse]);
   const expectedWords = useMemo(() => (activeVerse?.arabic ?? "").split(/\s+/).filter(Boolean), [activeVerse]);
   const activeLevel = useMemo(() => learningLevels.find((level) => level.id === learningLevel) ?? learningLevels[0], [learningLevel]);
+  const activeCoachPlan = useMemo(() => getLearningCoachPlan(uiLevelToLearningLevel(learningLevel)), [learningLevel]);
   const activeLetter = alphabet[selectedLetter] ?? alphabet[0];
   const soloAudioSrc = letterAudioPath(activeLetter.slug);
   /**
@@ -531,6 +540,7 @@ export default function Home() {
         mimeType: blob.type === "audio/ogg" ? "audio/ogg" : blob.type === "audio/wav" ? "audio/wav" : blob.type === "audio/mp4" ? "audio/mp4" : "audio/webm",
         surah: surahNumber,
         ayah: activeVerse.number,
+        learningLevel: uiLevelToLearningLevel(learningLevel),
       });
       setFeedback(result as RecitationFeedback);
       setLessonStage("review");
@@ -781,9 +791,15 @@ export default function Home() {
               </div>
               {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               <p className="loop-message" role="status">{recorderMessage}</p>
+              <section className="coach-context" aria-label={t("coach.contextLabel")}>
+                <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{activeCoachPlan.title}</strong></div>
+                <p>{activeCoachPlan.lessonGoal}</p>
+                <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{activeCoachPlan.practiceLoop.map((step) => <span key={step}>{step}</span>)}</div>
+                <small><AlertCircle size={13} /> {activeCoachPlan.boundary}</small>
+              </section>
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
-              {feedback && <div className="feedback-panel"><div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable"><AlertCircle size={16} /><span>{t("feedback.reviewUnavailable")}</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("feedback.tryAgain")}</button></div>}
+              {feedback && <div className="feedback-panel"><section className="coach-context feedback-coach-context" aria-label={t("coach.reviewPlanLabel")}><div><span className="eyebrow">{t("coach.reviewPlanEyebrow")}</span><strong>{feedback.learningPlan.title}</strong></div><p>{feedback.learningPlan.focus}</p><div className="coach-loop">{feedback.learningPlan.practiceLoop.map((step) => <span key={step}>{step}</span>)}</div><small><AlertCircle size={13} /> {feedback.learningPlan.boundary}</small></section><div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable"><AlertCircle size={16} /><span>{t("feedback.reviewUnavailable")}</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("feedback.tryAgain")}</button></div>}
             </div>
             {/* A dot per ayah reads well for short surahs; al-Baqarah's 286 would
                 not, so longer surahs get a counter instead. */}
