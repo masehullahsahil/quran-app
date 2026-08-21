@@ -1,0 +1,10 @@
+# Offline Phase A word-guidance proof of concept only.
+# The API returns transcription evidence; it does not assess tajwid, makhraj,
+# pronunciation quality, melody, or religious correctness.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9,<1
+faster-whisper>=1.1,<2
+transformers>=4.46,<6
+pytest>=8,<9
+httpx>=0.28,<1

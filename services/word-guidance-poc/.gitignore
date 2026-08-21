@@ -1,0 +1,9 @@
+# Local model weights and consented benchmark audio must never be committed.
+models/*
+!models/.gitkeep
+benchmark-data/*
+!benchmark-data/.gitkeep
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
