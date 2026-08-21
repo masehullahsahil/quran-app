@@ -150,6 +150,31 @@ describe("recitation.evaluate", () => {
     expect(calls).toContain("https://s3.example.test/upload");
   });
 
+  // Learn offers two levels now; a review carries the plan for the level the
+  // learner is actually on, and the retired names are no longer accepted.
+  it("returns the plan for the learner's level, defaulting to Qaida", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices();
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(callerContext);
+
+    const defaulted = await caller.recitation.evaluate(evaluateInput);
+    expect(defaulted.learningPlan.level).toBe("qaida");
+    expect(defaulted.learningPlan.title).toBe("Qaida");
+
+    const tajweed = await caller.recitation.evaluate({ ...evaluateInput, learningLevel: "tajweed" });
+    expect(tajweed.learningPlan.level).toBe("tajweed");
+    expect(tajweed.learningPlan.boundary).toMatch(/qualified teacher/i);
+
+    await expect(
+      // @ts-expect-error "reading" was removed as a level
+      caller.recitation.evaluate({ ...evaluateInput, learningLevel: "reading" }),
+    ).rejects.toThrow();
+  });
+
   it("still returns a review when archiving fails", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
