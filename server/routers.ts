@@ -10,6 +10,7 @@ import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shar
 import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
+import { evaluateQuranAwareAudio } from "./quranEvaluator";
 import { isStorageConfigured, storagePut } from "./storage";
 
 // Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
@@ -193,11 +194,24 @@ export const appRouter = router({
       // in the prompt biases the decoder toward emitting those exact words,
       // which would inflate the recall score this endpoint exists to measure.
       // `language: "ar"` is the supported way to pin the language.
+      // The specialist evaluator and generic transcription serve distinct roles.
+      // Start them together to avoid adding serial latency: a configured acoustic
+      // service can return confidence-gated sound observations while transcription
+      // remains the reliable fallback for word recall and place-keeping.
+      const quranAwareReviewPromise = evaluateQuranAwareAudio({
+        audioBase64: rawBase64,
+        mimeType: input.mimeType,
+        expectedArabic: input.expectedArabic,
+        surah: input.surah,
+        ayah: input.ayah,
+        learningLevel: input.learningLevel,
+      });
       const transcription = await transcribeAudio({
         audio: audioBuffer,
         mimeType: input.mimeType,
         language: "ar",
       });
+      const quranAwareReview = await quranAwareReviewPromise;
 
       if ("error" in transcription) {
         throw new TRPCError({
@@ -221,6 +235,7 @@ export const appRouter = router({
           nextStep: "Use the live word guide if your browser supports it, then try a quieter recording or review the ayah with a qualified teacher.",
           spokenGuidance: "The audio service returned a translation instead of Arabic words. It cannot give a reliable word-by-word review for this recording. Listen to the reciter and try again in a quieter place.",
           wordReviewAvailable: false,
+          quranAwareReview,
           learningPlan: {
             level: learningPlan.level,
             title: learningPlan.title,
@@ -237,6 +252,7 @@ export const appRouter = router({
 
       return {
         ...assessment,
+        quranAwareReview,
         learningPlan: {
           level: learningPlan.level,
           title: learningPlan.title,
@@ -249,7 +265,9 @@ export const appRouter = router({
         nextStep: coach.nextStep,
         spokenGuidance: coach.spokenGuidance,
         wordReviewAvailable: true,
-        note: "This is a word-recall aid based on speech transcription. It does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
+        note: quranAwareReview.status === "available"
+          ? "Word recall is based on transcription. The additional acoustic observation is confidence-gated practice guidance, not certification of tajwid, makharij, melody, religious correctness, or a replacement for a qualified teacher."
+          : "This is a word-recall aid based on speech transcription. It does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
       };
     }),
   }),
