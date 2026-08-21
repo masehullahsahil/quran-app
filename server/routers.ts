@@ -212,39 +212,46 @@ export const appRouter = router({
         language: "ar",
       });
       const quranAwareReview = await quranAwareReviewPromise;
+      const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string) => ({
+        expectedWords: [],
+        extraWords: [],
+        matchedCount: 0,
+        totalWords: tokenizeArabic(input.expectedArabic).length,
+        score: 0,
+        corrections: [],
+        fallbackNextStep: nextStep,
+        transcript,
+        encouragement: "Your recording was received, but a reliable word-by-word result is not available for this attempt.",
+        nextStep,
+        spokenGuidance: "A reliable word-by-word result is not available for this attempt. Listen once more, then try recording again in a quiet place.",
+        wordReviewAvailable: false,
+        reviewStatus: "unavailable" as const,
+        reviewMessage,
+        quranAwareReview,
+        learningPlan: {
+          level: learningPlan.level,
+          title: learningPlan.title,
+          focus: learningPlan.focus,
+          practiceLoop: learningPlan.practiceLoop,
+          boundary: learningPlan.boundary,
+        },
+        note: "No word score was calculated for this attempt. The app will preserve the recording controls so you can retry immediately.",
+      });
 
       if ("error" in transcription) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: transcription.error,
-          cause: transcription,
-        });
+        return unavailableReview(
+          transcription.error,
+          "",
+          "Check your connection and microphone, then record the ayah again. The app could not complete this review, but you can retry now.",
+        );
       }
 
       if (!hasArabicScript(transcription.text)) {
-        return {
-          expectedWords: [],
-          extraWords: [],
-          matchedCount: 0,
-          totalWords: tokenizeArabic(input.expectedArabic).length,
-          score: 0,
-          corrections: [],
-          fallbackNextStep: "Replay the qualified reciter, then repeat slowly. Word-level review will resume when Arabic words are recognised.",
-          transcript: transcription.text,
-          encouragement: "Your recording was received, but the speech service returned a translation rather than Arabic words.",
-          nextStep: "Use the live word guide if your browser supports it, then try a quieter recording or review the ayah with a qualified teacher.",
-          spokenGuidance: "The audio service returned a translation instead of Arabic words. It cannot give a reliable word-by-word review for this recording. Listen to the reciter and try again in a quieter place.",
-          wordReviewAvailable: false,
-          quranAwareReview,
-          learningPlan: {
-            level: learningPlan.level,
-            title: learningPlan.title,
-            focus: learningPlan.focus,
-            practiceLoop: learningPlan.practiceLoop,
-            boundary: learningPlan.boundary,
-          },
-          note: "No word score was calculated. This review tool only aligns Arabic words recognised by speech-to-text; it does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
-        };
+        return unavailableReview(
+          "The speech service did not return Arabic words for this recording.",
+          transcription.text,
+          "Try the ayah again in a quiet place. Keep the microphone close and recite one ayah at a calm pace.",
+        );
       }
 
       const assessment = assessRecitationTranscript(input.expectedArabic, transcription.text);
@@ -265,6 +272,8 @@ export const appRouter = router({
         nextStep: coach.nextStep,
         spokenGuidance: coach.spokenGuidance,
         wordReviewAvailable: true,
+        reviewStatus: "available" as const,
+        reviewMessage: null,
         note: quranAwareReview.status === "available"
           ? "Word recall is based on transcription. The additional acoustic observation is confidence-gated practice guidance, not certification of tajwid, makharij, melody, religious correctness, or a replacement for a qualified teacher."
           : "This is a word-recall aid based on speech transcription. It does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
