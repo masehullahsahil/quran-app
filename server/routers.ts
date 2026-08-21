@@ -7,7 +7,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
-import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
+import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import { isStorageConfigured, storagePut } from "./storage";
@@ -24,7 +24,7 @@ const recitationInput = z.object({
   mimeType: z.enum(["audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4"]),
   surah: z.number().int().min(1).max(114),
   ayah: z.number().int().min(1).max(286),
-  learningLevel: z.enum(["beginner", "intermediate", "advanced"]).default("intermediate"),
+  learningLevel: z.enum(LEARNING_LEVELS).default("qaida"),
 });
 
 type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };

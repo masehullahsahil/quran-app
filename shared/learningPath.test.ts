@@ -4,12 +4,11 @@ import {
   LEARNING_LEVELS,
   getLearningCoachPlan,
   isLearningLevel,
-  uiLevelToLearningLevel,
 } from "./learningPath";
 
 describe("learning coach plans", () => {
   it("defines a complete plan for every supported learning level", () => {
-    expect(LEARNING_LEVELS).toEqual(["beginner", "intermediate", "advanced"]);
+    expect(LEARNING_LEVELS).toEqual(["qaida", "tajweed"]);
 
     for (const level of LEARNING_LEVELS) {
       const plan = getLearningCoachPlan(level);
@@ -20,16 +19,18 @@ describe("learning coach plans", () => {
     }
   });
 
-  it("maps the existing interface paths to the explicit learner levels", () => {
-    expect(uiLevelToLearningLevel("starter")).toBe("beginner");
-    expect(uiLevelToLearningLevel("reading")).toBe("intermediate");
-    expect(uiLevelToLearningLevel("advanced")).toBe("advanced");
+  // Learn carries two levels: reading connected text is the Study department's
+  // job, so no third "Reading" level sits between them.
+  it("keeps Learn to the two levels the interface offers", () => {
+    expect(LEARNING_LEVELS).toHaveLength(2);
+    expect(Object.keys(LEARNING_COACH_PLANS)).toEqual([...LEARNING_LEVELS]);
   });
 
   it("accepts only known level identifiers", () => {
-    expect(isLearningLevel("beginner")).toBe(true);
-    expect(isLearningLevel("intermediate")).toBe(true);
-    expect(isLearningLevel("advanced")).toBe(true);
+    expect(isLearningLevel("qaida")).toBe(true);
+    expect(isLearningLevel("tajweed")).toBe(true);
+    expect(isLearningLevel("reading")).toBe(false);
+    expect(isLearningLevel("beginner")).toBe(false);
     expect(isLearningLevel("teacher")).toBe(false);
     expect(isLearningLevel(undefined)).toBe(false);
   });

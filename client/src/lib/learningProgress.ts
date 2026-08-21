@@ -1,4 +1,4 @@
-export type ReadingStepId = "vowels" | "joining" | "first-ayah";
+export type QaidaStepId = "vowels" | "joining" | "first-ayah";
 
 export function progressPercent(completedCount: number, totalCount: number) {
   if (totalCount <= 0) return 0;
