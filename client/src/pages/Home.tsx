@@ -57,6 +57,8 @@ type RecitationFeedback = {
   nextStep: string;
   spokenGuidance: string;
   wordReviewAvailable: boolean;
+  reviewStatus: "available" | "unavailable";
+  reviewMessage: string | null;
   quranAwareReview: QuranAwareReview;
   learningPlan: {
     level: LearningLevel;
@@ -211,6 +213,7 @@ export default function Home() {
   const [recorderMessage, setRecorderMessage] = useState("Listen to the reciter, then record your own repetition.");
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<RecitationFeedback | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [learningLevel, setLearningLevel] = useState<LearningLevel>("qaida");
   const [selectedLetter, setSelectedLetter] = useState(0);
   const [coachAudioOn, setCoachAudioOn] = useState(true);
@@ -344,6 +347,7 @@ export default function Home() {
     setIsPlaying(false);
     setLessonStage("listen");
     setFeedback(null);
+    setReviewError(null);
     setLiveTranscript("");
     setLiveMatched([]);
     setRecorderMessage(t("recorder.intro"));
@@ -531,19 +535,28 @@ export default function Home() {
 
   const reviewRecording = async (blob: Blob) => {
     if (!activeVerse) return;
+    setLessonStage("review");
     // Checked before encoding: base64 inflates the payload by a third, and a
     // serverless host rejects an oversized body before our code can explain
-    // why. Failing here means the learner gets a sentence instead of a dead
+    // why. Failing here means the learner gets a recovery path instead of a dead
     // request.
+    if (!blob.size) {
+      const message = t("recorder.empty");
+      setReviewError(message);
+      setRecorderMessage(message);
+      return;
+    }
     if (isRecordingTooLarge(blob.size)) {
-      setRecorderMessage(t("recorder.tooLarge", {
+      const message = t("recorder.tooLarge", {
         size: formatMegabytes(blob.size),
         limit: formatMegabytes(MAX_AUDIO_BYTES),
-      }));
-      setLessonStage("listen");
+      });
+      setReviewError(message);
+      setRecorderMessage(message);
       return;
     }
     try {
+      setReviewError(null);
       setRecorderMessage(t("recorder.reviewing"));
       const audioBase64 = await blobToBase64(blob);
       const result = await evaluateRecitation.mutateAsync({
@@ -554,12 +567,14 @@ export default function Home() {
         ayah: activeVerse.number,
         learningLevel,
       });
-      setFeedback(result as RecitationFeedback);
-      setLessonStage("review");
-      setRecorderMessage(t("recorder.reviewReady"));
-      if (coachAudioOn) speakGuidance((result as RecitationFeedback).spokenGuidance);
+      const review = result as RecitationFeedback;
+      setFeedback(review);
+      setRecorderMessage(review.wordReviewAvailable ? t("recorder.reviewReady") : review.reviewMessage ?? t("feedback.reviewUnavailable"));
+      if (review.wordReviewAvailable && coachAudioOn) speakGuidance(review.spokenGuidance);
     } catch (error) {
-      setRecorderMessage(error instanceof Error ? error.message : t("recorder.reviewFailed"));
+      const message = error instanceof Error ? error.message : t("recorder.reviewFailed");
+      setReviewError(message);
+      setRecorderMessage(message);
     }
   };
 
@@ -578,6 +593,7 @@ export default function Home() {
     try {
       audioRef.current?.pause();
       setFeedback(null);
+      setReviewError(null);
       setLiveTranscript("");
       setLiveMatched([]);
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -588,6 +604,8 @@ export default function Home() {
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => {
         recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
+        recorderStreamRef.current = null;
+        recorderRef.current = null;
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         if (recordingUrlRef.current) URL.revokeObjectURL(recordingUrlRef.current);
         const nextUrl = URL.createObjectURL(blob);
@@ -595,18 +613,23 @@ export default function Home() {
         setRecordingUrl(nextUrl);
         void reviewRecording(blob);
       };
-      recorder.start();
+      recorder.start(250);
       setIsRecording(true);
       setLessonStage("repeat");
       setRecorderMessage(t("recorder.listening"));
       beginLiveGuide();
     } catch {
-      setRecorderMessage(t("recorder.noMicrophone"));
+      const message = t("recorder.noMicrophone");
+      setReviewError(message);
+      setLessonStage("repeat");
+      setRecorderMessage(message);
     }
   };
 
   const retryLesson = () => {
+    stopRecognition();
     setFeedback(null);
+    setReviewError(null);
     setLiveTranscript("");
     setLiveMatched([]);
     setLessonStage("listen");
@@ -811,7 +834,8 @@ export default function Home() {
               </section>
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
-              {feedback && <div className="feedback-panel"><section className="coach-context feedback-coach-context" aria-label={t("coach.reviewPlanLabel")}><div><span className="eyebrow">{t("coach.reviewPlanEyebrow")}</span><strong>{feedback.learningPlan.title}</strong></div><p>{feedback.learningPlan.focus}</p><div className="coach-loop">{feedback.learningPlan.practiceLoop.map((step) => <span key={step}>{step}</span>)}</div><small><AlertCircle size={13} /> {feedback.learningPlan.boundary}</small></section>{feedback.quranAwareReview.status !== "not_configured" && <section className="acoustic-review" aria-label={t("feedback.acousticLabel")}><div className="acoustic-review-header"><div><span className="eyebrow">{t("feedback.acousticLabel")}</span><strong>{feedback.quranAwareReview.status === "available" ? t("feedback.acousticAvailable") : feedback.quranAwareReview.status === "abstained" ? t("feedback.acousticAbstained") : t("feedback.acousticUnavailable")}</strong></div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.confidence !== null && <small>{t("feedback.acousticConfidence", { percent: Math.round(feedback.quranAwareReview.confidence * 100) })}</small>}</div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.summary && <p>{feedback.quranAwareReview.summary}</p>}{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.findings.length > 0 && <div className="acoustic-finding-list">{feedback.quranAwareReview.findings.map((finding, index) => <div className="acoustic-finding" key={`${finding.kind}-${finding.wordIndex ?? "general"}-${index}`}><span>{t(acousticFindingLabels[finding.kind])}</span><p>{finding.guidance}</p>{finding.expectedArabic && <small lang="ar" dir="rtl">{finding.expectedArabic}</small>}</div>)}</div>}<small className="acoustic-boundary"><AlertCircle size={13} /> {t("feedback.acousticBoundary")}</small></section>}<div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable"><AlertCircle size={16} /><span>{t("feedback.reviewUnavailable")}</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("feedback.tryAgain")}</button></div>}
+              {reviewError && <div className="review-unavailable review-recovery" role="alert"><AlertCircle size={16} /><div><strong>{t("feedback.unavailable")}</strong><span>{reviewError}</span></div><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("recorder.retryNow")}</button></div>}
+              {feedback && <div className="feedback-panel"><section className="coach-context feedback-coach-context" aria-label={t("coach.reviewPlanLabel")}><div><span className="eyebrow">{t("coach.reviewPlanEyebrow")}</span><strong>{feedback.learningPlan.title}</strong></div><p>{feedback.learningPlan.focus}</p><div className="coach-loop">{feedback.learningPlan.practiceLoop.map((step) => <span key={step}>{step}</span>)}</div><small><AlertCircle size={13} /> {feedback.learningPlan.boundary}</small></section>{feedback.quranAwareReview.status !== "not_configured" && <section className="acoustic-review" aria-label={t("feedback.acousticLabel")}><div className="acoustic-review-header"><div><span className="eyebrow">{t("feedback.acousticLabel")}</span><strong>{feedback.quranAwareReview.status === "available" ? t("feedback.acousticAvailable") : feedback.quranAwareReview.status === "abstained" ? t("feedback.acousticAbstained") : t("feedback.acousticUnavailable")}</strong></div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.confidence !== null && <small>{t("feedback.acousticConfidence", { percent: Math.round(feedback.quranAwareReview.confidence * 100) })}</small>}</div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.summary && <p>{feedback.quranAwareReview.summary}</p>}{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.findings.length > 0 && <div className="acoustic-finding-list">{feedback.quranAwareReview.findings.map((finding, index) => <div className="acoustic-finding" key={`${finding.kind}-${finding.wordIndex ?? "general"}-${index}`}><span>{t(acousticFindingLabels[finding.kind])}</span><p>{finding.guidance}</p>{finding.expectedArabic && <small lang="ar" dir="rtl">{finding.expectedArabic}</small>}</div>)}</div>}<small className="acoustic-boundary"><AlertCircle size={13} /> {t("feedback.acousticBoundary")}</small></section>}<div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("feedback.tryAgain")}</button></div>}
             </div>
             {/* A dot per ayah reads well for short surahs; al-Baqarah's 286 would
                 not, so longer surahs get a counter instead. */}

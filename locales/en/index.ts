@@ -206,6 +206,8 @@ export const strings = {
   "recorder.reviewing": "Reviewing the words you recited…",
   "recorder.reviewReady": "Your word-recall review is ready. Replay the reciter, then retry the marked place.",
   "recorder.reviewFailed": "The recording could not be reviewed. Please try a shorter clip.",
+  "recorder.empty": "No audio was captured. Check microphone access, then record the ayah again.",
+  "recorder.retryNow": "Try recording again",
   "recorder.tooLarge": "That recording is {size} MB, over the {limit} MB limit, so it was not sent for review. Record one ayah at a calm pace and try again.",
   "recorder.listening": "Listening now. Recite the ayah at a calm pace, then press Stop & review.",
   "recorder.noRecorder": "This browser cannot record audio. Please use a current browser and allow microphone access.",
