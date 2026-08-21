@@ -8,7 +8,7 @@ const evaluatorInput = {
   expectedArabic: "بسم الله الرحمن الرحيم",
   surah: 1,
   ayah: 1,
-  learningLevel: "beginner" as const,
+  learningLevel: "qaida" as const,
 };
 
 afterEach(() => {

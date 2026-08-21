@@ -146,9 +146,9 @@ describe("the text a voice is given", () => {
 describe("how a synthesised voice is described", () => {
   it("has its own wording for idle, playing and missing", () => {
     const keys = [
-      "starter.audioIdlePlaceholder",
-      "starter.audioPlayingPlaceholder",
-      "starter.audioUnavailablePlaceholder",
+      "qaida.audioIdlePlaceholder",
+      "qaida.audioPlayingPlaceholder",
+      "qaida.audioUnavailablePlaceholder",
     ] as const;
     for (const key of keys) {
       expect(en.strings[key], key).toBeTruthy();
@@ -158,10 +158,10 @@ describe("how a synthesised voice is described", () => {
   });
 
   it("says plainly that the voice is synthesised", () => {
-    expect(en.strings["starter.audioPlayingPlaceholder"]).toMatch(/synthesised|synthetic|generated/i);
+    expect(en.strings["qaida.audioPlayingPlaceholder"]).toMatch(/synthesised|synthetic|generated/i);
   });
 
   it("credits what generated the audio", () => {
-    expect(en.strings["starter.audioAttribution"]).toContain("{source}");
+    expect(en.strings["qaida.audioAttribution"]).toContain("{source}");
   });
 });
