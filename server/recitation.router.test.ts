@@ -21,7 +21,7 @@ const evaluateInput = {
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
-function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean } = {}) {
+function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean } = {}) {
   const calls: string[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -43,6 +43,7 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
     }
 
     if (url.includes("/audio/transcriptions")) {
+      if (options.failTranscription) return new Response(JSON.stringify({ error: { message: "transcription temporarily unavailable" } }), { status: 503 });
       return new Response(JSON.stringify({
         task: "transcribe",
         language: "ar",
@@ -113,6 +114,22 @@ describe("recitation.evaluate", () => {
       "https://api.openai.com/v1/audio/transcriptions",
       "https://api.openai.com/v1/chat/completions",
     ]);
+  });
+
+  it("returns a retryable unavailable review when transcription cannot be completed", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const calls = stubServices({ failTranscription: true });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    expect(result.reviewStatus).toBe("unavailable");
+    expect(result.wordReviewAvailable).toBe(false);
+    expect(result.reviewMessage).toBe("Transcription service request failed");
+    expect(result.nextStep).toContain("retry now");
+    expect(result.transcript).toBe("");
+    expect(calls).toEqual(["https://api.openai.com/v1/audio/transcriptions"]);
   });
 
   it("includes a confidence-gated specialised review when an evaluator is configured", async () => {
