@@ -16,4 +16,10 @@ export const ENV = {
   // the reader can be pointed at a mirror or a local fixture server when
   // api.quran.com is unreachable (restricted networks, offline development).
   quranApiBaseUrl: process.env.QURAN_API_BASE_URL ?? "https://api.quran.com/api/v4",
+  // Optional Quran-aware acoustic evaluator. This is a separately deployed
+  // service because specialised speech models exceed the app host's resources.
+  // Keep its credentials server-only: neither value may use a VITE_ prefix.
+  quranEvaluatorUrl: process.env.QURAN_EVALUATOR_URL ?? "",
+  quranEvaluatorApiKey: process.env.QURAN_EVALUATOR_API_KEY ?? "",
+  quranEvaluatorTimeoutMs: Number.parseInt(process.env.QURAN_EVALUATOR_TIMEOUT_MS ?? "8000", 10) || 8000,
 };

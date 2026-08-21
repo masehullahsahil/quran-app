@@ -244,6 +244,16 @@ export const strings = {
   "feedback.allMatched": "Every expected word was recognised in this recording.",
   "feedback.readAloudToggle": "Read new guidance aloud",
   "feedback.tryAgain": "Listen and try again",
+  "feedback.acousticLabel": "Specialised audio review",
+  "feedback.acousticAvailable": "Confidence-gated practice observation",
+  "feedback.acousticAbstained": "The audio review listened but was not confident enough to make a correction.",
+  "feedback.acousticUnavailable": "The specialised audio review is unavailable. Your word-recall review is still ready.",
+  "feedback.acousticConfidence": "Audio confidence: {percent}%",
+  "feedback.acousticPhoneme": "Sound focus",
+  "feedback.acousticVowelLength": "Vowel-length focus",
+  "feedback.acousticPause": "Pause focus",
+  "feedback.acousticTajweed": "Rule focus",
+  "feedback.acousticBoundary": "Use this as practice guidance only. A qualified teacher should confirm tajwid, articulation, and religious correctness.",
 
   // -- Memorise ------------------------------------------------------------
   "memorise.eyebrow": "Recall gently",

@@ -21,7 +21,7 @@ const evaluateInput = {
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
-function stubServices(options: { failStorage?: boolean } = {}) {
+function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean } = {}) {
   const calls: string[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -30,6 +30,16 @@ function stubServices(options: { failStorage?: boolean } = {}) {
 
     if (options.failStorage && url.includes("/storage/")) {
       return new Response("bucket unavailable", { status: 503 });
+    }
+
+    if (url.includes("quran-evaluator") && options.quranEvaluator) {
+      return new Response(JSON.stringify({
+        status: "available",
+        provider: "test-quran-evaluator",
+        confidence: 0.9,
+        summary: "Repeat the marked word slowly with the reference reciter.",
+        findings: [{ kind: "phoneme", wordIndex: 1, expectedArabic: "بسم", guidance: "Listen once, then repeat the opening sound." }],
+      }), { status: 200 });
     }
 
     if (url.includes("/audio/transcriptions")) {
@@ -103,6 +113,26 @@ describe("recitation.evaluate", () => {
       "https://api.openai.com/v1/audio/transcriptions",
       "https://api.openai.com/v1/chat/completions",
     ]);
+  });
+
+  it("includes a confidence-gated specialised review when an evaluator is configured", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+
+    const calls = stubServices({ quranEvaluator: true });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    expect(result.wordReviewAvailable).toBe(true);
+    expect(result.quranAwareReview).toEqual({
+      status: "available",
+      provider: "test-quran-evaluator",
+      confidence: 0.9,
+      summary: "Repeat the marked word slowly with the reference reciter.",
+      findings: [{ kind: "phoneme", wordIndex: 1, expectedArabic: "بسم", guidance: "Listen once, then repeat the opening sound." }],
+    });
+    expect(calls).toContain("https://quran-evaluator.example.test/v1/evaluate");
   });
 
   it("archives the attempt when Forge storage is configured", async () => {
