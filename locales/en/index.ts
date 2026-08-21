@@ -221,6 +221,13 @@ export const strings = {
   "live.source": "device speech recognition",
   "live.waiting": "waiting for your voice",
 
+  // -- AI coaching context -------------------------------------------------
+  "coach.contextLabel": "AI-guided practice plan",
+  "coach.contextEyebrow": "Your practice plan",
+  "coach.practiceLoopLabel": "Practice loop",
+  "coach.reviewPlanLabel": "Coaching plan used for this review",
+  "coach.reviewPlanEyebrow": "AI practice coach",
+
   // -- Study: feedback -----------------------------------------------------
   "feedback.available": "Word recall review",
   "feedback.unavailable": "Word review unavailable",
