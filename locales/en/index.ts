@@ -196,6 +196,32 @@ export const strings = {
   "study.next": "Next",
   "study.chooseAyah": "Choose ayah {number}",
 
+  // -- Study: verse-following (memorisation position) ----------------------
+  // These describe where the learner is in the surah, from word-level
+  // transcript alignment only. Nothing here comments on how the words sounded.
+  "follow.label": "Your place in the surah",
+  "follow.eyebrow": "Your place",
+  "follow.ayah": "Ayah {number}",
+  "follow.stateFollowing": "Continue",
+  "follow.stateCorrecting": "Retry",
+  "follow.stateUncertain": "Unclear",
+  "follow.stateCompleted": "Complete",
+  "follow.continueAt": "Continue from word {number}.",
+  "follow.surahComplete": "You reached the end of this surah.",
+  "follow.correctionFocus": "Return to word {number} first:",
+  "follow.moveToAyah": "Continue with ayah {number}",
+  "follow.stayOnAyah": "Recite ayah {number} again",
+  "follow.reasonNoTranscript": "Nothing usable was heard, so your place has not moved.",
+  "follow.reasonTooLittleEvidence": "Too little of this ayah was recognised to move your place.",
+  "follow.reasonNoisyTranscript": "The recording carried many words that are not in this ayah, so your place has not moved. Try again somewhere quieter.",
+  "follow.reasonPreviousAyah": "That matched the previous ayah, so your place has been kept on this one.",
+  "follow.reasonNextAyahEarly": "That began the next ayah. Finish this one first.",
+  "follow.reasonPartialProgress": "Part of the ayah was recognised. Continue from the word below.",
+  "follow.reasonMistakeToCorrect": "The ayah continued past a word that did not match. Return to the word below.",
+  "follow.reasonAyahCompleted": "This ayah was recited through to the end.",
+  "follow.reasonSurahCompleted": "That was the last ayah of this surah.",
+  "follow.boundary": "Your place is kept from the words recognised in the transcript. It says nothing about tajwid, makhraj, vowel length, melody, or rhythm.",
+
   // -- Study: recorder messages -------------------------------------------
   "recorder.intro": "Listen to the reciter, then record your own repetition.",
   "recorder.listenSlow": "Listen slowly. Notice each word, then repeat it back.",
