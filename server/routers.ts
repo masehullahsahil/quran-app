@@ -18,6 +18,7 @@ import {
 } from "@shared/verseFollowing";
 import { evaluateQuranAwareAudio } from "./quranEvaluator";
 import { isStorageConfigured, storagePut } from "./storage";
+import { ingestRecitationChunk } from "./recitationSession";
 
 // Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
 // past 1,600 characters once Uthmani diacritics are counted. The old limit fit
@@ -48,6 +49,38 @@ const recitationInput = z.object({
   previousAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
   nextAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
   position: verseFollowingInput.optional(),
+});
+
+const correctionFocusInput = z.object({
+  wordIndex: z.number().int().min(1).max(1000),
+  expectedArabic: z.string(),
+  kind: z.enum(["missing", "review"]),
+}).nullable();
+
+const recitationSessionInput = z.object({
+  sessionId: z.string().min(1).max(200),
+  surah: z.number().int().min(1).max(114),
+  currentAyah: z.number().int().min(1).max(286),
+  expectedWordIndex: z.number().int().min(1).max(1000),
+  lastCompletedAyah: z.number().int().min(1).max(286).nullable(),
+  trackerState: z.enum(VERSE_FOLLOWING_STATES),
+  attemptsOnCurrentAyah: z.number().int().min(0).max(1000),
+  chunkCount: z.number().int().min(0).max(10000),
+  lastAcceptedTranscriptSegment: z.string().max(MAX_AYAH_CHARS),
+  recentCorrectionFocus: correctionFocusInput,
+  currentAyahTranscript: z.string().max(MAX_AYAH_CHARS * 2),
+  processedChunkIds: z.array(z.string().min(1).max(200)).max(32),
+});
+
+const recitationChunkInput = z.object({
+  session: recitationSessionInput,
+  expectedAyahArabic: z.string().min(1).max(MAX_AYAH_CHARS),
+  transcriptChunk: z.string().max(MAX_AYAH_CHARS),
+  stability: z.enum(["interim", "final"]),
+  totalAyahs: z.number().int().min(1).max(286),
+  previousAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
+  nextAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
+  chunkId: z.string().min(1).max(200).optional(),
 });
 
 type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };
@@ -170,6 +203,9 @@ export const appRouter = router({
   }),
 
   recitation: router({
+    // Stateless, typed chunk orchestration. Clients carry the returned session
+    // into the next request; only finalized chunks can change its durable place.
+    ingestChunk: publicProcedure.input(recitationChunkInput).mutation(({ input }) => ingestRecitationChunk(input)),
     evaluate: publicProcedure.input(recitationInput).mutation(async ({ input }) => {
       const learningPlan = getLearningCoachPlan(input.learningLevel);
       // The tracker never advances past the end of the surah. Without a
