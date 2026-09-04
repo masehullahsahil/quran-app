@@ -32,4 +32,41 @@ describe("assessRecitationTranscript", () => {
     expect(result.expectedWords[2]).toMatchObject({ expected: "رَبِّ", status: "missing" });
     expect(result.fallbackNextStep).toContain("word 3");
   });
+
+  it("aligns multiple consecutive missing words without cascading reviews", () => {
+    const result = assessRecitationTranscript("واحد اثنان ثلاثة أربعة خمسة", "واحد أربعة خمسة");
+
+    expect(result.expectedWords.map(({ status }) => status)).toEqual([
+      "matched",
+      "missing",
+      "missing",
+      "matched",
+      "matched",
+    ]);
+    expect(result.extraWords).toHaveLength(0);
+    expect(result.score).toBe(60);
+  });
+
+  it("aligns multiple consecutive extra words without cascading reviews", () => {
+    const result = assessRecitationTranscript("واحد اثنان ثلاثة", "واحد زائد جدا اثنان ثلاثة");
+
+    expect(result.expectedWords.every(({ status }) => status === "matched")).toBe(true);
+    expect(result.extraWords.map(({ heard }) => heard)).toEqual(["زائد", "جدا"]);
+    expect(result.score).toBe(100);
+  });
+
+  it("prefers exact matches when repeated words make edit paths equally cheap", () => {
+    const result = assessRecitationTranscript("الله رب الله", "رب الله رب");
+
+    expect(result.matchedCount).toBe(2);
+    expect(result.expectedWords.map(({ status }) => status)).toEqual(["missing", "matched", "matched"]);
+    expect(result.extraWords).toEqual([{ expected: "", heard: "رب", status: "extra", wordIndex: null }]);
+  });
+
+  it("keeps a true one-for-one difference as a review", () => {
+    const result = assessRecitationTranscript("الحمد لله", "الحمد للرحمن");
+
+    expect(result.expectedWords[1]).toMatchObject({ heard: "للرحمن", status: "review", wordIndex: 2 });
+    expect(result.extraWords).toHaveLength(0);
+  });
 });

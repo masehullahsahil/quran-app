@@ -48,6 +48,17 @@ function equivalent(expected: string, heard: string): boolean {
   return Boolean(expectedNormalised) && expectedNormalised === heardNormalised;
 }
 
+type AlignmentCost = {
+  edits: number;
+  matches: number;
+};
+
+type AlignmentStep = "matched" | "review" | "missing" | "extra";
+
+function isBetterAlignment(candidate: AlignmentCost, current: AlignmentCost): boolean {
+  return candidate.edits < current.edits || (candidate.edits === current.edits && candidate.matches > current.matches);
+}
+
 /**
  * Align a known ayah against a transcript. This is deliberately a textual
  * recall check: it does not claim to judge tajwid, makharij, pitch, or rhythm.
@@ -58,50 +69,79 @@ export function assessRecitationTranscript(expectedArabic: string, transcript: s
   const assessment: WordAssessment[] = [];
   const extras: WordAssessment[] = [];
 
+  // Build an optimal global alignment instead of making a one-token lookahead
+  // decision. Besides minimizing edits, prefer alignments that preserve more
+  // exact matches; this matters for repeated words and equally cheap edit paths.
+  const costs: AlignmentCost[][] = Array.from({ length: expectedWords.length + 1 }, () =>
+    Array.from({ length: heardWords.length + 1 }, () => ({ edits: 0, matches: 0 })),
+  );
+  const steps: (AlignmentStep | null)[][] = Array.from({ length: expectedWords.length + 1 }, () =>
+    Array.from({ length: heardWords.length + 1 }, () => null),
+  );
+
+  for (let expectedIndex = expectedWords.length; expectedIndex >= 0; expectedIndex -= 1) {
+    for (let heardIndex = heardWords.length; heardIndex >= 0; heardIndex -= 1) {
+      if (expectedIndex === expectedWords.length && heardIndex === heardWords.length) continue;
+
+      const candidates: Array<{ step: AlignmentStep; cost: AlignmentCost }> = [];
+
+      if (expectedIndex < expectedWords.length && heardIndex < heardWords.length) {
+        const exact = equivalent(expectedWords[expectedIndex], heardWords[heardIndex]);
+        const next = costs[expectedIndex + 1][heardIndex + 1];
+        candidates.push({
+          step: exact ? "matched" : "review",
+          cost: { edits: next.edits + (exact ? 0 : 1), matches: next.matches + (exact ? 1 : 0) },
+        });
+      }
+
+      if (expectedIndex < expectedWords.length) {
+        const next = costs[expectedIndex + 1][heardIndex];
+        candidates.push({ step: "missing", cost: { edits: next.edits + 1, matches: next.matches } });
+      }
+
+      if (heardIndex < heardWords.length) {
+        const next = costs[expectedIndex][heardIndex + 1];
+        candidates.push({ step: "extra", cost: { edits: next.edits + 1, matches: next.matches } });
+      }
+
+      let best = candidates[0];
+      for (const candidate of candidates.slice(1)) {
+        if (isBetterAlignment(candidate.cost, best.cost)) best = candidate;
+      }
+      costs[expectedIndex][heardIndex] = best.cost;
+      steps[expectedIndex][heardIndex] = best.step;
+    }
+  }
+
   let expectedIndex = 0;
   let heardIndex = 0;
 
-  while (expectedIndex < expectedWords.length && heardIndex < heardWords.length) {
-    const expected = expectedWords[expectedIndex];
-    const heard = heardWords[heardIndex];
+  while (expectedIndex < expectedWords.length || heardIndex < heardWords.length) {
+    const step = steps[expectedIndex][heardIndex];
 
-    if (equivalent(expected, heard)) {
+    if (step === "matched" || step === "review") {
+      const expected = expectedWords[expectedIndex];
+      const heard = heardWords[heardIndex];
       assessment.push({ expected, heard, status: "matched", wordIndex: expectedIndex + 1 });
+      if (step === "review") assessment[assessment.length - 1].status = "review";
       expectedIndex += 1;
       heardIndex += 1;
       continue;
     }
 
-    if (expectedIndex + 1 < expectedWords.length && equivalent(expectedWords[expectedIndex + 1], heard)) {
-      assessment.push({ expected, heard: null, status: "missing", wordIndex: expectedIndex + 1 });
+    if (step === "missing") {
+      assessment.push({ expected: expectedWords[expectedIndex], heard: null, status: "missing", wordIndex: expectedIndex + 1 });
       expectedIndex += 1;
       continue;
     }
 
-    if (heardIndex + 1 < heardWords.length && equivalent(expected, heardWords[heardIndex + 1])) {
-      extras.push({ expected: "", heard, status: "extra", wordIndex: null });
+    if (step === "extra") {
+      extras.push({ expected: "", heard: heardWords[heardIndex], status: "extra", wordIndex: null });
       heardIndex += 1;
       continue;
     }
 
-    assessment.push({ expected, heard, status: "review", wordIndex: expectedIndex + 1 });
-    expectedIndex += 1;
-    heardIndex += 1;
-  }
-
-  while (expectedIndex < expectedWords.length) {
-    assessment.push({
-      expected: expectedWords[expectedIndex],
-      heard: null,
-      status: "missing",
-      wordIndex: expectedIndex + 1,
-    });
-    expectedIndex += 1;
-  }
-
-  while (heardIndex < heardWords.length) {
-    extras.push({ expected: "", heard: heardWords[heardIndex], status: "extra", wordIndex: null });
-    heardIndex += 1;
+    throw new Error("Recitation alignment could not determine the next step");
   }
 
   const matchedCount = assessment.filter((word) => word.status === "matched").length;
