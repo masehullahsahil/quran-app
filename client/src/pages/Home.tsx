@@ -119,6 +119,23 @@ type BrowserRecognition = {
 
 type BrowserRecognitionConstructor = new () => BrowserRecognition;
 
+type LiveRecitationSession = {
+  sessionId: string; surah: number; currentAyah: number; expectedWordIndex: number;
+  lastCompletedAyah: number | null; trackerState: VerseFollowingPosition["state"];
+  attemptsOnCurrentAyah: number; chunkCount: number; lastAcceptedTranscriptSegment: string;
+  recentCorrectionFocus: { wordIndex: number; expectedArabic: string; kind: "missing" | "review" } | null;
+  currentAyahTranscript: string; processedChunkIds: string[];
+};
+
+function newLiveSession(surah: number, ayah: number): LiveRecitationSession {
+  return {
+    sessionId: `study-${surah}-${ayah}-${Date.now()}`, surah, currentAyah: ayah,
+    expectedWordIndex: 1, lastCompletedAyah: null, trackerState: "following",
+    attemptsOnCurrentAyah: 0, chunkCount: 0, lastAcceptedTranscriptSegment: "",
+    recentCorrectionFocus: null, currentAyahTranscript: "", processedChunkIds: [],
+  };
+}
+
 declare global {
   interface Window {
     SpeechRecognition?: BrowserRecognitionConstructor;
@@ -260,6 +277,9 @@ export default function Home() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const recorderStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<BrowserRecognition | null>(null);
+  const liveSessionRef = useRef<LiveRecitationSession>(newLiveSession(1, 1));
+  const liveChunkSequenceRef = useRef(0);
+  const liveRequestRef = useRef<Promise<void>>(Promise.resolve());
   const chunksRef = useRef<Blob[]>([]);
   const recordingUrlRef = useRef<string | null>(null);
   // Set when a verse change should start playing on its own — the Next control
@@ -270,6 +290,7 @@ export default function Home() {
   const { t, locale, setLocale, locales, letterLesson, manifest } = useLocale();
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
+  const ingestRecitationChunk = trpc.recitation.ingestChunk.useMutation();
 
   // The Quran's text does not change, so both queries are cached indefinitely
   // for the session and the server keeps its own TTL cache in front of
@@ -390,6 +411,10 @@ export default function Home() {
       ...createVerseFollowingPosition(surahNumber, selectedVerse),
       lastCompletedAyah: current.currentSurah === surahNumber ? current.lastCompletedAyah : null,
     }));
+    if (liveSessionRef.current.surah !== surahNumber || liveSessionRef.current.currentAyah !== selectedVerse) {
+      liveSessionRef.current = newLiveSession(surahNumber, selectedVerse);
+      liveChunkSequenceRef.current = 0;
+    }
   }, [selectedVerse, surahNumber]);
 
   // A surah change carries the selection with it (juz navigation lands mid-surah,
@@ -559,9 +584,53 @@ export default function Home() {
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.onresult = (event) => {
-      let transcript = "";
-      for (let index = 0; index < event.results.length; index += 1) transcript += `${event.results[index][0].transcript} `;
-      updateLiveGuide(transcript.trim());
+      let finalTranscript = "";
+      let interimTranscript = "";
+      for (let index = 0; index < event.results.length; index += 1) {
+        const segment = event.results[index][0].transcript;
+        if (event.results[index].isFinal) finalTranscript += `${segment} `;
+        else interimTranscript += `${segment} `;
+      }
+      const visibleTranscript = `${finalTranscript}${interimTranscript}`.trim();
+      updateLiveGuide(visibleTranscript);
+      if (!activeVerse) return;
+
+      const submitChunk = (transcriptChunk: string, stability: "interim" | "final") => {
+        if (!transcriptChunk) return;
+        const chunkId = stability === "final"
+          ? `${liveSessionRef.current.sessionId}-${++liveChunkSequenceRef.current}`
+          : undefined;
+        // Keep requests ordered: a late response must never overwrite a newer
+        // Quran position. The endpoint keeps interim session state immutable.
+        liveRequestRef.current = liveRequestRef.current.then(async () => {
+        const session = liveSessionRef.current;
+        const expectedVerse = ayahs.find((verse) => verse.number === session.currentAyah) ?? activeVerse;
+        const expectedIndex = ayahs.findIndex((verse) => verse.number === expectedVerse.number);
+        const result = await ingestRecitationChunk.mutateAsync({
+          session, expectedAyahArabic: expectedVerse.arabic, transcriptChunk, stability,
+          totalAyahs: ayahs.length, chunkId,
+          ...(expectedIndex > 0 ? { previousAyahArabic: ayahs[expectedIndex - 1].arabic } : {}),
+          ...(ayahs[expectedIndex + 1] ? { nextAyahArabic: ayahs[expectedIndex + 1].arabic } : {}),
+        });
+        setLiveMatched(result.assessment.expectedWords
+          .filter((word) => word.status === "matched" && word.wordIndex !== null)
+          .map((word) => word.wordIndex! - 1));
+        if (!result.accepted) return;
+        liveSessionRef.current = result.session;
+        setPosition({
+          currentSurah: result.session.surah, currentAyah: result.session.currentAyah,
+          expectedWordIndex: result.session.expectedWordIndex,
+          lastCompletedAyah: result.session.lastCompletedAyah, state: result.session.trackerState,
+          attemptsOnCurrentAyah: result.session.attemptsOnCurrentAyah,
+        });
+        if (result.guidance === "ayah_advanced") setSelectedVerse(result.session.currentAyah);
+        }).catch(() => setRecorderMessage(t("recorder.liveGuidePaused")));
+      };
+
+      // A Web Speech event may contain both newly-finalized and still-interim
+      // results. Persist the stable prefix first, then preview the full text.
+      submitChunk(finalTranscript.trim(), "final");
+      if (interimTranscript.trim()) submitChunk(visibleTranscript, "interim");
     };
     recognition.onerror = (event) => {
       if (event.error !== "aborted" && event.error !== "no-speech") setRecorderMessage(t("recorder.liveGuidePaused"));
@@ -648,6 +717,8 @@ export default function Home() {
       setReviewError(null);
       setLiveTranscript("");
       setLiveMatched([]);
+      liveSessionRef.current = newLiveSession(surahNumber, activeVerse?.number ?? selectedVerse);
+      liveChunkSequenceRef.current = 0;
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       recorderStreamRef.current = stream;
       const recorder = new MediaRecorder(stream);
@@ -684,6 +755,8 @@ export default function Home() {
     setReviewError(null);
     setLiveTranscript("");
     setLiveMatched([]);
+    liveSessionRef.current = newLiveSession(surahNumber, activeVerse?.number ?? selectedVerse);
+    liveChunkSequenceRef.current = 0;
     setLessonStage("listen");
     setRecorderMessage(t("recorder.retry"));
     void playReciter(0.8);

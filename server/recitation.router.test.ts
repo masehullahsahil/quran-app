@@ -310,3 +310,62 @@ describe("recitation.evaluate", () => {
     warn.mockRestore();
   });
 });
+
+describe("recitation.ingestChunk", () => {
+  it("carries a typed session across finalized chunk requests", async () => {
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(callerContext);
+    const session = {
+      sessionId: "router-session",
+      surah: 1,
+      currentAyah: 1,
+      expectedWordIndex: 1,
+      lastCompletedAyah: null,
+      trackerState: "following" as const,
+      attemptsOnCurrentAyah: 0,
+      chunkCount: 0,
+      lastAcceptedTranscriptSegment: "",
+      recentCorrectionFocus: null,
+      currentAyahTranscript: "",
+      processedChunkIds: [],
+    };
+
+    const first = await caller.recitation.ingestChunk({
+      session,
+      expectedAyahArabic: "الحمد لله رب العالمين",
+      transcriptChunk: "الحمد لله",
+      stability: "final",
+      totalAyahs: 7,
+      chunkId: "chunk-1",
+    });
+    const second = await caller.recitation.ingestChunk({
+      session: first.session,
+      expectedAyahArabic: "الحمد لله رب العالمين",
+      transcriptChunk: "رب العالمين",
+      stability: "final",
+      totalAyahs: 7,
+      chunkId: "chunk-2",
+    });
+
+    expect(first.session.expectedWordIndex).toBe(3);
+    expect(second).toMatchObject({ accepted: true, guidance: "ayah_advanced" });
+    expect(second.session).toMatchObject({ currentAyah: 2, lastCompletedAyah: 1, chunkCount: 2 });
+  });
+
+  it("does not persist an interim router chunk", async () => {
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(callerContext);
+    const session = {
+      sessionId: "router-interim", surah: 1, currentAyah: 1, expectedWordIndex: 1,
+      lastCompletedAyah: null, trackerState: "following" as const, attemptsOnCurrentAyah: 0,
+      chunkCount: 0, lastAcceptedTranscriptSegment: "", recentCorrectionFocus: null,
+      currentAyahTranscript: "", processedChunkIds: [],
+    };
+    const result = await caller.recitation.ingestChunk({
+      session, expectedAyahArabic: "الحمد لله رب العالمين", transcriptChunk: "الحمد لله رب العالمين",
+      stability: "interim", totalAyahs: 7,
+    });
+    expect(result.accepted).toBe(false);
+    expect(result.session).toEqual(session);
+  });
+});
