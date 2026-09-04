@@ -39,6 +39,8 @@ import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
 import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
 import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
+import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
+import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
 import {
   createVerseFollowingPosition,
@@ -272,6 +274,8 @@ export default function Home() {
   // the server owns the rules; this only stores its answer.
   const [position, setPosition] = useState<VerseFollowingPosition>(() => createVerseFollowingPosition(1, 1));
   const [vowelExerciseResult, setVowelExerciseResult] = useState<ExerciseResult>(null);
+  const historyRepository = useMemo(() => new LocalMemorizationHistoryRepository(window.localStorage), []);
+  const [memorizationAttempts, setMemorizationAttempts] = useState<MemorizationAttempt[]>(() => historyRepository.list());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -387,6 +391,9 @@ export default function Home() {
   // Qaida now holds both the letters and the joining steps, so its progress bar
   // counts them together rather than tracking two separate levels.
   const qaidaProgress = progressPercent(lettersPractised.length + qaidaStepsComplete.length, alphabet.length + qaidaSteps.length);
+  const activeMemory = useMemo(() => deriveAyahMemory(surahNumber, selectedVerse, memorizationAttempts), [surahNumber, selectedVerse, memorizationAttempts]);
+  const reviewSummary = useMemo(() => summarizeReview(memorizationAttempts), [memorizationAttempts]);
+  const activeRecommendation = useMemo(() => buildReviewQueue(memorizationAttempts).find((item) => item.surah === surahNumber && item.ayah === selectedVerse), [memorizationAttempts, surahNumber, selectedVerse]);
 
   useEffect(() => () => {
     audioRef.current?.pause();
@@ -667,6 +674,7 @@ export default function Home() {
       setReviewError(null);
       setRecorderMessage(t("recorder.reviewing"));
       const audioBase64 = await blobToBase64(blob);
+      const attemptId = `${liveSessionRef.current.sessionId}-recording`;
       const result = await evaluateRecitation.mutateAsync({
         expectedArabic: activeVerse.arabic,
         audioBase64,
@@ -690,6 +698,24 @@ export default function Home() {
       const review = result as RecitationFeedback;
       setFeedback(review);
       setPosition(toVerseFollowingPosition(review.verseFollowing));
+      // This is the sole history write point: the recorder's finalized server
+      // assessment must be usable. Live/interim chunks only guide position.
+      if (review.wordReviewAvailable) {
+        const eventuallyAdvanced = review.verseFollowing.reason === "ayah_completed" || review.verseFollowing.reason === "surah_completed";
+        const errors = review.corrections.map((item) => ({
+          type: item.status === "missing" ? "omission" as const : item.status === "review" ? "substitution_review" as const : "extra" as const,
+          wordIndex: item.wordIndex,
+        }));
+        const attempt: MemorizationAttempt = {
+          id: attemptId, sessionId: liveSessionRef.current.sessionId, surah: surahNumber, ayah: activeVerse.number,
+          timestamp: new Date().toISOString(),
+          result: review.verseFollowing.state === "uncertain" ? "uncertain" : eventuallyAdvanced && errors.length ? "corrected" : eventuallyAdvanced || review.score === 100 ? "completed" : "partial",
+          matchedCount: review.matchedCount, totalExpectedWords: review.totalWords, score: review.score,
+          correctionWordIndexes: errors.flatMap((item) => item.wordIndex === null ? [] : [item.wordIndex]),
+          errors, attemptsRequired: position.attemptsOnCurrentAyah + 1, eventuallyAdvanced,
+        };
+        if (historyRepository.save(attempt)) setMemorizationAttempts(historyRepository.list());
+      }
       setRecorderMessage(review.wordReviewAvailable ? t("recorder.reviewReady") : review.reviewMessage ?? t("feedback.reviewUnavailable"));
       if (review.wordReviewAvailable && coachAudioOn) speakGuidance(review.spokenGuidance);
     } catch (error) {
@@ -954,6 +980,7 @@ export default function Home() {
               </div>
               {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               <p className="loop-message" role="status">{recorderMessage}</p>
+              <section className="memory-review-panel" aria-label="Memorization review"><div><span className="eyebrow">Memory review</span><strong>{activeMemory.mastery.replace("_", " ")}</strong></div><p>{activeRecommendation?.reason === "repeated_omission" ? `You often miss word ${activeRecommendation.focusWordIndexes[0]} in this ayah.` : activeRecommendation?.reason === "repeated_substitution" ? `Word ${activeRecommendation.focusWordIndexes[0]} has repeatedly needed textual review.` : activeMemory.nextReviewAt && new Date(activeMemory.nextReviewAt) <= new Date() ? "Review due today." : activeMemory.nextReviewAt ? `Next review: ${new Date(activeMemory.nextReviewAt).toLocaleDateString()}.` : "Complete a recall attempt to begin review scheduling."}</p><small>{activeMemory.consecutiveSuccesses} successful reviews in a row · {reviewSummary.dueToday.length} due today · {reviewSummary.weakAyat.length} weak · {reviewSummary.strongOrMasteredCount} strong/mastered</small></section>
               {follow && <section className="verse-following" aria-label={t("follow.label")}>
                 <div className="verse-following-head"><div><span className="eyebrow">{t("follow.eyebrow")}</span><strong>{t("follow.ayah", { number: follow.currentAyah })}</strong></div><span className={`follow-state is-${follow.state}`}>{t(followStateLabels[follow.state])}</span></div>
                 <p>{t(followReasonCopy[follow.reason])}</p>
@@ -980,7 +1007,7 @@ export default function Home() {
             <div className="study-pagination"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={17} /> {t("study.previous")}</button>{ayahs.length <= 20 ? <div>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={selectedVerse === verse.number ? "dot is-current" : "dot"} aria-label={t("study.chooseAyah", { number: verse.number })} onClick={() => selectVerse(verse.number)} />)}</div> : <span className="pagination-count">{activeVerse.number} / {ayahs.length}</span>}<button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("study.next")} <ArrowRight size={17} /></button></div>
           </div>)}
 
-          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">{t("memorise.eyebrow")}</span><span>{t("memorise.place", { number: activeVerse.number, total: ayahs.length })}</span></div><p className="memory-prompt">{t("memorise.prompt")}</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">{t("memorise.covered")}</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : t("memorise.meaningHidden")}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{t(covered ? "memorise.reveal" : "memorise.cover")}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> {t("memorise.toggleMeaning")}</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> {t("memorise.practise")}</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={t("memorise.practiseAyah", { number: verse.number })}><span>{verse.number}</span></button>)}</div></div>)}
+          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">{t("memorise.eyebrow")}</span><span>{t("memorise.place", { number: activeVerse.number, total: ayahs.length })}</span></div><div className="memory-review-panel"><div><span className="eyebrow">Practice next</span><strong>{reviewSummary.nextRecommended ? `Surah ${reviewSummary.nextRecommended.surah}, ayah ${reviewSummary.nextRecommended.ayah}` : "Start a new memorization"}</strong></div><small>{reviewSummary.dueToday.length} due today · {reviewSummary.weakAyat.length} weak · {reviewSummary.strongOrMasteredCount} strong/mastered</small></div><p className="memory-prompt">{t("memorise.prompt")}</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">{t("memorise.covered")}</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : t("memorise.meaningHidden")}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{t(covered ? "memorise.reveal" : "memorise.cover")}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> {t("memorise.toggleMeaning")}</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> {t("memorise.practise")}</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={t("memorise.practiseAyah", { number: verse.number })}><span>{verse.number}</span></button>)}</div></div>)}
         </section>
         <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> {t("reader.previousAyah")}</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("reader.nextAyah")} <ArrowRight size={16} /></button></div>
       </main>
