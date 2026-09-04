@@ -314,6 +314,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .quiet-action { display: inline-flex; align-items: center; gap: 7px; padding: 10px 13px; color: #174d42; border: 1px solid #c9d8cf; background: rgba(255,253,248,.68); border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 700; transition: background .18s cubic-bezier(.23,1,.32,1), transform .18s cubic-bezier(.23,1,.32,1); }
 .quiet-action:hover { background: #e7f0eb; transform: translateY(-1px); }
 .memory-steps { display: flex; justify-content: center; gap: 10px; margin-top: 34px; }
+.memory-review-panel { margin: 12px 0; padding: 11px 12px; color: #52645a; background: #f7f4ec; border: 1px solid #ddd5c6; text-align: left; }.memory-review-panel > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }.memory-review-panel strong { color: #285343; font-family: "Fraunces", Georgia, serif; font-size: 13px; text-transform: capitalize; }.memory-review-panel p { margin: 7px 0; font-size: 10px; line-height: 1.45; }.memory-review-panel small { color: #7a837d; font-size: 9px; }
 .step { display: grid; width: 25px; height: 25px; place-content: center; padding: 0; color: #7d8780; border: 1px solid #d4d6ce; background: #fffdf8; border-radius: 50%; cursor: pointer; font-size: 10px; font-weight: 700; }
 .step.is-active { color: #fffdf8; background: #174d42; border-color: #174d42; box-shadow: 0 0 0 4px #dcebe3; }
 
