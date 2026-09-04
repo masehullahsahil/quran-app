@@ -114,7 +114,7 @@ export const strings = {
   "qaida.eyebrow": "Qaida · lesson 1",
   "qaida.heading": "Letters before words.",
   "qaida.copy": "Learn one letter at a time, hear how it sounds, then practise it with a teacher.",
-  "qaida.practisedCount": "practised",
+  "qaida.practisedCount": "practised · {percent}%",
   "qaida.alphabetLabel": "Arabic alphabet",
   "qaida.writtenAs": "Written as {transliteration} · {sound}",
   "qaida.playLetter": "Letter",
@@ -150,20 +150,6 @@ export const strings = {
   "harakat.dammaHint": "short u",
 
   // -- Learn: qaida joining path -------------------------------------------
-  "qaida.pathEyebrow": "Joining path",
-  "qaida.pathHeading": "Build letters into words.",
-  "qaida.pathCopy": "Move through short vowels and joining forms, then carry them into your first ayah.",
-  "qaida.stepsProgress": "{done} / {total} steps",
-  "qaida.step.vowels": "Short vowels",
-  "qaida.step.vowelsSummary": "Recognise fatha, kasra, and damma with familiar letters.",
-  "qaida.step.joining": "Joining letters",
-  "qaida.step.joiningSummary": "Notice how a letter changes at the start, middle, and end of a word.",
-  "qaida.step.firstAyah": "First ayah reading",
-  "qaida.step.firstAyahSummary": "Open Al-Fātiḥah with transliteration and a slower reciter pace.",
-  "qaida.vowelCheck": "Short vowel check",
-  "qaida.vowelPrompt": "How do you read this?",
-  "qaida.vowelCorrect": "Correct. The kasra below the letter gives the short i sound: bi.",
-  "qaida.vowelRetry": "Look below the letter. A kasra gives the short i sound. Try bi.",
   "qaida.openFirstAyah": "Open first ayah practice",
 
   // -- Learn: tajweed path -------------------------------------------------
@@ -195,6 +181,47 @@ export const strings = {
   "study.previous": "Previous",
   "study.next": "Next",
   "study.chooseAyah": "Choose ayah {number}",
+
+  // -- Learn: the Qaida course -------------------------------------------
+  // Chrome only. The lessons themselves — titles, teaching text, exercises and
+  // Arabic examples — live in shared/qaidaCurriculum.ts, next to the data they
+  // describe, in the same way the coach plans do.
+  "course.eyebrow": "Qaida course",
+  "course.levelLabel": "Level {order} — {title}",
+  "course.percentComplete": "{percent}% of the course",
+  "course.levelsLabel": "Course levels",
+  "course.levelProgress": "{done} / {total} lessons",
+  "course.locked": "Finish the earlier lessons first",
+  "course.lessonPosition": "Lesson {number} of {total}",
+  "course.completedBadge": "Completed",
+  "course.stagesLabel": "How this lesson runs",
+  "course.stageLearn": "Learn",
+  "course.stageListen": "Listen",
+  "course.stageRecognize": "Recognise",
+  "course.stageRepeat": "Repeat",
+  "course.stageRead": "Read",
+  "course.stageCheck": "Check",
+  "course.stageComplete": "Complete",
+  "course.examplesLabel": "Examples",
+  "course.quranBadge": "Quran {reference}",
+  "course.teachingBadge": "Teaching example",
+  "course.exerciseLabel": "Practice",
+  "course.exerciseProgress": "Question {number} of {total}",
+  "course.playAudio": "Play the reference",
+  "course.audioUnavailable": "No reference recording is available for this form yet.",
+  "course.correct": "Correct.",
+  "course.retry": "Not quite. Look again, then try once more.",
+  "course.continue": "Continue",
+  "course.tryAgain": "Try again",
+  "course.readAloud": "I read this aloud",
+  "course.openInStudy": "Open {reference} in Study",
+  "course.lessonComplete": "Lesson complete.",
+  "course.nextLesson": "Next: {title}",
+  "course.finishCourse": "Finish the course",
+  "course.practiseAgain": "Practise this lesson again",
+  "course.courseComplete": "That is the whole Qaida. Keep going in Study mode, where a reciter reads first and your recording is reviewed word by word.",
+  "course.lessonListLabel": "Lessons in this level",
+  "course.reviewLesson": "Review",
 
   // -- Study: verse-following (memorisation position) ----------------------
   // These describe where the learner is in the surah, from word-level
