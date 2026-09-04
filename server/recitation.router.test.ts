@@ -21,7 +21,7 @@ const evaluateInput = {
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
-function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean } = {}) {
+function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcript?: string } = {}) {
   const calls: string[] = [];
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -48,7 +48,7 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
         task: "transcribe",
         language: "ar",
         duration: 2,
-        text: AYAH,
+        text: options.transcript ?? AYAH,
         segments: [],
       }), { status: 200 });
     }
@@ -190,6 +190,106 @@ describe("recitation.evaluate", () => {
       // @ts-expect-error "reading" was removed as a level
       caller.recitation.evaluate({ ...evaluateInput, learningLevel: "reading" }),
     ).rejects.toThrow();
+  });
+
+  // Verse-following: the tracker rides on the same alignment the word review
+  // already produced, and is reported with every response so the Study view can
+  // keep the learner's place.
+  it("advances the tracked position after a clean recitation", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices();
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      totalAyahs: 7,
+      nextAyahArabic: "الحمد لله رب العالمين",
+    });
+
+    expect(result.verseFollowing).toMatchObject({
+      currentSurah: 1,
+      currentAyah: 2,
+      expectedWordIndex: 1,
+      lastCompletedAyah: 1,
+      state: "following",
+      evidence: "strong",
+      shouldAdvance: true,
+      nextAyah: 3,
+      reason: "ayah_completed",
+    });
+  });
+
+  it("keeps the tracked position when a transcript only covers part of the ayah", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices({ transcript: "بسم الله" });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      totalAyahs: 7,
+    });
+
+    expect(result.verseFollowing).toMatchObject({
+      currentAyah: 1,
+      expectedWordIndex: 3,
+      state: "following",
+      shouldAdvance: false,
+      reason: "partial_progress",
+      lastCompletedAyah: null,
+    });
+  });
+
+  it("carries the client's position forward so a resumed ayah is not restarted", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices({ transcript: "الرحمن الرحيم" });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      totalAyahs: 7,
+      position: { expectedWordIndex: 3, lastCompletedAyah: null, state: "following", attemptsOnCurrentAyah: 1 },
+    });
+
+    expect(result.verseFollowing).toMatchObject({
+      currentAyah: 2,
+      lastCompletedAyah: 1,
+      shouldAdvance: true,
+      evidence: "strong",
+    });
+  });
+
+  it("holds the tracked position when the review itself is unavailable", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    stubServices({ failTranscription: true });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      ayah: 3,
+      totalAyahs: 7,
+      position: { expectedWordIndex: 2, lastCompletedAyah: 2, state: "following", attemptsOnCurrentAyah: 0 },
+    });
+
+    expect(result.reviewStatus).toBe("unavailable");
+    expect(result.verseFollowing).toMatchObject({
+      currentAyah: 3,
+      expectedWordIndex: 2,
+      lastCompletedAyah: 2,
+      state: "uncertain",
+      evidence: "none",
+      shouldAdvance: false,
+      reason: "no_transcript",
+    });
   });
 
   it("still returns a review when archiving fails", async () => {

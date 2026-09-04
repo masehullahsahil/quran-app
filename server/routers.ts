@@ -10,6 +10,12 @@ import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shar
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
+import {
+  VERSE_FOLLOWING_STATES,
+  createVerseFollowingPosition,
+  followRecitation,
+  type VerseFollowingPosition,
+} from "@shared/verseFollowing";
 import { evaluateQuranAwareAudio } from "./quranEvaluator";
 import { isStorageConfigured, storagePut } from "./storage";
 
@@ -19,6 +25,18 @@ import { isStorageConfigured, storagePut } from "./storage";
 // now that any surah can be selected.
 const MAX_AYAH_CHARS = 4000;
 
+// Everything the verse-following tracker needs is optional: a client that only
+// wants a word review keeps working, and the tracker then reports on this ayah
+// alone. `previousAyahArabic`/`nextAyahArabic` let the same transcript be
+// aligned against the neighbours, which is how the tracker recognises a repeated
+// previous ayah or a next ayah started early.
+const verseFollowingInput = z.object({
+  expectedWordIndex: z.number().int().min(1).max(1000).default(1),
+  lastCompletedAyah: z.number().int().min(1).max(286).nullable().default(null),
+  state: z.enum(VERSE_FOLLOWING_STATES).default("following"),
+  attemptsOnCurrentAyah: z.number().int().min(0).max(1000).default(0),
+});
+
 const recitationInput = z.object({
   expectedArabic: z.string().min(1).max(MAX_AYAH_CHARS),
   audioBase64: z.string().min(20).max(MAX_AUDIO_BASE64_LENGTH),
@@ -26,6 +44,10 @@ const recitationInput = z.object({
   surah: z.number().int().min(1).max(114),
   ayah: z.number().int().min(1).max(286),
   learningLevel: z.enum(LEARNING_LEVELS).default("qaida"),
+  totalAyahs: z.number().int().min(1).max(286).optional(),
+  previousAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
+  nextAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
+  position: verseFollowingInput.optional(),
 });
 
 type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };
@@ -150,6 +172,15 @@ export const appRouter = router({
   recitation: router({
     evaluate: publicProcedure.input(recitationInput).mutation(async ({ input }) => {
       const learningPlan = getLearningCoachPlan(input.learningLevel);
+      // The tracker never advances past the end of the surah. Without a
+      // `totalAyahs` from the client there is no end to know, so assume one more
+      // ayah exists: reporting "surah complete" from a guess would be worse than
+      // reporting a next ayah the client already knows how to bound.
+      const totalAyahs = input.totalAyahs ?? input.ayah + 1;
+      const position: VerseFollowingPosition = {
+        ...createVerseFollowingPosition(input.surah, input.ayah),
+        ...(input.position ?? {}),
+      };
       const rawBase64 = input.audioBase64.includes(",")
         ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
         : input.audioBase64;
@@ -213,6 +244,9 @@ export const appRouter = router({
       });
       const quranAwareReview = await quranAwareReviewPromise;
       const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string) => ({
+        // No usable transcript means no evidence, so the tracker holds the
+        // learner exactly where they were rather than guessing.
+        verseFollowing: followRecitation({ position, totalAyahs, alignment: null, transcriptUsable: false }),
         expectedWords: [],
         extraWords: [],
         matchedCount: 0,
@@ -255,10 +289,26 @@ export const appRouter = router({
       }
 
       const assessment = assessRecitationTranscript(input.expectedArabic, transcription.text);
+      // Position tracking reuses this alignment as its only evidence — there is
+      // one word aligner in the app, and this is it. The neighbours are aligned
+      // with the same function so a repeated or prematurely started ayah is
+      // recognised from the same kind of evidence.
+      const verseFollowing = followRecitation({
+        position,
+        totalAyahs,
+        alignment: assessment,
+        previousAyahAlignment: input.previousAyahArabic
+          ? assessRecitationTranscript(input.previousAyahArabic, transcription.text)
+          : null,
+        nextAyahAlignment: input.nextAyahArabic
+          ? assessRecitationTranscript(input.nextAyahArabic, transcription.text)
+          : null,
+      });
       const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel });
 
       return {
         ...assessment,
+        verseFollowing,
         quranAwareReview,
         learningPlan: {
           level: learningPlan.level,
