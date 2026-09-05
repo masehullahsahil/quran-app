@@ -46,6 +46,7 @@ import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationA
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
 import { resolveTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
+import { describeStudyTiers } from "@/lib/studyView";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -907,7 +908,7 @@ export default function Home() {
       // existing deterministic memory layer — no new mastery model.
       recurringWordIndexes: activeRecommendation?.focusWordIndexes ?? [],
     },
-    livePosition: { currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
+    livePosition: { currentSurah: position.currentSurah, currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
     hasNextAyah: Boolean(nextVerse),
   });
   const runTeacherAction = () => {
@@ -933,6 +934,17 @@ export default function Home() {
     if (quranIndex.error) void quranIndex.refetch();
     else void surahQuery.refetch();
   };
+
+  // Which block belongs to which tier. The page renders this; the rules for it
+  // are in client/src/lib/studyView.ts so the layout contract can be tested.
+  const studyTiers = describeStudyTiers({
+    action: teacherAction,
+    hasFeedback: feedback !== null,
+    wordReviewAvailable: Boolean(feedback?.wordReviewAvailable),
+    hasAcousticReview: feedback?.quranAwareReview.status !== undefined && feedback?.quranAwareReview.status !== "not_configured",
+    audioUnavailable,
+    reviewFailed: Boolean(reviewError),
+  });
 
   const contentFallback = contentError ? (
     <div className="content-state is-error" role="alert">
@@ -1084,18 +1096,15 @@ export default function Home() {
           </div>}
 
           {view === "study" && (!activeVerse ? contentFallback : <div className="study-layout">
-            <div className="study-index"><span>{t("study.ayah")}</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>{t("study.ayahOf", { total: String(ayahs.length).padStart(2, "0") })}</span></div>
+            <div className="study-index" aria-hidden="true"><strong>{String(activeVerse.number).padStart(2, "0")}</strong></div>
             <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
             <div className="teacher-loop" aria-label={t("study.lessonLabel")}>
-              <div className="loop-header"><div><span className="eyebrow">{t("study.eyebrow")}</span><h2>{t("study.heading")}</h2></div><span className="teacher-badge">{t("study.badge")}</span></div>
-
               {/* Priority one: what to do now, where you are, and the mic. One
                   instruction and at most one contextual button — the listen and
                   record controls below are the other half of the same block. */}
               <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
-                <p className="now-place">{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
-                <h3 className="now-instruction" aria-live="polite">{t(teacherAction.titleKey, teacherAction.titleParams)}</h3>
-                {teacherAction.focusArabic && <p className="now-word" lang="ar" dir="rtl">{teacherAction.focusArabic}</p>}
+                <p className="now-place"><span className="now-surah">{surahLabel}</span><span>{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}</span>{studyTiers.now.showWordPosition && teacherAction.focusWordIndex !== null && <span>{t("now.placeWord", { number: teacherAction.focusWordIndex })}</span>}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
+                <h2 className="now-instruction" aria-live="polite">{t(studyTiers.now.instructionKey, studyTiers.now.instructionParams)}</h2>
                 {teacherAction.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{teacherAction.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step])}</li>)}</ol>}
                 <div className="loop-actions">
                   <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
@@ -1106,18 +1115,25 @@ export default function Home() {
                 {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               </section>
 
+              {/* Tier two: the word to fix. Arabic first, one line of
+                  explanation, and the reference to listen to — before any
+                  score. An unconfirmed result is styled neutrally: the app
+                  says what it could not hear, it does not mark it wrong. */}
+              {studyTiers.correction && <section className={`active-correction ${studyTiers.correction.confirmed ? "" : "is-unsure"}`} aria-label={t("correction.label")}>
+                <p className="correction-target" lang="ar" dir="rtl">{studyTiers.correction.arabic}</p>
+                <p className="correction-explain">{t(studyTiers.correction.explanationKey)}</p>
+                {studyTiers.correction.offerReference && <button type="button" className="correction-listen" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={16} /> {t("correction.listen")}</button>}
+                <small className="correction-retry">{t("correction.retry")}</small>
+              </section>}
+
               {/* The live guide is the mic's own feedback, so it sits with it. */}
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : index === position.expectedWordIndex - 1 ? "is-expected" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
 
               {/* A failure the learner has to get past is never collapsed. */}
-              {reviewError && <div className="review-unavailable review-recovery" role="alert"><AlertCircle size={16} /><div><strong>{t("feedback.unavailable")}</strong><span>{reviewError}</span></div><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("recorder.retryNow")}</button></div>}
-              {feedback && !feedback.wordReviewAvailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div>}
-
-              {/* Priority two: the words to go back to, when there are any. */}
-              {feedback?.wordReviewAvailable && feedback.corrections.length > 0 && <section className="correction-list" aria-label={t("feedback.available")}>
-                {feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}
-              </section>}
-              {feedback?.wordReviewAvailable && feedback.corrections.length === 0 && <p className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
+              {/* The instruction above already offers "Try again", so this
+                  states the reason without competing for the same tap. */}
+              {studyTiers.alerts.reviewFailed && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{reviewError}</span></div>}
+              {studyTiers.alerts.reviewUnavailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback?.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div>}
 
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
 
@@ -1137,6 +1153,12 @@ export default function Home() {
                         : t(note.status === "missing" ? "notes.observedMissing" : "notes.observedReview", { number: note.wordIndex })}{note.kind === "acoustic" && <em> {note.guidance}</em>}</li>)}</ul>
                   <small><AlertCircle size={13} /> {t("notes.observedBoundary")}</small>
                 </div>}
+
+                {feedback?.wordReviewAvailable && feedback.corrections.length > 0 && <div className="notes-block">
+                  <div><span className="eyebrow">{t("feedback.available")}</span></div>
+                  <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div>
+                </div>}
+                {feedback?.wordReviewAvailable && feedback.corrections.length === 0 && <p className="notes-block all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
 
                 {feedback && <div className="notes-block">
                   <div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div>

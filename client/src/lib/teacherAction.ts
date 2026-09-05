@@ -14,6 +14,7 @@
 import type { StringKey } from "@locales/index";
 import {
   decideTeacherAction,
+  type TeacherObservation,
   type TeacherActionKind,
   type TeacherDecision,
   type TeacherEvidence,
@@ -26,6 +27,7 @@ import {
 
 export type {
   TeacherActionKind,
+  TeacherObservation,
   TeacherDecision,
   TeacherEvidence,
   TeacherEvidenceLevel,
@@ -56,8 +58,12 @@ export type TeacherAction = {
    * already the natural next step, so the page never shows two competing CTAs.
    */
   button: TeacherActionButton | null;
-  /** Drives the accent only — never a claim about recitation quality. */
-  tone: "neutral" | "attention" | "success";
+  /**
+   * Drives the accent only — never a claim about recitation quality.
+   * `unsure` is deliberately distinct from `attention`: an attempt the app could
+   * not hear must not be styled like a confirmed mistake.
+   */
+  tone: "neutral" | "attention" | "success" | "unsure";
   /** The ayah to move to when `command` is "next-ayah". */
   targetAyah: number | null;
   /** Whether this attempt sanctions moving on. Mirrors the decision. */
@@ -69,6 +75,8 @@ export type TeacherAction = {
   sequence: readonly TeachingStep[];
   /** Detail for Teacher notes. Never the primary instruction. */
   secondaryNotes: TeacherNote[];
+  /** What was observed about the focus word, when there is one. */
+  observation: TeacherObservation | null;
 };
 
 /** Instruction wording per action. One key each: no branching prose. */
@@ -97,8 +105,8 @@ const FOCUS_TITLE_KEYS: Record<TeacherFocus["source"], StringKey> = {
 const TONES: Record<TeacherActionKind, TeacherAction["tone"]> = {
   listening: "neutral",
   reviewing: "neutral",
-  "recording-problem": "attention",
-  unclear: "attention",
+  "recording-problem": "unsure",
+  unclear: "unsure",
   "repeat-word": "attention",
   "repeat-ayah": "attention",
   "next-ayah": "success",
@@ -139,6 +147,7 @@ export function presentDecision(decision: TeacherDecision, input: TeacherActionI
     evidenceLevel: decision.evidenceLevel,
     sequence: decision.sequence,
     secondaryNotes: decision.secondaryNotes,
+    observation: focus?.observation ?? null,
   };
 }
 

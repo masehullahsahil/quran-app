@@ -230,6 +230,18 @@ export const strings = {
   // The dominant line in Study mode. One instruction, in the words a teacher
   // would use — never the tracker's internal state names. See
   // client/src/lib/teacherAction.ts for which one is chosen when.
+  // -- Study: the active correction (tier 2) --------------------------------
+  // What was observed about one word, in a teacher's words. Never a score, and
+  // never a claim about how it sounded unless the acoustic evaluator said so.
+  "correction.label": "The word to fix",
+  "correction.notHeard": "This word was not heard.",
+  "correction.different": "Something else came through in its place.",
+  "correction.sound": "The words were right. Listen closely to how this one is said.",
+  "correction.unsure": "This was not clear enough to be sure.",
+  "correction.listen": "Listen to the ayah slowly",
+  "correction.retry": "Listen, repeat the word, then recite the ayah again.",
+  "correction.wordAt": "Word {number}",
+
   "now.label": "What to do now",
   "now.stepsLabel": "How to practise this",
   "step.showWord": "Look at the word",
@@ -238,6 +250,7 @@ export const strings = {
   "step.reciteAyah": "Recite the ayah",
   "step.recordAgain": "Record again",
   "now.place": "Ayah {ayah} of {total}",
+  "now.placeWord": "Word {number}",
   "now.listening": "Listening…",
   "now.reviewing": "Checking what you recited…",
   "now.recordAgain": "That recording could not be checked",

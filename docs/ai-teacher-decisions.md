@@ -19,10 +19,21 @@ The rules live in `shared/teacherDecision.ts` and are covered scenario by scenar
 | `acoustic` | The Quran-aware evaluator (`shared/quranEvaluation.ts`) | A sound observation, only when confident |
 | `memory.reviewDue` | `deriveAyahMemory` from the existing spaced-review layer | Scheduling context |
 | `memory.recurringWordIndexes` | `buildReviewQueue` → `focusWordIndexes`, from repeated-error history | Prioritising a known weak word |
-| `livePosition` | The live recitation session, which moves while reciting | Where to carry on from |
+| `livePosition` | The live recitation session, which moves while reciting | Where to carry on from, and which surah the learner is in |
 | `hasNextAyah` | The loaded surah | Whether advancing is even possible |
 
 No new state was introduced. No mastery model was added. The decision reads what already exists.
+
+### The observation on a focus word
+
+Every focus carries a `TeacherObservation` saying what was seen, so the interface
+can explain the correction without re-deriving it from the alignment:
+
+| Observation | Means | Shown as |
+|---|---|---|
+| `not-heard` | The word did not appear in the transcript | "This word was not heard." |
+| `came-through-differently` | Something else was transcribed in its place | "Something else came through in its place." |
+| `sound-observation` | The words were right; a confidence-gated listener flagged one | "The words were right. Listen closely to how this one is said." |
 
 ## Precedence
 
@@ -121,6 +132,57 @@ The split is enforced by module boundaries:
 
 - `shared/teacherDecision.ts` returns **what was observed** (`focus`, `secondaryNotes`, `evidenceLevel`) and **what to do** (`action`, `sequence`, `canAdvance`) as structured values. It contains no learner-facing prose at all.
 - `client/src/lib/teacherAction.ts` maps the action to one locale key from a fixed table, plus at most one button. It computes nothing that could change which action was chosen; a test asserts its output mirrors the decision's `action`, `reason`, `canAdvance` and `targetAyah` exactly.
+
+## The learner-facing hierarchy
+
+The Study screen has three tiers, decided in `client/src/lib/studyView.ts` and
+asserted in `studyView.test.ts`. Nothing about the layout is decided in JSX.
+
+### Tier 1 — NOW
+
+Where the learner is (`Al-Fatiha · Ayah 2 of 7 · Word 3`), one instruction as the
+section heading, the listen and record controls, and **at most one** contextual
+button. The word position appears only when the instruction is about a word.
+Nothing technical: no evidence level, no reason code, no tracker state, no score.
+
+### Tier 2 — the active correction
+
+Immediately below NOW, visually attached to it, never collapsed. It carries the
+target word in large Arabic, one sentence saying what was observed, the slow
+reference playback, and the retry line. It appears only for `repeat-word` — an
+action the engine reached on confirmed evidence.
+
+When the tone is `unsure` the panel does not appear at all, and the NOW block
+uses a neutral palette rather than the amber one: an attempt the app could not
+hear must never look like a confirmed mistake.
+
+### Tier 3 — Teacher notes
+
+Collapsed by default: the observations list, the score, the full correction
+table, memorization history and schedule, the tracker's own place and reason,
+acoustic findings, the coaching plan, and the stage strip.
+
+**Blocking messages never live here.** A failed recording, an unreviewable
+review and unavailable audio stay visible outside the collapsed section.
+
+### What moved, and why
+
+| Element | Was | Now |
+|---|---|---|
+| "Listen. Repeat. Review." banner + badge | Above the instruction | Removed; the instruction is the heading |
+| Ayah numeral rail | "Ayah / 02 / of 07" | Numeral only; the location line carries the words |
+| Focus word | In NOW, and again in the correction table | Once, in the correction panel |
+| Correction table (up to four rows with status pills) | Primary surface | Teacher notes |
+| "Every expected word was recognised" | Primary surface | Teacher notes |
+| Retry button inside the failure alert | Competed with the NOW button | Removed; the message stays |
+| Decorative wash behind the ayah | Rendered on phones | Hidden on phones |
+
+### Mobile order
+
+On a phone the tiers stack as: location → instruction → focus word → listen and
+record → one action → correction → the ayah itself → navigation. The learner
+never scrolls past diagnostics to reach a correction, and the decorative artwork
+is not rendered at all.
 
 ## The language-model boundary
 
