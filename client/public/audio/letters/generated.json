@@ -1,0 +1,680 @@
+{
+  "model": "gpt-4o-mini-tts",
+  "voice": "onyx",
+  "instructions": "You are a patient Arabic teacher speaking to an absolute beginner. Read the given Arabic exactly as written, in Modern Standard Arabic, and say nothing else. When the text is a single vowelled letter, say that one syllable only — do not say the letter's name. Speak slowly and clearly, with a neutral, unhurried tone.",
+  "generatedAt": "2026-09-05T17:40:21.552Z",
+  "clips": {
+    "alif.mp3": {
+      "text": "أَلِف",
+      "bytes": 33792,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "alif-fatha.mp3": {
+      "text": "اَ",
+      "bytes": 22656,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "alif-kasra.mp3": {
+      "text": "اِ",
+      "bytes": 21120,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "alif-damma.mp3": {
+      "text": "اُ",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ba.mp3": {
+      "text": "بَاء",
+      "bytes": 17664,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ba-fatha.mp3": {
+      "text": "بَ",
+      "bytes": 71424,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ba-kasra.mp3": {
+      "text": "بِ",
+      "bytes": 11520,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ba-damma.mp3": {
+      "text": "بُ",
+      "bytes": 13824,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "jeem.mp3": {
+      "text": "جِيم",
+      "bytes": 33024,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "jeem-fatha.mp3": {
+      "text": "جَ",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "jeem-kasra.mp3": {
+      "text": "جِ",
+      "bytes": 32256,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "jeem-damma.mp3": {
+      "text": "جُ",
+      "bytes": 25728,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ta.mp3": {
+      "text": "تَاء",
+      "bytes": 24960,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ta-fatha.mp3": {
+      "text": "تَ",
+      "bytes": 16896,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ta-kasra.mp3": {
+      "text": "تِ",
+      "bytes": 14592,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ta-damma.mp3": {
+      "text": "تُ",
+      "bytes": 24192,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tha.mp3": {
+      "text": "ثَاء",
+      "bytes": 45696,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tha-fatha.mp3": {
+      "text": "ثَ",
+      "bytes": 39168,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tha-kasra.mp3": {
+      "text": "ثِ",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tha-damma.mp3": {
+      "text": "ثُ",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "hha.mp3": {
+      "text": "حَاء",
+      "bytes": 24192,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "hha-fatha.mp3": {
+      "text": "حَ",
+      "bytes": 23424,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "hha-kasra.mp3": {
+      "text": "حِ",
+      "bytes": 21120,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "hha-damma.mp3": {
+      "text": "حُ",
+      "bytes": 19968,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kha.mp3": {
+      "text": "خَاء",
+      "bytes": 32256,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kha-fatha.mp3": {
+      "text": "خَ",
+      "bytes": 25728,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kha-kasra.mp3": {
+      "text": "خِ",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kha-damma.mp3": {
+      "text": "خُ",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dal.mp3": {
+      "text": "دَال",
+      "bytes": 15360,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dal-fatha.mp3": {
+      "text": "دَ",
+      "bytes": 13824,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dal-kasra.mp3": {
+      "text": "دِ",
+      "bytes": 25728,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dal-damma.mp3": {
+      "text": "دُ",
+      "bytes": 19968,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dhal.mp3": {
+      "text": "ذَال",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dhal-fatha.mp3": {
+      "text": "ذَ",
+      "bytes": 21120,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dhal-kasra.mp3": {
+      "text": "ذِ",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dhal-damma.mp3": {
+      "text": "ذُ",
+      "bytes": 19968,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ra.mp3": {
+      "text": "رَاء",
+      "bytes": 28800,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ra-fatha.mp3": {
+      "text": "رَ",
+      "bytes": 5760,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ra-kasra.mp3": {
+      "text": "رِ",
+      "bytes": 10368,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ra-damma.mp3": {
+      "text": "رُ",
+      "bytes": 21888,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zay.mp3": {
+      "text": "زَاي",
+      "bytes": 19968,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zay-fatha.mp3": {
+      "text": "زَ",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zay-kasra.mp3": {
+      "text": "زِ",
+      "bytes": 13824,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zay-damma.mp3": {
+      "text": "زُ",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "seen.mp3": {
+      "text": "سِين",
+      "bytes": 24960,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "seen-fatha.mp3": {
+      "text": "سَ",
+      "bytes": 24960,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "seen-kasra.mp3": {
+      "text": "سِ",
+      "bytes": 21120,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "seen-damma.mp3": {
+      "text": "سُ",
+      "bytes": 32256,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sheen.mp3": {
+      "text": "شِين",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sheen-fatha.mp3": {
+      "text": "شَ",
+      "bytes": 41856,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sheen-kasra.mp3": {
+      "text": "شِ",
+      "bytes": 21888,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sheen-damma.mp3": {
+      "text": "شُ",
+      "bytes": 22656,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sad.mp3": {
+      "text": "صَاد",
+      "bytes": 22656,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sad-fatha.mp3": {
+      "text": "صَ",
+      "bytes": 29568,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sad-kasra.mp3": {
+      "text": "صِ",
+      "bytes": 21888,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "sad-damma.mp3": {
+      "text": "صُ",
+      "bytes": 23424,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dad.mp3": {
+      "text": "ضَاد",
+      "bytes": 18432,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dad-fatha.mp3": {
+      "text": "ضَ",
+      "bytes": 13056,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dad-kasra.mp3": {
+      "text": "ضِ",
+      "bytes": 42624,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "dad-damma.mp3": {
+      "text": "ضُ",
+      "bytes": 14592,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tta.mp3": {
+      "text": "طَاء",
+      "bytes": 51456,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tta-fatha.mp3": {
+      "text": "طَ",
+      "bytes": 16896,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tta-kasra.mp3": {
+      "text": "طِ",
+      "bytes": 24960,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "tta-damma.mp3": {
+      "text": "طُ",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zza.mp3": {
+      "text": "ظَاء",
+      "bytes": 49920,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zza-fatha.mp3": {
+      "text": "ظَ",
+      "bytes": 35328,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zza-kasra.mp3": {
+      "text": "ظِ",
+      "bytes": 15360,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "zza-damma.mp3": {
+      "text": "ظُ",
+      "bytes": 14592,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ayn.mp3": {
+      "text": "عَيْن",
+      "bytes": 16896,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ayn-fatha.mp3": {
+      "text": "عَ",
+      "bytes": 12288,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ayn-kasra.mp3": {
+      "text": "عِ",
+      "bytes": 33024,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ayn-damma.mp3": {
+      "text": "عُ",
+      "bytes": 28032,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ghayn.mp3": {
+      "text": "غَيْن",
+      "bytes": 21120,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ghayn-fatha.mp3": {
+      "text": "غَ",
+      "bytes": 23424,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ghayn-kasra.mp3": {
+      "text": "غِ",
+      "bytes": 13824,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ghayn-damma.mp3": {
+      "text": "غُ",
+      "bytes": 23424,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "fa.mp3": {
+      "text": "فَاء",
+      "bytes": 27264,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "fa-fatha.mp3": {
+      "text": "فَ",
+      "bytes": 36096,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "fa-kasra.mp3": {
+      "text": "فِ",
+      "bytes": 29568,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "fa-damma.mp3": {
+      "text": "فُ",
+      "bytes": 19968,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "qaf.mp3": {
+      "text": "قَاف",
+      "bytes": 26496,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "qaf-fatha.mp3": {
+      "text": "قَ",
+      "bytes": 24192,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "qaf-kasra.mp3": {
+      "text": "قِ",
+      "bytes": 29568,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "qaf-damma.mp3": {
+      "text": "قُ",
+      "bytes": 28032,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kaf.mp3": {
+      "text": "كَاف",
+      "bytes": 26496,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kaf-fatha.mp3": {
+      "text": "كَ",
+      "bytes": 41088,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kaf-kasra.mp3": {
+      "text": "كِ",
+      "bytes": 17664,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "kaf-damma.mp3": {
+      "text": "كُ",
+      "bytes": 22656,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "lam.mp3": {
+      "text": "لَام",
+      "bytes": 62592,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "lam-fatha.mp3": {
+      "text": "لَ",
+      "bytes": 36096,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "lam-kasra.mp3": {
+      "text": "لِ",
+      "bytes": 21888,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "lam-damma.mp3": {
+      "text": "لُ",
+      "bytes": 26496,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "meem.mp3": {
+      "text": "مِيم",
+      "bytes": 13056,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "meem-fatha.mp3": {
+      "text": "مَ",
+      "bytes": 15360,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "meem-kasra.mp3": {
+      "text": "مِ",
+      "bytes": 39168,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "meem-damma.mp3": {
+      "text": "مُ",
+      "bytes": 19968,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "noon.mp3": {
+      "text": "نُون",
+      "bytes": 21888,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "noon-fatha.mp3": {
+      "text": "نَ",
+      "bytes": 19200,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "noon-kasra.mp3": {
+      "text": "نِ",
+      "bytes": 23424,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "noon-damma.mp3": {
+      "text": "نُ",
+      "bytes": 24192,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ha.mp3": {
+      "text": "هَاء",
+      "bytes": 17664,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ha-fatha.mp3": {
+      "text": "هَ",
+      "bytes": 24192,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ha-kasra.mp3": {
+      "text": "هِ",
+      "bytes": 13056,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ha-damma.mp3": {
+      "text": "هُ",
+      "bytes": 16896,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "waw.mp3": {
+      "text": "وَاو",
+      "bytes": 25728,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "waw-fatha.mp3": {
+      "text": "وَ",
+      "bytes": 35328,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "waw-kasra.mp3": {
+      "text": "وِ",
+      "bytes": 22656,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "waw-damma.mp3": {
+      "text": "وُ",
+      "bytes": 22656,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ya.mp3": {
+      "text": "يَاء",
+      "bytes": 21120,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ya-fatha.mp3": {
+      "text": "يَ",
+      "bytes": 42624,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ya-kasra.mp3": {
+      "text": "يِ",
+      "bytes": 13056,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    },
+    "ya-damma.mp3": {
+      "text": "يُ",
+      "bytes": 13056,
+      "voice": "onyx",
+      "model": "gpt-4o-mini-tts"
+    }
+  }
+}
