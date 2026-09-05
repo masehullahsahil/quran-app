@@ -1,4 +1,7 @@
-import type { QuranEvaluationFindingKind, QuranEvaluationStatus } from "./quranEvaluation";
+import type {
+  QuranEvaluationFindingKind,
+  QuranEvaluationStatus,
+} from "./quranEvaluation";
 
 export const ACOUSTIC_BENCHMARK_CATEGORIES = [
   "correct_pronunciation",
@@ -8,7 +11,8 @@ export const ACOUSTIC_BENCHMARK_CATEGORIES = [
   "pause_stop_issue",
   "tajweed_rule_observation",
 ] as const;
-export type AcousticBenchmarkCategory = (typeof ACOUSTIC_BENCHMARK_CATEGORIES)[number];
+export type AcousticBenchmarkCategory =
+  (typeof ACOUSTIC_BENCHMARK_CATEGORIES)[number];
 
 export type AcousticBenchmarkFixture = {
   id: string;
@@ -21,18 +25,57 @@ export type AcousticBenchmarkFixture = {
   expectedConfidenceRange: readonly [minimum: number, maximum: number] | null;
   shouldAbstain: boolean;
   notes: string;
+  targetGrapheme?: string;
+  observedTeacherLabel?: string;
+  confusionPairId?: (typeof QURAN_PRONUNCIATION_CONFUSIONS)[number]["id"];
+  speakerAnonymizedId?: string;
+  recordingQuality?: "clean" | "minor_noise" | "noisy" | "clipped" | "unusable";
+  teacherConfidence?: number;
+  adjudication?: "single_review" | "agreed" | "adjudicated" | "uncertain";
 };
 
 /** Metadata for research and labeling only; this is not a claim of detection capability. */
 export const QURAN_PRONUNCIATION_CONFUSIONS = [
-  { id: "qaf-kaf", graphemes: ["ق", "ك"] as const, note: "Uvular qāf versus velar kāf." },
-  { id: "sad-sin", graphemes: ["ص", "س"] as const, note: "Emphatic ṣād versus sīn." },
-  { id: "dad-dal", graphemes: ["ض", "د"] as const, note: "Emphatic ḍād versus dāl." },
-  { id: "ta-ta", graphemes: ["ط", "ت"] as const, note: "Emphatic ṭāʾ versus tāʾ." },
-  { id: "za-zay-dhal", graphemes: ["ظ", "ز", "ذ"] as const, note: "Interdental/emphatic distinctions." },
-  { id: "ha-ha", graphemes: ["ح", "ه"] as const, note: "Pharyngeal ḥāʾ versus glottal hāʾ." },
-  { id: "ayn-hamza", graphemes: ["ع", "أ"] as const, note: "Pharyngeal ʿayn versus hamza." },
-  { id: "ghayn-kha", graphemes: ["غ", "خ"] as const, note: "Voiced ghayn versus voiceless khāʾ where applicable." },
+  {
+    id: "qaf-kaf",
+    graphemes: ["ق", "ك"] as const,
+    note: "Uvular qāf versus velar kāf.",
+  },
+  {
+    id: "sad-sin",
+    graphemes: ["ص", "س"] as const,
+    note: "Emphatic ṣād versus sīn.",
+  },
+  {
+    id: "dad-dal",
+    graphemes: ["ض", "د"] as const,
+    note: "Emphatic ḍād versus dāl.",
+  },
+  {
+    id: "ta-ta",
+    graphemes: ["ط", "ت"] as const,
+    note: "Emphatic ṭāʾ versus tāʾ.",
+  },
+  {
+    id: "za-zay-dhal",
+    graphemes: ["ظ", "ز", "ذ"] as const,
+    note: "Interdental/emphatic distinctions.",
+  },
+  {
+    id: "ha-ha",
+    graphemes: ["ح", "ه"] as const,
+    note: "Pharyngeal ḥāʾ versus glottal hāʾ.",
+  },
+  {
+    id: "ayn-hamza",
+    graphemes: ["ع", "أ"] as const,
+    note: "Pharyngeal ʿayn versus hamza.",
+  },
+  {
+    id: "ghayn-kha",
+    graphemes: ["غ", "خ"] as const,
+    note: "Voiced ghayn versus voiceless khāʾ where applicable.",
+  },
 ] as const;
 
 export type AcousticPrediction = {
