@@ -125,7 +125,19 @@ export function resolvePack(pack: LocalePack<TranslatableStrings>): ResolvedLoca
       // an empty space, so the gap is visible instead of silent.
       return format(template ?? key, values);
     },
-    letterLesson: (slug) => pack.lessons?.letters?.[slug] ?? en.lessons.letters[slug] ?? null,
+    // Field by field, like the strings: a pack that has translated how a letter
+    // is articulated but not its practice cue shows its own articulation and
+    // the English cue, rather than losing one of them.
+    letterLesson: (slug) => {
+      const own = pack.lessons?.letters?.[slug];
+      const reference = en.lessons.letters[slug];
+      if (!own && !reference) return null;
+      const tip = own?.tip?.trim() || reference?.tip;
+      return {
+        articulation: own?.articulation?.trim() || reference?.articulation || "",
+        ...(tip ? { tip } : {}),
+      };
+    },
     qaida: pack.qaida,
     instructionAudio: (name) => {
       const dir = pack.manifest.instructionAudioDir || en.manifest.instructionAudioDir;

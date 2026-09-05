@@ -65,3 +65,32 @@ export function qaidaCoverage(lessons: readonly QaidaLesson[], pack: QaidaTextPa
   const translated = lessons.filter((lesson) => Boolean(pack?.lessons?.[lesson.id]?.title)).length;
   return translated / lessons.length;
 }
+
+/**
+ * Builds an exercise-prompt map from a phrasebook keyed by the English source.
+ *
+ * Level 1's exercises are generated from a handful of templates: fifty items
+ * share three prompts between them. Translating them id by id would mean fifty
+ * copies of the same sentence, which is how a translation file rots. A pack
+ * instead translates each distinct English prompt once, and this expands it
+ * across the ids the curriculum actually has — so a lesson added later that
+ * reuses a known prompt is translated the moment it appears.
+ *
+ * Only text is expanded. Ids, order and correctness come from the curriculum
+ * and are untouched.
+ */
+export function promptsFromPhrasebook(
+  lessons: readonly QaidaLesson[],
+  phrasebook: Readonly<Record<string, string>>,
+  noteBook: Readonly<Record<string, string>> = {},
+): Record<string, QaidaExerciseText> {
+  const map: Record<string, QaidaExerciseText> = {};
+  for (const lesson of lessons) {
+    for (const item of lesson.practice) {
+      const prompt = phrasebook[item.prompt];
+      const note = item.note ? noteBook[item.note] : undefined;
+      if (prompt || note) map[item.id] = { ...(prompt ? { prompt } : {}), ...(note ? { note } : {}) };
+    }
+  }
+  return map;
+}
