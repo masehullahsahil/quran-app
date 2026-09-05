@@ -43,4 +43,29 @@ describe("memorization history repository", () => {
     // Interim and duplicate live chunks never call this repository.
     expect(repository.list()).toEqual([]);
   });
+
+  it("keeps a failed write queued until it is acknowledged", () => {
+    const data = new Map<string, string>();
+    const repository = new LocalMemorizationHistoryRepository({
+      getItem: key => data.get(key) ?? null,
+      setItem: (key, item) => { data.set(key, item); },
+    });
+    repository.save(value);
+    repository.enqueue(value);
+    repository.enqueue(value);
+    expect(repository.pending()).toEqual([value]);
+    repository.acknowledge(value.id);
+    expect(repository.pending()).toEqual([]);
+    expect(repository.list()).toEqual([value]);
+  });
+
+  it("deduplicates a merged server snapshot", () => {
+    const data = new Map<string, string>();
+    const repository = new LocalMemorizationHistoryRepository({
+      getItem: key => data.get(key) ?? null,
+      setItem: (key, item) => { data.set(key, item); },
+    });
+    repository.replace([value, value]);
+    expect(repository.list()).toEqual([value]);
+  });
 });
