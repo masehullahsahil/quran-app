@@ -45,6 +45,8 @@ import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
+import { resolveTeacherAction, type TeacherAction } from "@/lib/teacherAction";
+import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
   toVerseFollowingPosition,
@@ -109,6 +111,15 @@ const followReasonCopy: Record<VerseFollowingResult["reason"], StringKey> = {
   mistake_to_correct: "follow.reasonMistakeToCorrect",
   ayah_completed: "follow.reasonAyahCompleted",
   surah_completed: "follow.reasonSurahCompleted",
+};
+
+// Mastery is an internal enum; the learner sees a teacher's word for it.
+const masteryLabels: Record<MasteryState, StringKey> = {
+  new: "mastery.new",
+  learning: "mastery.learning",
+  needs_review: "mastery.needs_review",
+  strong: "mastery.strong",
+  mastered: "mastery.mastered",
 };
 
 type BrowserRecognition = {
@@ -795,6 +806,31 @@ export default function Home() {
 
   // The tracker's latest answer. Null until an attempt has been reviewed.
   const follow = feedback?.verseFollowing ?? null;
+  // One instruction, chosen from every signal Study holds. The rules live in
+  // client/src/lib/teacherAction.ts so they can be tested without a browser.
+  const reviewDue = Boolean(activeMemory.nextReviewAt && new Date(activeMemory.nextReviewAt) <= new Date());
+  const teacherAction: TeacherAction = resolveTeacherAction({
+    isRecording,
+    isReviewing: evaluateRecitation.isPending,
+    recordingError: Boolean(reviewError),
+    review: feedback
+      ? {
+          wordReviewAvailable: feedback.wordReviewAvailable,
+          corrections: feedback.corrections,
+          verseFollowing: feedback.verseFollowing,
+        }
+      : null,
+    position: { currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
+    reviewDue,
+    hasNextAyah: Boolean(nextVerse),
+  });
+  const runTeacherAction = () => {
+    if (teacherAction.button?.command === "next-ayah" && teacherAction.targetAyah !== null) {
+      selectVerse(teacherAction.targetAyah);
+      return;
+    }
+    retryLesson();
+  };
 
   const activeReciterName = reciters.find((reciter) => reciter.id === activeReciterId)?.name ?? t("panel.reciterFallback");
   // Two different failures, two different messages: the API returned no file at
@@ -934,7 +970,9 @@ export default function Home() {
           {view === "learn" && <div className="learning-layout">
             <div className="learning-topline"><div><span className="eyebrow">{t("learn.paceEyebrow")}</span><h2>{t("learn.paceHeading")}</h2></div><span>{t(activeLevel.cueKey)}</span></div>
             <div className="level-picker" role="tablist" aria-label={t("learn.levelsLabel")}>{learningLevels.map((level) => { const progress = level.id === "qaida" ? qaidaPercent : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{t(level.titleKey)}</strong><small>{progress ? t("learn.percentComplete", { percent: progress }) : t(level.cueKey)}</small></button>; })}</div>
-            {learningLevel === "qaida" && <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount", { percent: lettersPractisedPercent })}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={16} /> {t("qaida.playLetter")}</button></div>
+            {learningLevel === "qaida" && <details className="letter-reference">
+              <summary><span>{t("course.letterReference")}</span><small>{t("course.letterReferenceHint")}</small></summary>
+              <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount", { percent: lettersPractisedPercent })}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={16} /> {t("qaida.playLetter")}</button></div>
 
               {/* One recording per harakat. Nothing here is synthesised: if a
                   reciter's file is not present the control says so rather than
@@ -949,7 +987,8 @@ export default function Home() {
 
               {usingPlaceholderAudio && ACTIVE_LETTER_AUDIO_SOURCE.attribution && <p className="letter-audio-credit">{t("qaida.audioAttribution", { source: ACTIVE_LETTER_AUDIO_SOURCE.attribution })}</p>}
 
-              <div className="letter-actions"><button type="button" className={`quiet-action ${lettersPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{lettersPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{t(lettersPractised.includes(selectedLetter) ? "qaida.practised" : "qaida.markPractised")}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>{t("qaida.nextLetter")} <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">{t("qaida.quickCheck")}</span><p>{t("qaida.quickCheckPrompt")} <strong lang="ar" dir="rtl">{activeLetter.letter}</strong></p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setLetterExerciseResult("correct")}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{t(letterExerciseResult === "correct" ? "qaida.quickCheckCorrect" : "qaida.quickCheckRetry")}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> {t("qaida.boundary")}</p></div></div>}
+              <div className="letter-actions"><button type="button" className={`quiet-action ${lettersPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{lettersPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{t(lettersPractised.includes(selectedLetter) ? "qaida.practised" : "qaida.markPractised")}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>{t("qaida.nextLetter")} <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">{t("qaida.quickCheck")}</span><p>{t("qaida.quickCheckPrompt")} <strong lang="ar" dir="rtl">{activeLetter.letter}</strong></p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setLetterExerciseResult("correct")}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{t(letterExerciseResult === "correct" ? "qaida.quickCheckCorrect" : "qaida.quickCheckRetry")}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> {t("qaida.boundary")}</p></div></div>
+            </details>}
             {learningLevel === "qaida" && <QaidaCourse
               progress={qaidaProgress}
               onProgressChange={setQaidaProgress}
@@ -963,41 +1002,95 @@ export default function Home() {
             <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
             <div className="teacher-loop" aria-label={t("study.lessonLabel")}>
               <div className="loop-header"><div><span className="eyebrow">{t("study.eyebrow")}</span><h2>{t("study.heading")}</h2></div><span className="teacher-badge">{t("study.badge")}</span></div>
-              <div className="loop-steps" aria-label={t("study.stageLabel", { stage: lessonStage })}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> {t("study.stageListen")}</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> {t("study.stageRepeat")}</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> {t("study.stageReview")}</span></div>
-              <div className="loop-actions">
-                <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
-                <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
-              </div>
-              {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
-              <p className="loop-message" role="status">{recorderMessage}</p>
-              <section className="memory-review-panel" aria-label="Memorization review"><div><span className="eyebrow">Memory review</span><strong>{activeMemory.mastery.replace("_", " ")}</strong></div><p>{activeRecommendation?.reason === "repeated_omission" ? `You often miss word ${activeRecommendation.focusWordIndexes[0]} in this ayah.` : activeRecommendation?.reason === "repeated_substitution" ? `Word ${activeRecommendation.focusWordIndexes[0]} has repeatedly needed textual review.` : activeMemory.nextReviewAt && new Date(activeMemory.nextReviewAt) <= new Date() ? "Review due today." : activeMemory.nextReviewAt ? `Next review: ${new Date(activeMemory.nextReviewAt).toLocaleDateString()}.` : "Complete a recall attempt to begin review scheduling."}</p><small>{activeMemory.consecutiveSuccesses} successful reviews in a row · {reviewSummary.dueToday.length} due today · {reviewSummary.weakAyat.length} weak · {reviewSummary.strongOrMasteredCount} strong/mastered</small></section>
-              {follow && <section className="verse-following" aria-label={t("follow.label")}>
-                <div className="verse-following-head"><div><span className="eyebrow">{t("follow.eyebrow")}</span><strong>{t("follow.ayah", { number: follow.currentAyah })}</strong></div><span className={`follow-state is-${follow.state}`}>{t(followStateLabels[follow.state])}</span></div>
-                <p>{t(followReasonCopy[follow.reason])}</p>
-                <p className="follow-place">{follow.state === "completed" ? t("follow.surahComplete") : t("follow.continueAt", { number: follow.expectedWordIndex })}</p>
-                {follow.correctionFocus && <p className="follow-place">{t("follow.correctionFocus", { number: follow.correctionFocus.wordIndex })} <span lang="ar" dir="rtl">{follow.correctionFocus.expectedArabic}</span></p>}
-                {follow.shouldAdvance && activeVerse.number !== follow.currentAyah
-                  ? <button type="button" className="follow-action" onClick={() => selectVerse(follow.currentAyah)}>{t("follow.moveToAyah", { number: follow.currentAyah })} <ArrowRight size={16} /></button>
-                  : follow.state === "completed" ? null : <button type="button" className="follow-action" onClick={retryLesson}><RotateCcw size={16} /> {t("follow.stayOnAyah", { number: follow.currentAyah })}</button>}
-                <small><AlertCircle size={13} /> {t("follow.boundary")}</small>
-              </section>}
-              <section className="coach-context" aria-label={t("coach.contextLabel")}>
-                <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{activeCoachPlan.title}</strong></div>
-                <p>{activeCoachPlan.lessonGoal}</p>
-                <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{activeCoachPlan.practiceLoop.map((step) => <span key={step}>{step}</span>)}</div>
-                <small><AlertCircle size={13} /> {activeCoachPlan.boundary}</small>
+
+              {/* Priority one: what to do now, where you are, and the mic. One
+                  instruction and at most one contextual button — the listen and
+                  record controls below are the other half of the same block. */}
+              <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
+                <p className="now-place">{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
+                <h3 className="now-instruction" aria-live="polite">{t(teacherAction.titleKey, teacherAction.titleParams)}</h3>
+                {teacherAction.focusArabic && <p className="now-word" lang="ar" dir="rtl">{teacherAction.focusArabic}</p>}
+                <div className="loop-actions">
+                  <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
+                  <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
+                </div>
+                {teacherAction.button && <button type="button" className="now-action" onClick={runTeacherAction}>{teacherAction.button.command === "next-ayah" ? <>{t(teacherAction.button.labelKey, teacherAction.button.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(teacherAction.button.labelKey, teacherAction.button.params)}</>}</button>}
+                <p className="loop-message" role="status">{recorderMessage}</p>
+                {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               </section>
+
+              {/* The live guide is the mic's own feedback, so it sits with it. */}
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : index === position.expectedWordIndex - 1 ? "is-expected" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
-              {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
+
+              {/* A failure the learner has to get past is never collapsed. */}
               {reviewError && <div className="review-unavailable review-recovery" role="alert"><AlertCircle size={16} /><div><strong>{t("feedback.unavailable")}</strong><span>{reviewError}</span></div><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("recorder.retryNow")}</button></div>}
-              {feedback && <div className="feedback-panel"><section className="coach-context feedback-coach-context" aria-label={t("coach.reviewPlanLabel")}><div><span className="eyebrow">{t("coach.reviewPlanEyebrow")}</span><strong>{feedback.learningPlan.title}</strong></div><p>{feedback.learningPlan.focus}</p><div className="coach-loop">{feedback.learningPlan.practiceLoop.map((step) => <span key={step}>{step}</span>)}</div><small><AlertCircle size={13} /> {feedback.learningPlan.boundary}</small></section>{feedback.quranAwareReview.status !== "not_configured" && <section className="acoustic-review" aria-label={t("feedback.acousticLabel")}><div className="acoustic-review-header"><div><span className="eyebrow">{t("feedback.acousticLabel")}</span><strong>{feedback.quranAwareReview.status === "available" ? t("feedback.acousticAvailable") : feedback.quranAwareReview.status === "abstained" ? t("feedback.acousticAbstained") : t("feedback.acousticUnavailable")}</strong></div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.confidence !== null && <small>{t("feedback.acousticConfidence", { percent: Math.round(feedback.quranAwareReview.confidence * 100) })}</small>}</div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.summary && <p>{feedback.quranAwareReview.summary}</p>}{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.findings.length > 0 && <div className="acoustic-finding-list">{feedback.quranAwareReview.findings.map((finding, index) => <div className="acoustic-finding" key={`${finding.kind}-${finding.wordIndex ?? "general"}-${index}`}><span>{t(acousticFindingLabels[finding.kind])}</span><p>{finding.guidance}</p>{finding.expectedArabic && <small lang="ar" dir="rtl">{finding.expectedArabic}</small>}</div>)}</div>}<small className="acoustic-boundary"><AlertCircle size={13} /> {t("feedback.acousticBoundary")}</small></section>}<div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div><p className="coach-copy">{feedback.encouragement}</p><div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>{!feedback.wordReviewAvailable ? <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div> : feedback.corrections.length > 0 ? <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div> : <div className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</div>}<div className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></div><label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label><p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("feedback.tryAgain")}</button></div>}
+              {feedback && !feedback.wordReviewAvailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div>}
+
+              {/* Priority two: the words to go back to, when there are any. */}
+              {feedback?.wordReviewAvailable && feedback.corrections.length > 0 && <section className="correction-list" aria-label={t("feedback.available")}>
+                {feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}
+              </section>}
+              {feedback?.wordReviewAvailable && feedback.corrections.length === 0 && <p className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
+
+              {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
+
+              {/* Priority three: everything that explains rather than instructs.
+                  Collapsed by default, and never carrying a warning of its own. */}
+              <details className="teacher-notes">
+                <summary><span>{t("notes.summary")}</span><small>{t("notes.hint")}</small></summary>
+
+                {feedback && <div className="notes-block">
+                  <div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div>
+                  <p className="coach-copy">{feedback.encouragement}</p>
+                  <p className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></p>
+                  <div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>
+                  <label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label>
+                </div>}
+
+                <div className="notes-block memory-review-panel" aria-label={t("memory.eyebrow")}>
+                  <div><span className="eyebrow">{t("memory.eyebrow")}</span><strong>{t(masteryLabels[activeMemory.mastery])}</strong></div>
+                  <p>{activeRecommendation?.reason === "repeated_omission"
+                    ? t("memory.repeatedOmission", { number: activeRecommendation.focusWordIndexes[0] })
+                    : activeRecommendation?.reason === "repeated_substitution"
+                      ? t("memory.repeatedSubstitution", { number: activeRecommendation.focusWordIndexes[0] })
+                      : reviewDue
+                        ? t("memory.reviewToday")
+                        : activeMemory.nextReviewAt
+                          ? t("memory.nextReview", { date: new Date(activeMemory.nextReviewAt).toLocaleDateString() })
+                          : t("memory.none")}</p>
+                  <small>{t("memory.streak", { count: activeMemory.consecutiveSuccesses })} · {t("memory.overview", { due: reviewSummary.dueToday.length, weak: reviewSummary.weakAyat.length, strong: reviewSummary.strongOrMasteredCount })}</small>
+                </div>
+
+                {follow && <div className="notes-block notes-place">
+                  <div><span className="eyebrow">{t("notes.placeLabel")}</span><strong>{t("follow.ayah", { number: follow.currentAyah })}</strong><span className={`follow-state is-${follow.state}`}>{t(followStateLabels[follow.state])}</span></div>
+                  <p>{t(followReasonCopy[follow.reason])}</p>
+                  <small><AlertCircle size={13} /> {t("follow.boundary")}</small>
+                </div>}
+
+                {feedback && feedback.quranAwareReview.status !== "not_configured" && <div className="notes-block acoustic-review" aria-label={t("feedback.acousticLabel")}>
+                  <div className="acoustic-review-header"><div><span className="eyebrow">{t("feedback.acousticLabel")}</span><strong>{feedback.quranAwareReview.status === "available" ? t("feedback.acousticAvailable") : feedback.quranAwareReview.status === "abstained" ? t("feedback.acousticAbstained") : t("feedback.acousticUnavailable")}</strong></div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.confidence !== null && <small>{t("feedback.acousticConfidence", { percent: Math.round(feedback.quranAwareReview.confidence * 100) })}</small>}</div>
+                  {feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.summary && <p>{feedback.quranAwareReview.summary}</p>}
+                  {feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.findings.length > 0 && <div className="acoustic-finding-list">{feedback.quranAwareReview.findings.map((finding, index) => <div className="acoustic-finding" key={`${finding.kind}-${finding.wordIndex ?? "general"}-${index}`}><span>{t(acousticFindingLabels[finding.kind])}</span><p>{finding.guidance}</p>{finding.expectedArabic && <small lang="ar" dir="rtl">{finding.expectedArabic}</small>}</div>)}</div>}
+                  <small className="acoustic-boundary"><AlertCircle size={13} /> {t("feedback.acousticBoundary")}</small>
+                </div>}
+
+                <div className="notes-block coach-context" aria-label={t("coach.contextLabel")}>
+                  <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{(feedback?.learningPlan ?? activeCoachPlan).title}</strong></div>
+                  <p>{feedback ? feedback.learningPlan.focus : activeCoachPlan.lessonGoal}</p>
+                  <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{(feedback?.learningPlan.practiceLoop ?? activeCoachPlan.practiceLoop).map((step) => <span key={step}>{step}</span>)}</div>
+                  <small><AlertCircle size={13} /> {(feedback?.learningPlan ?? activeCoachPlan).boundary}</small>
+                </div>
+
+                <div className="loop-steps" aria-label={t("study.stageLabel", { stage: lessonStage })}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> {t("study.stageListen")}</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> {t("study.stageRepeat")}</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> {t("study.stageReview")}</span></div>
+                {feedback && <p className="feedback-note"><AlertCircle size={13} /> {feedback.note}</p>}
+              </details>
             </div>
             {/* A dot per ayah reads well for short surahs; al-Baqarah's 286 would
                 not, so longer surahs get a counter instead. */}
             <div className="study-pagination"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={17} /> {t("study.previous")}</button>{ayahs.length <= 20 ? <div>{ayahs.map((verse) => <button key={verse.verseKey} type="button" className={selectedVerse === verse.number ? "dot is-current" : "dot"} aria-label={t("study.chooseAyah", { number: verse.number })} onClick={() => selectVerse(verse.number)} />)}</div> : <span className="pagination-count">{activeVerse.number} / {ayahs.length}</span>}<button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("study.next")} <ArrowRight size={17} /></button></div>
           </div>)}
 
-          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">{t("memorise.eyebrow")}</span><span>{t("memorise.place", { number: activeVerse.number, total: ayahs.length })}</span></div><div className="memory-review-panel"><div><span className="eyebrow">Practice next</span><strong>{reviewSummary.nextRecommended ? `Surah ${reviewSummary.nextRecommended.surah}, ayah ${reviewSummary.nextRecommended.ayah}` : "Start a new memorization"}</strong></div><small>{reviewSummary.dueToday.length} due today · {reviewSummary.weakAyat.length} weak · {reviewSummary.strongOrMasteredCount} strong/mastered</small></div><p className="memory-prompt">{t("memorise.prompt")}</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">{t("memorise.covered")}</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : t("memorise.meaningHidden")}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{t(covered ? "memorise.reveal" : "memorise.cover")}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> {t("memorise.toggleMeaning")}</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> {t("memorise.practise")}</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={t("memorise.practiseAyah", { number: verse.number })}><span>{verse.number}</span></button>)}</div></div>)}
+          {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">{t("memorise.eyebrow")}</span><span>{t("memorise.place", { number: activeVerse.number, total: ayahs.length })}</span></div><div className="memory-review-panel"><div><span className="eyebrow">{t("memory.practiceNext")}</span><strong>{reviewSummary.nextRecommended ? t("memory.nextIs", { surah: reviewSummary.nextRecommended.surah, ayah: reviewSummary.nextRecommended.ayah }) : t("memory.startNew")}</strong></div><small>{t("memory.overview", { due: reviewSummary.dueToday.length, weak: reviewSummary.weakAyat.length, strong: reviewSummary.strongOrMasteredCount })}</small></div><p className="memory-prompt">{t("memorise.prompt")}</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">{t("memorise.covered")}</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : t("memorise.meaningHidden")}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{t(covered ? "memorise.reveal" : "memorise.cover")}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> {t("memorise.toggleMeaning")}</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> {t("memorise.practise")}</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={t("memorise.practiseAyah", { number: verse.number })}><span>{verse.number}</span></button>)}</div></div>)}
         </section>
         <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> {t("reader.previousAyah")}</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("reader.nextAyah")} <ArrowRight size={16} /></button></div>
       </main>
