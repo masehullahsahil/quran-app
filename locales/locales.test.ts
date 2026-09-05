@@ -112,7 +112,7 @@ describe("placeholders", () => {
   });
 });
 
-describe("the scaffolded pack", () => {
+describe("the Urdu pack", () => {
   it("is registered and loadable", async () => {
     expect(isKnownLocale("ur")).toBe(true);
     const resolved = await loadLocale("ur");
@@ -120,12 +120,17 @@ describe("the scaffolded pack", () => {
     expect(resolved.manifest.direction).toBe("rtl");
   });
 
-  // It is a scaffold on purpose: no machine-translated placeholder text, so the
-  // English fallback is what a learner sees until a translator fills it in.
-  it("starts empty, so every string falls back to English", async () => {
+  // This pack was an empty scaffold; it now carries the interface and the
+  // teacher's instructions in Urdu, with long-form lesson text still falling
+  // back per key. Both halves of that are asserted here.
+  it("translates the interface and falls back for what it has not reached", async () => {
     const resolved = await loadLocale("ur");
-    expect(resolved.missingKeys).toHaveLength(Object.keys(en.strings).length);
-    expect(resolved.t("mode.read")).toBe(en.strings["mode.read"]);
+
+    expect(resolved.t("mode.read")).not.toBe(en.strings["mode.read"]);
+    expect(resolved.coverage.criticalComplete).toBe(true);
+    expect(resolved.missingKeys.length).toBeGreaterThan(0);
+    expect(resolved.coverage.strings).toBeGreaterThan(0);
+    expect(resolved.coverage.strings).toBeLessThan(1);
   });
 
   it("declares its own instruction audio directory, separate from English", () => {

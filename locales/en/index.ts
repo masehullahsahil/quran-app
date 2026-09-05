@@ -36,6 +36,7 @@ export const strings = {
   "nav.minutesShort": "min",
 
   // -- Language picker -----------------------------------------------------
+  "language.partial": "interface only",
   "language.label": "Instruction language",
   "language.hint": "Arabic text and recitation stay the same in every language.",
 
@@ -366,6 +367,8 @@ export const strings = {
   "feedback.coachEyebrow": "AI audio coach",
   "feedback.coachCopy": "Hear the practice cue in English, then use the qualified reciter for Quranic Arabic.",
   "feedback.playGuidance": "Play guidance",
+  "feedback.transcriptionFailed": "The recording could not be checked — the speech service did not respond. Check your connection, then record the ayah again.",
+  "feedback.noArabicReturned": "No Arabic words were recognised in that recording. Try again in a quieter place, with the microphone close.",
   "feedback.reviewUnavailable": "The recording is saved, but this response cannot support a reliable word-by-word score. Replay the qualified reciter and retry in a quieter place; use a teacher for pronunciation and tajwid.",
   "feedback.wordIndex": "Word {number}",
   "feedback.extra": "Extra",

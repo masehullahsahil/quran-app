@@ -33,6 +33,7 @@ import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
 import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
 import { QaidaCourse } from "@/components/QaidaCourse";
 import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
+import { SUPPORTED_LANGUAGES, type SupportedLanguageCode } from "@shared/languages";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { ACTIVE_LETTER_AUDIO_SOURCE } from "@/lib/letterAudioSources";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
@@ -73,6 +74,8 @@ type RecitationFeedback = {
   wordReviewAvailable: boolean;
   reviewStatus: "available" | "unavailable";
   reviewMessage: string | null;
+  /** Stable reason code, rendered in the learner's language. */
+  reviewMessageCode: "transcription_failed" | "no_arabic_returned" | null;
   quranAwareReview: QuranAwareReview;
   verseFollowing: VerseFollowingResult;
   learningPlan: {
@@ -124,6 +127,12 @@ const masteryLabels: Record<MasteryState, StringKey> = {
 };
 
 // The teaching sequence, as a fixed set of steps. Wording per step, no prose.
+// The server names why a review could not be produced; the words are ours.
+const reviewMessageKeys: Record<"transcription_failed" | "no_arabic_returned", StringKey> = {
+  transcription_failed: "feedback.transcriptionFailed",
+  no_arabic_returned: "feedback.noArabicReturned",
+};
+
 const teachingStepLabels: Record<TeachingStep, StringKey> = {
   "show-word": "step.showWord",
   listen: "step.listen",
@@ -267,7 +276,9 @@ export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [liveMatched, setLiveMatched] = useState<number[]>([]);
-  const [recorderMessage, setRecorderMessage] = useState("Listen to the reciter, then record your own repetition.");
+  // Null until the first status arrives, so the opening line comes from the
+  // locale pack rather than being baked into the component in English.
+  const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<RecitationFeedback | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -1013,7 +1024,9 @@ export default function Home() {
               <Globe size={15} aria-hidden="true" />
               <span className="sr-only">{t("language.label")}</span>
               <select value={locale} onChange={(event) => setLocale(event.target.value)}>
-                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
+                {/* The pack's own name, with an honest note where the
+                    interface is translated but the long lesson text is not. */}
+                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}{SUPPORTED_LANGUAGES[option.code as SupportedLanguageCode]?.coverage === "interface" ? ` — ${t("language.partial")}` : ""}</option>)}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
@@ -1111,7 +1124,7 @@ export default function Home() {
                   <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
                 </div>
                 {teacherAction.button && <button type="button" className="now-action" onClick={runTeacherAction}>{teacherAction.button.command === "next-ayah" ? <>{t(teacherAction.button.labelKey, teacherAction.button.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(teacherAction.button.labelKey, teacherAction.button.params)}</>}</button>}
-                <p className="loop-message" role="status">{recorderMessage}</p>
+                <p className="loop-message" role="status">{recorderMessage ?? t("recorder.intro")}</p>
                 {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               </section>
 
@@ -1133,7 +1146,7 @@ export default function Home() {
               {/* The instruction above already offers "Try again", so this
                   states the reason without competing for the same tap. */}
               {studyTiers.alerts.reviewFailed && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{reviewError}</span></div>}
-              {studyTiers.alerts.reviewUnavailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback?.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div>}
+              {studyTiers.alerts.reviewUnavailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback?.reviewMessageCode ? t(reviewMessageKeys[feedback.reviewMessageCode]) : t("feedback.reviewUnavailable")}</span></div>}
 
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
 
