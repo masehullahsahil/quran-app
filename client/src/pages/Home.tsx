@@ -29,7 +29,10 @@ import {
   Volume2,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { markIndexComplete, progressPercent, toggleCompletion, type QaidaStepId } from "@/lib/learningProgress";
+import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
+import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
+import { QaidaCourse } from "@/components/QaidaCourse";
+import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { ACTIVE_LETTER_AUDIO_SOURCE } from "@/lib/letterAudioSources";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
@@ -170,12 +173,6 @@ const learningLevels: Array<{ id: LearningLevel; order: string; arabic: string; 
 
 const alphabet = ARABIC_LETTERS;
 
-const qaidaSteps: Array<{ id: QaidaStepId; order: string; titleKey: StringKey; summaryKey: StringKey }> = [
-  { id: "vowels", order: "01", titleKey: "qaida.step.vowels", summaryKey: "qaida.step.vowelsSummary" },
-  { id: "joining", order: "02", titleKey: "qaida.step.joining", summaryKey: "qaida.step.joiningSummary" },
-  { id: "first-ayah", order: "03", titleKey: "qaida.step.firstAyah", summaryKey: "qaida.step.firstAyahSummary" },
-];
-
 const harakatLabelKeys: Record<Harakat, { label: StringKey; hint: StringKey }> = {
   fatha: { label: "harakat.fatha", hint: "harakat.fathaHint" },
   kasra: { label: "harakat.kasra", hint: "harakat.kasraHint" },
@@ -230,15 +227,6 @@ function storedNumberList(key: string): number[] {
   }
 }
 
-function storedStepList(key: string): QaidaStepId[] {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "[]");
-    const allowed = new Set<QaidaStepId>(["vowels", "joining", "first-ayah"]);
-    return Array.isArray(parsed) ? parsed.filter((value): value is QaidaStepId => typeof value === "string" && allowed.has(value as QaidaStepId)) : [];
-  } catch {
-    return [];
-  }
-}
 
 export default function Home() {
   const [view, setView] = useState<View>("read");
@@ -268,12 +256,13 @@ export default function Home() {
   // The storage keys still carry the old level names so a learner who practised
   // under Starter/Reading keeps that progress after the rename.
   const [lettersPractised, setLettersPractised] = useState<number[]>(() => storedNumberList("miqra-starter-practised"));
-  const [qaidaStepsComplete, setQaidaStepsComplete] = useState<QaidaStepId[]>(() => storedStepList("miqra-reading-complete"));
+  // Where the learner is in the Qaida curriculum, restored from the same local
+  // storage the rest of the learner's progress uses.
+  const [qaidaProgress, setQaidaProgress] = useState<QaidaProgress>(() => readQaidaProgress());
   const [letterExerciseResult, setLetterExerciseResult] = useState<ExerciseResult>(null);
   // Where the learner is in the surah, carried between attempts. The tracker on
   // the server owns the rules; this only stores its answer.
   const [position, setPosition] = useState<VerseFollowingPosition>(() => createVerseFollowingPosition(1, 1));
-  const [vowelExerciseResult, setVowelExerciseResult] = useState<ExerciseResult>(null);
   const historyRepository = useMemo(() => new LocalMemorizationHistoryRepository(window.localStorage), []);
   const [memorizationAttempts, setMemorizationAttempts] = useState<MemorizationAttempt[]>(() => historyRepository.list());
 
@@ -388,9 +377,10 @@ export default function Home() {
   // Teaching text for this letter in the instruction language, falling back to
   // English per letter when a pack has not translated it yet.
   const activeLesson = letterLesson(activeLetter.slug);
-  // Qaida now holds both the letters and the joining steps, so its progress bar
-  // counts them together rather than tracking two separate levels.
-  const qaidaProgress = progressPercent(lettersPractised.length + qaidaStepsComplete.length, alphabet.length + qaidaSteps.length);
+  // The Qaida level's headline figure is how much of the curriculum is done; the
+  // letter explorer keeps its own count of letters practised beside it.
+  const qaidaPercent = curriculumProgressPercent(qaidaProgress.completedLessons);
+  const lettersPractisedPercent = progressPercent(lettersPractised.length, alphabet.length);
   const activeMemory = useMemo(() => deriveAyahMemory(surahNumber, selectedVerse, memorizationAttempts), [surahNumber, selectedVerse, memorizationAttempts]);
   const reviewSummary = useMemo(() => summarizeReview(memorizationAttempts), [memorizationAttempts]);
   const activeRecommendation = useMemo(() => buildReviewQueue(memorizationAttempts).find((item) => item.surah === surahNumber && item.ayah === selectedVerse), [memorizationAttempts, surahNumber, selectedVerse]);
@@ -442,8 +432,8 @@ export default function Home() {
   }, [lettersPractised]);
 
   useEffect(() => {
-    window.localStorage.setItem("miqra-reading-complete", JSON.stringify(qaidaStepsComplete));
-  }, [qaidaStepsComplete]);
+    writeQaidaProgress(qaidaProgress);
+  }, [qaidaProgress]);
 
   useEffect(() => {
     setLetterExerciseResult(null);
@@ -797,10 +787,6 @@ export default function Home() {
     setLettersPractised((current) => markIndexComplete(current, selectedLetter));
   };
 
-  const toggleQaidaStep = (step: QaidaStepId) => {
-    setQaidaStepsComplete((current) => toggleCompletion(current, step));
-  };
-
   const chapterHeading = view === "learn" ? t("learn.heading") : `${t("reader.surahLabel")} ${surahLabel}`;
   const chapterEyebrow = view === "learn"
     ? t("learn.eyebrow")
@@ -947,8 +933,8 @@ export default function Home() {
 
           {view === "learn" && <div className="learning-layout">
             <div className="learning-topline"><div><span className="eyebrow">{t("learn.paceEyebrow")}</span><h2>{t("learn.paceHeading")}</h2></div><span>{t(activeLevel.cueKey)}</span></div>
-            <div className="level-picker" role="tablist" aria-label={t("learn.levelsLabel")}>{learningLevels.map((level) => { const progress = level.id === "qaida" ? qaidaProgress : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{t(level.titleKey)}</strong><small>{progress ? t("learn.percentComplete", { percent: progress }) : t(level.cueKey)}</small></button>; })}</div>
-            {learningLevel === "qaida" && <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount")}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={16} /> {t("qaida.playLetter")}</button></div>
+            <div className="level-picker" role="tablist" aria-label={t("learn.levelsLabel")}>{learningLevels.map((level) => { const progress = level.id === "qaida" ? qaidaPercent : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{t(level.titleKey)}</strong><small>{progress ? t("learn.percentComplete", { percent: progress }) : t(level.cueKey)}</small></button>; })}</div>
+            {learningLevel === "qaida" && <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount", { percent: lettersPractisedPercent })}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={16} /> {t("qaida.playLetter")}</button></div>
 
               {/* One recording per harakat. Nothing here is synthesised: if a
                   reciter's file is not present the control says so rather than
@@ -964,7 +950,11 @@ export default function Home() {
               {usingPlaceholderAudio && ACTIVE_LETTER_AUDIO_SOURCE.attribution && <p className="letter-audio-credit">{t("qaida.audioAttribution", { source: ACTIVE_LETTER_AUDIO_SOURCE.attribution })}</p>}
 
               <div className="letter-actions"><button type="button" className={`quiet-action ${lettersPractised.includes(selectedLetter) ? "is-complete" : ""}`} onClick={markCurrentLetterPractised}>{lettersPractised.includes(selectedLetter) ? <Check size={16} /> : <Bookmark size={16} />}{t(lettersPractised.includes(selectedLetter) ? "qaida.practised" : "qaida.markPractised")}</button><button type="button" className="quiet-action" onClick={() => setSelectedLetter((current) => Math.min(alphabet.length - 1, current + 1))}>{t("qaida.nextLetter")} <ArrowRight size={16} /></button></div><div className="micro-practice"><div><span className="eyebrow">{t("qaida.quickCheck")}</span><p>{t("qaida.quickCheckPrompt")} <strong lang="ar" dir="rtl">{activeLetter.letter}</strong></p></div><div className="answer-options"><button type="button" className={letterExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setLetterExerciseResult("correct")}>{activeLetter.name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 1) % alphabet.length].name}</button><button type="button" className={letterExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setLetterExerciseResult("retry")}>{alphabet[(selectedLetter + 2) % alphabet.length].name}</button></div>{letterExerciseResult && <p className={`exercise-response is-${letterExerciseResult}`}>{t(letterExerciseResult === "correct" ? "qaida.quickCheckCorrect" : "qaida.quickCheckRetry")}</p>}</div><p className="lesson-boundary"><AlertCircle size={14} /> {t("qaida.boundary")}</p></div></div>}
-            {learningLevel === "qaida" && <div className="path-workspace"><div className="path-copy"><span className="eyebrow">{t("qaida.pathEyebrow")}</span><h3>{t("qaida.pathHeading")}</h3><p>{t("qaida.pathCopy")}</p></div><span className="path-progress">{t("qaida.stepsProgress", { done: qaidaStepsComplete.length, total: qaidaSteps.length })}</span><div className="path-steps">{qaidaSteps.map((step) => <button type="button" key={step.id} className={qaidaStepsComplete.includes(step.id) ? "is-complete" : ""} aria-pressed={qaidaStepsComplete.includes(step.id)} onClick={() => toggleQaidaStep(step.id)}><span>{qaidaStepsComplete.includes(step.id) ? <Check size={12} /> : step.order}</span><strong>{t(step.titleKey)}</strong><small>{t(step.summaryKey)}</small></button>)}</div><div className="micro-practice vowel-practice"><div><span className="eyebrow">{t("qaida.vowelCheck")}</span><p>{t("qaida.vowelPrompt")} <strong lang="ar" dir="rtl">بِ</strong></p></div><div className="answer-options"><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Ba</button><button type="button" className={vowelExerciseResult === "correct" ? "is-correct" : ""} onClick={() => setVowelExerciseResult("correct")}>Bi</button><button type="button" className={vowelExerciseResult === "retry" ? "is-retry" : ""} onClick={() => setVowelExerciseResult("retry")}>Bu</button></div>{vowelExerciseResult && <p className={`exercise-response is-${vowelExerciseResult}`}>{t(vowelExerciseResult === "correct" ? "qaida.vowelCorrect" : "qaida.vowelRetry")}</p>}</div><button type="button" className="path-cta" onClick={openRecitationPractice}><BookOpen size={17} /> {t("qaida.openFirstAyah")} <ArrowRight size={17} /></button></div>}
+            {learningLevel === "qaida" && <QaidaCourse
+              progress={qaidaProgress}
+              onProgressChange={setQaidaProgress}
+              onOpenQuran={(surah, ayah) => { selectSurah(surah, ayah); setView("study"); }}
+            />}
             {learningLevel === "tajweed" && <div className="path-workspace tajweed-path"><div className="path-copy"><span className="eyebrow">{t("tajweed.eyebrow")}</span><h3>{t("tajweed.heading")}</h3><p>{t("tajweed.copy")}</p></div><div className="tajweed-principles"><span>{t("tajweed.principleAudio")}</span><span>{t("tajweed.principleReview")}</span><span>{t("tajweed.principleTeacher")}</span></div><button type="button" className="path-cta" onClick={openRecitationPractice}><Mic size={17} /> {t("tajweed.begin")} <ArrowRight size={17} /></button></div>}
           </div>}
 
