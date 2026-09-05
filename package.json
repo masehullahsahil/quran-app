@@ -13,7 +13,8 @@
     "test": "vitest run",
     "benchmark:recitation": "tsx scripts/recitation-benchmark.ts",
     "verify:qaida": "tsx scripts/verify-qaida-quran.ts",
-    "db:push": "drizzle-kit generate && drizzle-kit migrate"
+    "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "benchmark:acoustic": "tsx scripts/acoustic-benchmark.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

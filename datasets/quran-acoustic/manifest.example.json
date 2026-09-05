@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "recordings": [
+    {
+      "fixtureId": "fatiha-noisy",
+      "speakerAnonymizedId": "speaker-0001",
+      "surah": 1,
+      "ayah": 2,
+      "wordIndex": null,
+      "recordingPath": "audio/speaker-0001/fatiha-002.webm",
+      "mimeType": "audio/webm",
+      "knownErrorLabel": "uncertain",
+      "teacherReviewedLabel": "uncertain",
+      "recordingQuality": "noisy",
+      "consentSourceNotes": "Example metadata only; no recording is distributed."
+    }
+  ]
+}
