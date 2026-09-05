@@ -31,6 +31,17 @@ export type SupportedLanguageCode = (typeof SUPPORTED_LANGUAGE_CODES)[number];
 export type TextDirection = "ltr" | "rtl";
 
 /**
+ * Where a pack's text came from, and how far it has been checked.
+ *
+ * This is a provenance record, not a quality score. `ai-drafted` says plainly
+ * that a language model wrote the strings and the team read them — which is
+ * what they are — and only a speaker of the language can move a pack past
+ * `internally-checked`. Nothing in the app may present an unreviewed pack as
+ * authoritative, least of all on religious terms.
+ */
+export type TranslationStatus = "reference" | "ai-drafted" | "internally-checked" | "native-reviewed";
+
+/**
  * How much of the interface a pack currently carries in its own words.
  *
  * Honest labelling matters more than a full-looking picker: a learner choosing
@@ -68,6 +79,8 @@ export type SupportedLanguage = {
    * speaker, and saying so is the difference between a draft and a claim.
    */
   nativeReviewed: boolean;
+  /** How this pack's text came to exist. See TranslationStatus. */
+  translationStatus: TranslationStatus;
 };
 
 export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguage> = {
@@ -80,6 +93,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     preferredTranslationLanguage: "english",
     instructionAudioDir: "/audio/instruction/en",
     nativeReviewed: true,
+    translationStatus: "reference",
   },
   ps: {
     code: "ps",
@@ -90,6 +104,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     preferredTranslationLanguage: "pashto",
     instructionAudioDir: "/audio/instruction/ps",
     nativeReviewed: false,
+    translationStatus: "ai-drafted",
   },
   "fa-AF": {
     code: "fa-AF",
@@ -100,6 +115,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     preferredTranslationLanguage: "persian",
     instructionAudioDir: "/audio/instruction/fa-AF",
     nativeReviewed: false,
+    translationStatus: "ai-drafted",
   },
   ur: {
     code: "ur",
@@ -110,6 +126,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     preferredTranslationLanguage: "urdu",
     instructionAudioDir: "/audio/instruction/ur",
     nativeReviewed: false,
+    translationStatus: "ai-drafted",
   },
   ar: {
     code: "ar",
@@ -120,6 +137,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     preferredTranslationLanguage: "arabic",
     instructionAudioDir: "/audio/instruction/ar",
     nativeReviewed: false,
+    translationStatus: "ai-drafted",
   },
 };
 

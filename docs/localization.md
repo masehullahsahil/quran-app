@@ -4,17 +4,52 @@ The app is built to teach in five languages. This document is the contract for h
 
 ## Supported languages
 
-| Code | Language | Direction | Coverage | Native review |
+| Code | Language | Direction | Status | Native review |
 |---|---|---|---|---|
 | `en` | English | LTR | reference — everything originates here | n/a |
-| `ps` | پښتو (Pashto) | RTL | interface + teacher instructions | **not yet reviewed** |
-| `fa-AF` | دری (Dari) | RTL | interface + teacher instructions | **not yet reviewed** |
-| `ur` | اردو (Urdu) | RTL | interface + teacher instructions | **not yet reviewed** |
-| `ar` | العربية (Arabic) | RTL | interface + teacher instructions | **not yet reviewed** |
+| `ps` | پښتو (Pashto) | RTL | ai-drafted | **pending** |
+| `fa-AF` | دری (Dari) | RTL | ai-drafted | **pending** |
+| `ur` | اردو (Urdu) | RTL | ai-drafted | **pending** |
+| `ar` | العربية (Arabic) | RTL | ai-drafted | **pending** |
+
+### Coverage today
+
+Measured by `shared/localizationCoverage.ts` and printed by the coverage tests:
+
+| Language | Overall | Critical UI | Supporting UI | Lesson text | Exercise text | Articulation |
+|---|---|---|---|---|---|---|
+| English | 100% | 100% | 100% | 100% | 100% | 100% |
+| Pashto | 48% | 100% | 28% | 47% | 54% | 100% |
+| Dari | 48% | 100% | 28% | 47% | 54% | 100% |
+| Urdu | 48% | 100% | 28% | 47% | 54% | 100% |
+| Arabic | 48% | 100% | 28% | 47% | 54% | 100% |
+
+**What is translated:** every teacher instruction and control; the correction panel; the recorder's states; Study's secondary notes, memorization and review labels, and the verse-following explanations; all 28 letter articulation notes and their practice cues; the Qaida lessons of Levels 1–4 (21 lessons — letters, joining, harakat, tanween); and the exercise prompts that repeat across the course.
+
+**What still falls back to English:** Qaida Levels 5–12 (madd, sukoon, shaddah, the definite article, hamzah, tajweed patterns, mushaf symbols, guided Quran reading), the coaching plans in `shared/learningPath.ts`, the reader and course chrome not on the critical list, and the lower-frequency exercise prompts that appear once each.
+
+A test holds a floor under each surface so coverage cannot silently regress, and prints the breakdown plus what remains on every run.
 
 `shared/languages.ts` is the single source of truth for this table. The registry, the picker, the document direction and the tests all read it from there, so they cannot disagree about what exists.
 
-> The four non-English packs were written with care but have **not been read by a native speaker**. `nativeReviewed: false` records that per language, and the picker labels an interface-only pack as such. Treat these as drafts pending review, in the same way the Qaida curriculum is pending a qualified teacher.
+> The four non-English packs were **drafted by a language model and read by the team**. They have **not been read by a speaker of any of these languages**. Two fields record this and neither may be changed without an actual review: `nativeReviewed: false`, and `translationStatus: "ai-drafted"`. The picker labels an interface-only pack as such. Treat these as drafts, in the same way the Qaida curriculum is pending a qualified teacher — and note that nothing translated here is a religious ruling.
+
+### Translation-status policy
+
+`TranslationStatus` in `shared/languages.ts` records provenance, not quality:
+
+| Status | Meaning |
+|---|---|
+| `reference` | The language everything is written in first. |
+| `ai-drafted` | Drafted by a language model, read by the team. **Where every non-English pack is today.** |
+| `internally-checked` | Reviewed against the glossary by someone who works on the app. |
+| `native-reviewed` | Read and corrected by a speaker of the language. Only this permits `nativeReviewed: true`. |
+
+A test asserts every non-English pack is `ai-drafted` with `nativeReviewed: false`, so the claim cannot drift ahead of the work.
+
+### Glossary
+
+Recurring learning terms are fixed once in [docs/localization-glossary.md](./localization-glossary.md), across all five languages. The policy is to keep the Arabic term where learners already use it — *madd*, *sukoon*, *shaddah*, *tajweed*, *makhraj* — explain it in the learner's own words on first use, and never transliterate into Latin script inside a non-Latin pack. Ordinary interface words (Listen, Repeat, Review) are translated, not borrowed. A term used in a pack but missing from that table is how five files start disagreeing.
 
 ### Why `fa-AF` for Dari
 
@@ -58,7 +93,14 @@ What is mirrored: directional chrome only — the arrows on Previous/Next, the t
 
 What is **not** mirrored: Quranic Arabic, which carries its own `dir="rtl"` at the element level and reads identically in every interface language; the Latin brand marks; and transport controls, whose arrows mean *play*, not *forward*. A test asserts no direction rule ever applies a transform to `.quran-flow`, `.study-arabic`, `.memory-verse`, `.now-word` or `.correction-target`.
 
-Arabic embedded in an LTR interface is handled by `[lang="ar"] { direction: rtl }` plus the explicit `dir="rtl"` already on every Quranic element.
+### Mixed-direction text
+
+Arabic embedded in an LTR interface is handled by `[lang="ar"] { direction: rtl }` plus the explicit `dir="rtl"` already on every Quranic element. Beyond that:
+
+- Arabic quoted inside a sentence — the focus word, a correction target, a lesson example — carries `unicode-bidi: isolate`, which scopes the bidi algorithm to that element so the punctuation around it stays where the sentence put it.
+- Glosses and place lines that mix scripts use `unicode-bidi: plaintext`, so each takes direction from its own first strong character rather than from the surrounding interface.
+- **Latin digits are never forced.** Ayah and word numbers inside RTL sentences are positioned by the bidi algorithm; setting a direction on them is what produces reversed numbers.
+- An English fallback fragment inside an RTL pack is a left-to-right run inside a right-to-left sentence, which the algorithm handles — the fragment reads correctly, and the sentence's punctuation stays at its own end.
 
 ## Interpolation and counts
 
@@ -86,7 +128,9 @@ qaida: {
 
 `localizedLesson` and `localizedExercise` in `shared/qaidaText.ts` fall back field by field. A lesson added to the curriculum appears in every language immediately, in English until someone translates its four strings, and no translation can change what a lesson teaches, which answer is correct, or which Arabic is shown. The Arabic examples and their glosses are deliberately not translatable: the Arabic is content, and a drifting gloss would be a second source of truth.
 
-No pack carries a `qaida` map yet — the course is English in every language today.
+All four non-English packs now carry a `qaida` map covering Levels 1–4. Levels 5–12 fall back to English, field by field, so a learner sees a translated title beside an English explanation only where a pack has translated one and not the other — never a blank.
+
+Repeated prompts are handled by `promptsFromPhrasebook`: Level 1 generates fifty exercises from three prompts, so a pack translates each distinct English prompt once and the helper expands it across the ids the curriculum actually has. A lesson added later that reuses a known prompt is translated the moment it appears.
 
 ## Adding a key
 
@@ -112,5 +156,6 @@ The choice persists in `localStorage` under `miqra-locale`. For a signed-in lear
 
 - **`ErrorBoundary` is English-only.** It renders above `LocaleProvider`, so it has no pack to read; localizing it would mean a second, provider-free translation path for one crash screen.
 - **`DashboardLayout` and `ComponentShowcase`** carry untranslated template strings. They are scaffolding from the project template and are not part of the learner's app.
-- **The coach model replies in English.** `createCoachSummary` prompts for English text, shown in Teacher notes. The primary instruction is always a locale key, so the teaching itself is translated even when the note beside it is not.
-- **Long-form teaching text is English in every non-English pack**: the Qaida lessons, the letter articulation notes, the coaching plans and the boundary notes.
+- **The coach model replies in the interface language.** `recitation.evaluate` takes a `uiLanguage` and the coach prompt asks for that language. This is wording only: the teaching action, the word to return to, and whether the learner may advance are all decided deterministically before the model is called, and its text appears in Teacher notes, never as the instruction. An unknown code falls back to English.
+- **Qaida Levels 5–12 and the coaching plans are still English** in every non-English pack. See the coverage table above for the exact split.
+- **No pack has been read by a speaker of its language.** This is the single most important gap, and no amount of coverage percentage substitutes for it.

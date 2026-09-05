@@ -8,6 +8,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
+import { SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, type SupportedLanguageCode } from "@shared/languages";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import {
@@ -48,6 +49,13 @@ const recitationInput = z.object({
   surah: z.number().int().min(1).max(114),
   ayah: z.number().int().min(1).max(286),
   learningLevel: z.enum(LEARNING_LEVELS).default("qaida"),
+  /**
+   * The learner's interface language, so the coach's encouragement can be in it.
+   * Wording only: the teaching action, the word to return to and whether the
+   * learner may advance are decided before this is used and are not affected
+   * by it. An unknown code falls back to English.
+   */
+  uiLanguage: z.enum(SUPPORTED_LANGUAGE_CODES).default("en"),
   totalAyahs: z.number().int().min(1).max(286).optional(),
   previousAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
   nextAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
@@ -138,6 +146,7 @@ async function createCoachSummary(input: {
   corrections: Array<{ expected: string; heard: string | null; status: string; wordIndex: number | null }>;
   fallbackNextStep: string;
   learningLevel: LearningLevel;
+  uiLanguage: SupportedLanguageCode;
 }): Promise<CoachSummary> {
   const plan = getLearningCoachPlan(input.learningLevel);
   const fallback: CoachSummary = {
@@ -156,7 +165,7 @@ async function createCoachSummary(input: {
       messages: [
         {
           role: "system",
-          content: "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error: every word you mention must appear in the supplied corrections. Do not tell the learner to move on to another ayah, and do not contradict the supplied next step — the app decides what comes next, and your text is shown as a note beside that decision. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
+          content: `Reply in ${SUPPORTED_LANGUAGES[input.uiLanguage].englishName}. ` + "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error: every word you mention must appear in the supplied corrections. Do not tell the learner to move on to another ayah, and do not contradict the supplied next step — the app decides what comes next, and your text is shown as a note beside that decision. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
         },
         {
           role: "user",
@@ -424,7 +433,7 @@ export const appRouter = router({
           ? assessRecitationTranscript(input.nextAyahArabic, transcription.text)
           : null,
       });
-      const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel });
+      const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel, uiLanguage: input.uiLanguage });
 
       return {
         ...assessment,

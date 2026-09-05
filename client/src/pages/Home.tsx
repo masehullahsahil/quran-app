@@ -760,6 +760,10 @@ export default function Home() {
         surah: surahNumber,
         ayah: activeVerse.number,
         learningLevel,
+        // The coach's encouragement follows the interface language. It is
+        // wording only — the instruction and the advancement decision are
+        // already made, deterministically, before this call returns.
+        uiLanguage: locale as SupportedLanguageCode,
         // Position tracking. The neighbouring ayahs let the server tell a
         // repeated previous ayah or an early next ayah apart from a real
         // attempt at this one, using the same alignment it already runs.

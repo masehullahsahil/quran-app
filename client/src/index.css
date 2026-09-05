@@ -431,6 +431,19 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 /* Numbered strips and progress meters fill from the reading edge. */
 [dir="rtl"] .now-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
 [dir="rtl"] .completion-track span, [dir="rtl"] .track-fill { margin-left: auto; margin-right: 0; }
+/* Mixed direction.
+   An Arabic word quoted inside a Pashto, Dari or Urdu sentence is already
+   right-to-left, so it needs no isolation; the same word inside an English
+   sentence does, or the punctuation around it jumps to the wrong end. `isolate`
+   scopes the bidi algorithm to the element and leaves the sentence alone. Latin
+   digits inside RTL text are handled by the algorithm itself and must not be
+   forced, which is why nothing here sets `direction` on a number. */
+.now-word, .correction-target, .correction-word, .course-example span,
+.course-subject span, .course-choice span, .acoustic-finding small,
+.chapter-arabic span, .brand-arabic { unicode-bidi: isolate; }
+/* A word in the learner's own script beside Arabic keeps the sentence's flow. */
+.follow-place span, .course-example small, .course-subject small { unicode-bidi: plaintext; }
+
 /* Arabic content keeps its own direction inside a left-to-right interface. */
 [lang="ar"] { direction: rtl; }
 
