@@ -407,6 +407,33 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 
 .mobile-dock { display: none; }
 @keyframes audio-sweep { 0% { transform: translateX(-100%); width: 28%; } 100% { transform: translateX(365%); width: 28%; } }
+/* Right-to-left interfaces.
+   Only *directional* chrome is mirrored: an arrow that means "onward" has to
+   point the other way when the page runs the other way. Quranic Arabic is not
+   touched here — it carries its own dir="rtl" at the element level and reads
+   the same in every interface language — and neither are the Latin-script
+   brand marks or the audio transport controls, whose arrows mean play, not
+   forward. */
+[dir="rtl"] .page-controls svg,
+[dir="rtl"] .study-pagination > button svg,
+[dir="rtl"] .now-action svg,
+[dir="rtl"] .course-primary svg,
+[dir="rtl"] .course-secondary svg,
+[dir="rtl"] .path-cta svg,
+[dir="rtl"] .quiet-action svg,
+[dir="rtl"] .course-open-study svg { transform: scaleX(-1); }
+[dir="rtl"] .loop-record svg,
+[dir="rtl"] .loop-listen svg,
+[dir="rtl"] .listen-button svg,
+[dir="rtl"] .letter-play svg,
+[dir="rtl"] .correction-listen svg,
+[dir="rtl"] .listen-inline svg { transform: none; }
+/* Numbered strips and progress meters fill from the reading edge. */
+[dir="rtl"] .now-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
+[dir="rtl"] .completion-track span, [dir="rtl"] .track-fill { margin-left: auto; margin-right: 0; }
+/* Arabic content keeps its own direction inside a left-to-right interface. */
+[lang="ar"] { direction: rtl; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
 @media (max-width: 1190px) {

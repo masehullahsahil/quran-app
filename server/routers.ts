@@ -354,7 +354,14 @@ export const appRouter = router({
         language: "ar",
       });
       const quranAwareReview = await quranAwareReviewPromise;
-      const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string) => ({
+      /**
+       * A stable reason the client can render in the learner's own language.
+       * The English strings below remain in the response for API compatibility
+       * and for server logs, but no learner-facing surface reads them: the
+       * Study view renders `reviewMessageCode` through its locale pack.
+       */
+      const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string, reviewMessageCode: "transcription_failed" | "no_arabic_returned") => ({
+        reviewMessageCode,
         // No usable transcript means no evidence, so the tracker holds the
         // learner exactly where they were rather than guessing.
         verseFollowing: followRecitation({ position, totalAyahs, alignment: null, transcriptUsable: false }),
@@ -388,6 +395,7 @@ export const appRouter = router({
           transcription.error,
           "",
           "Check your connection and microphone, then record the ayah again. The app could not complete this review, but you can retry now.",
+          "transcription_failed",
         );
       }
 
@@ -396,6 +404,7 @@ export const appRouter = router({
           "The speech service did not return Arabic words for this recording.",
           transcription.text,
           "Try the ayah again in a quiet place. Keep the microphone close and recite one ayah at a calm pace.",
+          "no_arabic_returned",
         );
       }
 
@@ -419,6 +428,7 @@ export const appRouter = router({
 
       return {
         ...assessment,
+        reviewMessageCode: null,
         verseFollowing,
         quranAwareReview,
         learningPlan: {

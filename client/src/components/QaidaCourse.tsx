@@ -28,6 +28,7 @@ import { completeLesson, openLesson, type QaidaProgress } from "@/lib/qaidaProgr
 import { letterAudioPath } from "@/lib/arabicLetters";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
 import { useLocale } from "@/contexts/LocaleContext";
+import { localizedExercise, localizedLesson } from "@shared/qaidaText";
 import type { StringKey } from "@locales/index";
 
 const stageLabels: Record<QaidaLessonStage, StringKey> = {
@@ -50,10 +51,13 @@ export function QaidaCourse({
   /** Hands an ayah to Study mode, where the text comes from the Quran data layer. */
   onOpenQuran: (surah: number, ayah: number) => void;
 }) {
-  const { t } = useLocale();
+  const { t, qaida } = useLocale();
   const letterAudio = useLetterAudio();
   const view = useMemo(() => describeCourseView(progress), [progress]);
   const { lesson, level } = view;
+  // Course prose in the learner's language, per field, over the English
+  // curriculum. The structure, the Arabic and the answers never change.
+  const lessonText = localizedLesson(lesson, qaida);
   const [session, setSession] = useState<QaidaSession>(() => startSession(lesson));
 
   // A lesson change — the learner finished one, or opened an earlier one to
@@ -123,8 +127,8 @@ export function QaidaCourse({
             <span className="eyebrow">
               {t("course.lessonPosition", { number: view.positionInLevel, total: view.lessonsInLevel })}
             </span>
-            <h4>{lesson.title}</h4>
-            <p className="course-objective">{lesson.objective}</p>
+            <h4>{lessonText.title}</h4>
+            <p className="course-objective">{lessonText.objective}</p>
           </div>
           {alreadyCompleted && <span className="course-completed"><Check size={13} /> {t("course.completedBadge")}</span>}
         </div>
@@ -133,7 +137,7 @@ export function QaidaCourse({
             way, so one exercise is what the learner sees. */}
         <details className="course-teaching-details" open={session.attemptedIds.length === 0}>
           <summary>{t("course.teachingSummary")}</summary>
-          <p className="course-teaching">{lesson.teaching}</p>
+          <p className="course-teaching">{lessonText.teaching}</p>
           {lesson.examples.length > 0 && (
             <div className="course-examples" aria-label={t("course.examplesLabel")}>
               {lesson.examples.map((example, index) => (
@@ -157,7 +161,7 @@ export function QaidaCourse({
               <span className="eyebrow">
                 {t("course.exerciseProgress", { number: session.itemIndex + 1, total: lesson.practice.length })}
               </span>
-              <p>{item.prompt}</p>
+              <p>{localizedExercise(item, qaida).prompt}</p>
             </div>
 
             {item.subject && (
@@ -227,7 +231,7 @@ export function QaidaCourse({
               ) : null}
             </div>
 
-            {item.note && <p className="course-note"><AlertCircle size={13} /> {item.note}</p>}
+            {localizedExercise(item, qaida).note && <p className="course-note"><AlertCircle size={13} /> {localizedExercise(item, qaida).note}</p>}
           </section>
         ) : (
           <section className="course-exercise is-complete" aria-label={t("course.exerciseLabel")}>
@@ -250,7 +254,7 @@ export function QaidaCourse({
           </section>
         )}
 
-        {lesson.boundary && <p className="course-boundary"><AlertCircle size={13} /> {lesson.boundary}</p>}
+        {lessonText.boundary && <p className="course-boundary"><AlertCircle size={13} /> {lessonText.boundary}</p>}
       </div>
 
       {/* Completed lessons stay open for review. */}
