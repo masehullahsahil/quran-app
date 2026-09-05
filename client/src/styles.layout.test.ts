@@ -81,6 +81,15 @@ describe("narrow-screen controls", () => {
   });
 });
 
+describe("Starter Arabic glyph spacing", () => {
+  it("leaves vertical room for letter marks in every Starter letter control", () => {
+    for (const selector of ["\\.alphabet-grid span", "\\.letter-focus > span", "\\.harakat-play span"]) {
+      const lineHeight = Number(css.match(new RegExp(`${selector}\\s*\\{[^}]*line-height:\\s*([\\d.]+)`))?.[1] ?? 0);
+      expect(lineHeight, selector).toBeGreaterThanOrEqual(1.5);
+    }
+  });
+});
+
 describe("the instruction stays the largest thing in Study", () => {
   it("sizes the instruction and the correction word responsively", () => {
     expect(css).toMatch(/\.now-instruction\s*\{[^}]*font-size:\s*clamp\(/);
