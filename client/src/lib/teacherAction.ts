@@ -1,43 +1,39 @@
 /**
- * What the teacher would say next.
+ * Turning the teacher's decision into one line on screen.
  *
- * Study mode gathers evidence from several systems at once — the live tracker,
- * the recorded word review, the memorization schedule, the recorder itself. The
- * learner should not have to read all of them. This module reduces that state to
- * exactly one instruction and at most one contextual button, deterministically.
+ * The decision itself — which action, why, and whether the learner may move on —
+ * is made in `shared/teacherDecision.ts`. This module does the presentation half
+ * only: it maps an action to an instruction key, to at most one contextual
+ * button, and to the accent colour. Adding a rule here would put decision logic
+ * in the view, which is exactly what the split is for.
  *
- * It decides nothing. Verse-following rules, mastery scheduling and the word
- * alignment are all upstream of this and unchanged; this only chooses which of
- * their conclusions is the one to show largest.
- *
- * Nothing here describes how the recitation *sounded*: an instruction to repeat
- * a word means that word was not recognised in the transcript, not that it was
- * mispronounced.
+ * Every instruction is a fixed locale key chosen from a bounded set. No text
+ * from the language model, the acoustic evaluator, or any other service can
+ * become the primary instruction; model prose belongs in Teacher notes.
  */
 import type { StringKey } from "@locales/index";
-import type { VerseFollowingResult } from "@shared/verseFollowing";
+import {
+  decideTeacherAction,
+  type TeacherActionKind,
+  type TeacherDecision,
+  type TeacherEvidence,
+  type TeacherEvidenceLevel,
+  type TeacherFocus,
+  type TeacherNote,
+  type TeacherReasonCode,
+  type TeachingStep,
+} from "@shared/teacherDecision";
 
-export type TeacherActionKind =
-  /** The microphone is open. */
-  | "listening"
-  /** A recording is being reviewed. */
-  | "reviewing"
-  /** The attempt could not be reviewed; the learner should record again. */
-  | "recording-problem"
-  /** One word needs repeating. */
-  | "repeat-word"
-  /** The whole ayah needs another attempt. */
-  | "repeat-ayah"
-  /** The ayah was recited; move on. */
-  | "next-ayah"
-  /** The last ayah of the surah is done. */
-  | "surah-complete"
-  /** Part of the ayah was recited; carry on from where it stopped. */
-  | "continue"
-  /** Nothing attempted yet, and this ayah is due for review. */
-  | "review-today"
-  /** Nothing attempted yet. */
-  | "listen-first";
+export type {
+  TeacherActionKind,
+  TeacherDecision,
+  TeacherEvidence,
+  TeacherEvidenceLevel,
+  TeacherFocus,
+  TeacherNote,
+  TeacherReasonCode,
+  TeachingStep,
+};
 
 /** The one contextual button, when there is something to offer beyond the mic. */
 export type TeacherActionButton = {
@@ -64,149 +60,124 @@ export type TeacherAction = {
   tone: "neutral" | "attention" | "success";
   /** The ayah to move to when `command` is "next-ayah". */
   targetAyah: number | null;
+  /** Whether this attempt sanctions moving on. Mirrors the decision. */
+  canAdvance: boolean;
+  /** Developer-facing trace of why this action was chosen. Never rendered raw. */
+  reason: TeacherReasonCode;
+  evidenceLevel: TeacherEvidenceLevel;
+  /** The teaching sequence for this action, for the steps strip. */
+  sequence: readonly TeachingStep[];
+  /** Detail for Teacher notes. Never the primary instruction. */
+  secondaryNotes: TeacherNote[];
 };
 
-export type CorrectionFocus = {
-  wordIndex: number;
-  expectedArabic: string;
+/** Instruction wording per action. One key each: no branching prose. */
+const TITLE_KEYS: Record<TeacherActionKind, StringKey> = {
+  listening: "now.listening",
+  reviewing: "now.reviewing",
+  "recording-problem": "now.recordAgain",
+  unclear: "now.unclear",
+  "repeat-word": "now.repeatWord",
+  "repeat-ayah": "now.repeatAyah",
+  "next-ayah": "now.nextAyah",
+  "surah-complete": "now.surahComplete",
+  continue: "now.continueFromWord",
+  "review-today": "now.reviewToday",
+  "listen-first": "now.listenFirst",
 };
 
-/** The subset of a recorded review this module reads. */
-export type ReviewEvidence = {
-  wordReviewAvailable: boolean;
-  corrections: Array<{ expected: string; heard: string | null; wordIndex: number | null }>;
-  verseFollowing: VerseFollowingResult;
+/** The wording of a word-repeat depends on which evidence named the word. */
+const FOCUS_TITLE_KEYS: Record<TeacherFocus["source"], StringKey> = {
+  recurring: "now.repeatWordAgain",
+  acoustic: "now.repeatWordSound",
+  tracker: "now.repeatWord",
+  text: "now.repeatWord",
 };
 
-export type TeacherActionInput = {
-  isRecording: boolean;
-  isReviewing: boolean;
-  /** A recorder or network failure the learner needs to retry past. */
-  recordingError: boolean;
-  review: ReviewEvidence | null;
-  /** The live tracker's place, which updates while reciting as well as after. */
-  position: { currentAyah: number; expectedWordIndex: number };
-  /** Whether this ayah is scheduled for review today. Never overrides a correction. */
-  reviewDue: boolean;
-  /** Whether there is an ayah after the tracker's current one. */
-  hasNextAyah: boolean;
+const TONES: Record<TeacherActionKind, TeacherAction["tone"]> = {
+  listening: "neutral",
+  reviewing: "neutral",
+  "recording-problem": "attention",
+  unclear: "attention",
+  "repeat-word": "attention",
+  "repeat-ayah": "attention",
+  "next-ayah": "success",
+  "surah-complete": "success",
+  continue: "neutral",
+  "review-today": "neutral",
+  "listen-first": "neutral",
 };
+
+export type TeacherActionInput = TeacherEvidence;
 
 /**
- * The word to put in front of the learner, or null.
+ * Runs the decision and dresses it for the page.
  *
- * The tracker's own focus wins: it is the word the learner is expected to
- * continue from. Otherwise the first correction of the recorded review is used.
- * A review that advanced the ayah has no focus — the learner is moving on.
+ * The title, button and tone are looked up from the tables above; nothing is
+ * computed here that could change which action the learner is given.
  */
-export function pickCorrectionFocus(review: ReviewEvidence | null): CorrectionFocus | null {
-  if (!review || !review.wordReviewAvailable) return null;
-  if (review.verseFollowing.shouldAdvance) return null;
+export function resolveTeacherAction(input: TeacherActionInput): TeacherAction {
+  const decision = decideTeacherAction(input);
+  return presentDecision(decision, input);
+}
 
-  const tracked = review.verseFollowing.correctionFocus;
-  if (tracked) return { wordIndex: tracked.wordIndex, expectedArabic: tracked.expectedArabic };
+export function presentDecision(decision: TeacherDecision, input: TeacherActionInput): TeacherAction {
+  const focus = decision.focus;
+  const titleKey = decision.action === "repeat-word" && focus ? FOCUS_TITLE_KEYS[focus.source] : TITLE_KEYS[decision.action];
 
-  const first = review.corrections.find((item) => item.wordIndex !== null && item.expected);
-  return first?.wordIndex ? { wordIndex: first.wordIndex, expectedArabic: first.expected } : null;
+  return {
+    kind: decision.action,
+    titleKey,
+    titleParams: titleParams(decision, input),
+    focusArabic: focus?.expectedArabic ?? null,
+    focusWordIndex: focus?.wordIndex ?? (decision.action === "continue" ? input.attempt?.verseFollowing.expectedWordIndex ?? null : null),
+    button: buttonFor(decision),
+    tone: TONES[decision.action],
+    targetAyah: decision.targetAyah,
+    canAdvance: decision.canAdvance,
+    reason: decision.reason,
+    evidenceLevel: decision.evidenceLevel,
+    sequence: decision.sequence,
+    secondaryNotes: decision.secondaryNotes,
+  };
+}
+
+function titleParams(decision: TeacherDecision, input: TeacherActionInput): Record<string, string | number> | undefined {
+  if (decision.focus) return { number: decision.focus.wordIndex };
+  const follow = input.attempt?.verseFollowing ?? null;
+
+  switch (decision.action) {
+    case "next-ayah":
+      return { number: decision.targetAyah ?? follow?.currentAyah ?? input.livePosition.currentAyah };
+    case "repeat-ayah":
+      return { number: follow?.currentAyah ?? input.livePosition.currentAyah };
+    case "continue":
+      return { number: follow?.expectedWordIndex ?? input.livePosition.expectedWordIndex };
+    case "listen-first":
+      return { number: input.livePosition.expectedWordIndex };
+    default:
+      return undefined;
+  }
+}
+
+function buttonFor(decision: TeacherDecision): TeacherActionButton | null {
+  if (decision.action === "next-ayah" && decision.targetAyah !== null) {
+    return { command: "next-ayah", labelKey: "now.goToAyah", params: { number: decision.targetAyah } };
+  }
+  if (decision.action === "recording-problem" || decision.action === "unclear") {
+    return { command: "retry-ayah", labelKey: "now.tryAgain" };
+  }
+  if (decision.action === "repeat-word" || decision.action === "repeat-ayah") {
+    return { command: "retry-ayah", labelKey: "now.repeat" };
+  }
+  // Otherwise the listen and record controls below are the next step already.
+  return null;
 }
 
 /**
- * Chooses the single instruction to show, in a fixed order of precedence:
- *
- *  1. what the microphone is doing right now;
- *  2. a failure the learner has to get past;
- *  3. the tracker's conclusion about the ayah just recited — advance, finish,
- *     fix one word, or try the ayah again;
- *  4. where to carry on from, when the ayah was only partly recited;
- *  5. a review that is due, which is context rather than a correction and so
- *     never displaces one;
- *  6. otherwise, listen first.
+ * Nothing attempted yet: the learner is told where to start, from the live
+ * tracker's place rather than from a review that has not happened.
  */
-export function resolveTeacherAction(input: TeacherActionInput): TeacherAction {
-  const base = { focusArabic: null, focusWordIndex: null, button: null, targetAyah: null } as const;
-
-  if (input.isRecording) {
-    return { ...base, kind: "listening", titleKey: "now.listening", tone: "neutral" };
-  }
-
-  if (input.isReviewing) {
-    return { ...base, kind: "reviewing", titleKey: "now.reviewing", tone: "neutral" };
-  }
-
-  if (input.recordingError || (input.review !== null && !input.review.wordReviewAvailable)) {
-    return {
-      ...base,
-      kind: "recording-problem",
-      titleKey: "now.recordAgain",
-      button: { command: "retry-ayah", labelKey: "now.tryAgain" },
-      tone: "attention",
-    };
-  }
-
-  const follow = input.review?.verseFollowing ?? null;
-
-  if (follow?.shouldAdvance && input.hasNextAyah) {
-    return {
-      ...base,
-      kind: "next-ayah",
-      titleKey: "now.nextAyah",
-      titleParams: { number: follow.currentAyah },
-      button: { command: "next-ayah", labelKey: "now.goToAyah", params: { number: follow.currentAyah } },
-      tone: "success",
-      targetAyah: follow.currentAyah,
-    };
-  }
-
-  if (follow?.state === "completed") {
-    return { ...base, kind: "surah-complete", titleKey: "now.surahComplete", tone: "success" };
-  }
-
-  const focus = pickCorrectionFocus(input.review);
-  if (focus) {
-    return {
-      ...base,
-      kind: "repeat-word",
-      titleKey: "now.repeatWord",
-      titleParams: { number: focus.wordIndex },
-      focusArabic: focus.expectedArabic,
-      focusWordIndex: focus.wordIndex,
-      button: { command: "retry-ayah", labelKey: "now.repeat" },
-      tone: "attention",
-    };
-  }
-
-  if (follow?.state === "correcting" || follow?.state === "uncertain") {
-    return {
-      ...base,
-      kind: "repeat-ayah",
-      titleKey: "now.repeatAyah",
-      titleParams: { number: follow.currentAyah },
-      button: { command: "retry-ayah", labelKey: "now.repeat" },
-      tone: "attention",
-    };
-  }
-
-  if (follow?.state === "following") {
-    // Part-way through: the record control below is the next step, so no button.
-    return {
-      ...base,
-      kind: "continue",
-      titleKey: "now.continueFromWord",
-      titleParams: { number: follow.expectedWordIndex },
-      focusWordIndex: follow.expectedWordIndex,
-      tone: "neutral",
-    };
-  }
-
-  if (input.reviewDue) {
-    return { ...base, kind: "review-today", titleKey: "now.reviewToday", tone: "neutral" };
-  }
-
-  return {
-    ...base,
-    kind: "listen-first",
-    titleKey: input.position.expectedWordIndex > 1 ? "now.continueFromWord" : "now.listenFirst",
-    titleParams: { number: input.position.expectedWordIndex },
-    tone: "neutral",
-  };
+export function isPreAttempt(action: TeacherAction): boolean {
+  return action.kind === "listen-first" || action.kind === "review-today";
 }

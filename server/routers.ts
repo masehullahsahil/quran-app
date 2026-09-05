@@ -118,6 +118,17 @@ const memorizationAttemptInput = z.object({
 
 const durableAttempt = memorizationAttemptInput.transform(({ stability: _stability, ...attempt }) => attempt);
 
+/**
+ * Wording only.
+ *
+ * The coach model phrases encouragement around a decision that has already been
+ * made deterministically. It never chooses what the learner should do next: the
+ * teaching action, the word to return to, and whether the learner may move on
+ * come from the alignment, the verse-following tracker and the decision engine
+ * in shared/teacherDecision.ts, and the Study view takes its one instruction
+ * from there. These three fields are shown in Teacher notes, never as the
+ * primary instruction — see docs/ai-teacher-decisions.md.
+ */
 type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };
 
 async function createCoachSummary(input: {
@@ -145,7 +156,7 @@ async function createCoachSummary(input: {
       messages: [
         {
           role: "system",
-          content: "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
+          content: "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error: every word you mention must appear in the supplied corrections. Do not tell the learner to move on to another ayah, and do not contradict the supplied next step — the app decides what comes next, and your text is shown as a note beside that decision. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
         },
         {
           role: "user",
