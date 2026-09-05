@@ -83,10 +83,24 @@ export type TeacherEvidenceLevel = "none" | "weak" | "partial" | "strong";
 /** Where a focus word came from. Drives wording, and the decision trace. */
 export type TeacherFocusSource = "recurring" | "acoustic" | "tracker" | "text";
 
+/**
+ * What was observed about the focus word, in the vocabulary a teacher would use.
+ * The view turns this into one short sentence; it never re-derives it from the
+ * raw alignment, which is what keeps evidence and instruction apart.
+ */
+export type TeacherObservation =
+  /** The word was not heard at all. */
+  | "not-heard"
+  /** Something was heard in its place. */
+  | "came-through-differently"
+  /** The words were right; a confidence-gated listener flagged how one sounded. */
+  | "sound-observation";
+
 export type TeacherFocus = {
   wordIndex: number;
   expectedArabic: string;
   source: TeacherFocusSource;
+  observation: TeacherObservation;
 };
 
 /**
@@ -156,7 +170,7 @@ export type TeacherEvidence = {
     recurringWordIndexes: number[];
   };
   /** The live tracker's place, which moves while reciting as well as after. */
-  livePosition: { currentAyah: number; expectedWordIndex: number };
+  livePosition: { currentSurah: number; currentAyah: number; expectedWordIndex: number };
   hasNextAyah: boolean;
 };
 
@@ -318,7 +332,12 @@ export function decideTeacherAction(evidence: TeacherEvidence): TeacherDecision 
       evidenceLevel: follow?.evidence ?? "partial",
       canAdvance: false,
       targetAyah: null,
-      focus: { wordIndex: recurring.wordIndex, expectedArabic: recurring.expected, source: "recurring" },
+      focus: {
+        wordIndex: recurring.wordIndex,
+        expectedArabic: recurring.expected,
+        source: "recurring",
+        observation: recurring.status === "missing" ? "not-heard" : "came-through-differently",
+      },
       sequence: ["show-word", "listen", "repeat-word", "recite-ayah"],
     });
   }
@@ -337,6 +356,7 @@ export function decideTeacherAction(evidence: TeacherEvidence): TeacherDecision 
         wordIndex: finding.wordIndex,
         expectedArabic: finding.expectedArabic ?? expectedWordAt(attempt, finding.wordIndex),
         source: "acoustic",
+        observation: "sound-observation",
       },
       sequence: ["show-word", "listen", "repeat-word", "recite-ayah"],
     });
@@ -379,6 +399,7 @@ export function decideTeacherAction(evidence: TeacherEvidence): TeacherDecision 
         wordIndex: first.wordIndex,
         expectedArabic: first.expected,
         source: first.wordIndex === follow?.correctionFocus?.wordIndex ? "tracker" : "text",
+        observation: first.status === "missing" ? "not-heard" : "came-through-differently",
       },
       sequence: ["show-word", "listen", "repeat-word", "recite-ayah"],
     });

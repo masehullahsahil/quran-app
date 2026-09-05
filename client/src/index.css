@@ -270,6 +270,18 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .now-instruction { margin: 7px 0 0; color: #1f4d3d; font-family: "Fraunces", Georgia, serif; font-size: clamp(20px, 3.4vw, 26px); font-weight: 600; letter-spacing: -.03em; line-height: 1.25; }
 .teacher-now.is-attention .now-instruction { color: #6f5228; }
 .now-word { margin: 10px 0 0; padding: 10px 14px; color: #1f4d3d; background: #fffdf8; border: 1px solid #d9e3db; font-family: "Amiri Quran", serif; font-size: clamp(34px, 7vw, 46px); line-height: 1.65; text-align: center; }
+.teacher-now.is-unsure { background: #f4f4f2; border-color: #d9d7d1; border-left-color: #8d8f8a; }
+.teacher-now.is-unsure .now-instruction { color: #4c4f4a; }
+.active-correction { padding: 15px 16px 14px; margin-top: -1px; background: #fffdf8; border: 1px solid #e6d3ae; border-left: 3px solid #b38748; text-align: center; }
+.active-correction.is-unsure { border-color: #d9d7d1; border-left-color: #8d8f8a; }
+.correction-target { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(36px, 8vw, 52px); line-height: 1.75; }
+.correction-explain { margin: 6px 0 0; color: #6f5228; font-size: 12px; font-weight: 700; line-height: 1.5; }
+.active-correction.is-unsure .correction-explain { color: #5b5e58; }
+.correction-listen { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 10px 14px; margin-top: 11px; color: #174d42; border: 1px solid #aac5b2; background: #f6faf7; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 800; }
+.correction-listen:hover { background: #e8f2eb; }
+.correction-retry { display: block; margin-top: 9px; color: #7c867e; font-size: 10px; line-height: 1.45; }
+.now-surah { color: #174d42; }
+.now-place > span + span::before { content: "·"; margin: 0 6px; color: #b6bdb5; }
 .now-steps { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; counter-reset: step; }
 .now-steps li { display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; color: #3e6554; background: rgba(255,253,248,.72); border: 1px solid #cddbcf; border-radius: 999px; font-size: 9px; font-weight: 800; }
 .now-steps li::before { counter-increment: step; content: counter(step); display: inline-grid; width: 13px; height: 13px; place-content: center; color: #fffdf8; background: #6f8f7c; border-radius: 50%; font-size: 7px; }
@@ -318,7 +330,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .feedback-summary strong { display: block; margin-top: 3px; color: #21463a; font-family: "Fraunces", Georgia, serif; font-size: 25px; font-weight: 600; letter-spacing: -.06em; }.feedback-summary small { display: block; margin-top: 2px; color: #7a847c; font-size: 9px; }.feedback-score { display: grid; width: 43px; height: 43px; place-content: center; color: #986a2f; background: #f8eedc; border: 1px solid #e0c18b; border-radius: 50%; font-size: 11px; font-weight: 800; }.feedback-score.is-strong { color: #174d42; background: #e7f1eb; border-color: #a8c9b4; }
 .audio-coach { align-items: center; padding: 10px; margin: 12px 0; background: #edf5ef; border: 1px solid #cadccf; }.audio-coach p { max-width: 300px; margin: 3px 0 0; color: #68766d; font-size: 10px; line-height: 1.4; }.audio-coach button { display: inline-flex; align-items: center; gap: 5px; padding: 7px 9px; color: #174d42; border: 1px solid #aac5b2; background: #fffdf8; border-radius: 6px; cursor: pointer; font-size: 10px; font-weight: 800; }.coach-audio-toggle { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #748077; font-size: 9px; font-weight: 600; }.coach-audio-toggle input { accent-color: #174d42; }
 .review-unavailable { display: flex; align-items: flex-start; gap: 7px; padding: 10px; color: #795e35; background: #fbf3e4; border: 1px solid #ead2a8; font-size: 10px; font-weight: 600; line-height: 1.5; }.review-recovery { display: grid; grid-template-columns: auto minmax(0, 1fr); margin-top: 13px; }.review-recovery > div { display: grid; gap: 2px; }.review-recovery strong { color: #684d29; font-size: 11px; }.review-recovery .retry-button { grid-column: 1 / -1; margin-top: 3px; background: #fffaf0; }
-.coach-copy { margin: 13px 0 12px; color: #49594f; font-family: "Fraunces", Georgia, serif; font-size: 14px; line-height: 1.48; }.correction-list { display: grid; gap: 6px; margin-top: 13px; }.correction-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 9px; padding: 8px 9px; background: #f8f5ed; border: 1px solid #e7e1d5; }.correction-index { color: #7f897f; font-size: 9px; font-weight: 800; text-transform: uppercase; }.correction-word { color: #23453a; font-family: "Amiri Quran", serif; font-size: 20px; text-align: right; }.correction-state { padding: 3px 5px; color: #8c622b; background: #f8ead0; border-radius: 3px; font-size: 8px; font-weight: 800; text-transform: uppercase; }.correction-state.is-review { color: #8c622b; background: #f8ead0; }.correction-state.is-extra { color: #8a5641; background: #f6dfd7; }.all-matched { display: flex; align-items: center; gap: 7px; padding: 10px; color: #225c49; background: #e8f3ec; font-size: 11px; font-weight: 700; }.next-step { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding: 9px 0; color: #34584a; border-top: 1px solid #e5e0d6; font-size: 11px; font-weight: 700; line-height: 1.5; }.feedback-note { display: flex; gap: 5px; margin: 7px 0 0; color: #818981; font-size: 9px; line-height: 1.45; }.retry-button { width: 100%; min-height: 38px; margin-top: 12px; color: #174d42; border: 1px solid #aac5b3; background: transparent; }.retry-button:hover { background: #e8f2eb; }
+.coach-copy { margin: 13px 0 12px; color: #49594f; font-family: "Fraunces", Georgia, serif; font-size: 14px; line-height: 1.48; }.correction-list { display: grid; gap: 6px; margin-top: 9px; }.correction-row { display: grid; grid-template-columns: 52px 1fr auto; align-items: center; gap: 9px; padding: 8px 9px; background: #f8f5ed; border: 1px solid #e7e1d5; }.correction-index { color: #7f897f; font-size: 9px; font-weight: 800; text-transform: uppercase; }.correction-word { color: #23453a; font-family: "Amiri Quran", serif; font-size: 20px; text-align: right; }.correction-state { padding: 3px 5px; color: #8c622b; background: #f8ead0; border-radius: 3px; font-size: 8px; font-weight: 800; text-transform: uppercase; }.correction-state.is-review { color: #8c622b; background: #f8ead0; }.correction-state.is-extra { color: #8a5641; background: #f6dfd7; }.all-matched { display: flex; align-items: center; gap: 7px; padding: 10px; color: #225c49; background: #e8f3ec; font-size: 11px; font-weight: 700; }.next-step { display: flex; align-items: flex-start; gap: 7px; margin-top: 12px; padding: 9px 0; color: #34584a; border-top: 1px solid #e5e0d6; font-size: 11px; font-weight: 700; line-height: 1.5; }.feedback-note { display: flex; gap: 5px; margin: 7px 0 0; color: #818981; font-size: 9px; line-height: 1.45; }.retry-button { width: 100%; min-height: 38px; margin-top: 12px; color: #174d42; border: 1px solid #aac5b3; background: transparent; }.retry-button:hover { background: #e8f2eb; }
 @keyframes recording-pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(180,71,62,.25); } 50% { box-shadow: 0 0 0 7px rgba(180,71,62,0); } }
 
 .memory-layout { display: flex; min-height: 587px; flex-direction: column; justify-content: center; max-width: 650px; padding: 50px 34px; margin: 0 auto; text-align: center; }
@@ -449,7 +461,16 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .study-layout { grid-template-columns: 1fr; min-height: 520px; padding: 20px 20px 28px; }
   .study-index { display: flex; align-items: center; justify-content: center; height: auto; padding: 0 0 12px; border-right: 0; border-bottom: 1px solid rgba(164,158,145,.4); }
   .study-index strong { font-size: 25px; }
-  .study-card { padding: 12px 15px; }
+  .study-layout { display: flex; flex-direction: column; }
+  .study-index { order: 0; }
+  .teacher-loop { order: 1; }
+  .study-card { order: 2; padding: 12px 15px; }
+  .study-pagination { order: 3; }
+  .study-visual { display: none; }
+  .active-correction { padding: 13px 12px; }
+  .correction-target { font-size: clamp(34px, 12vw, 46px); word-break: break-word; }
+  .correction-listen { width: 100%; }
+  .now-place { row-gap: 2px; }
   .study-arabic { min-height: 115px; font-size: 40px; }
   .learning-layout { min-height: 520px; padding: 21px 20px 28px; }
   .learning-topline h2 { font-size: 24px; }

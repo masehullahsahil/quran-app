@@ -61,7 +61,7 @@ function evidence(patch: Partial<TeacherEvidence> = {}): TeacherEvidence {
     attempt: null,
     acoustic: null,
     memory: { reviewDue: false, recurringWordIndexes: [] },
-    livePosition: { currentAyah: 2, expectedWordIndex: 1 },
+    livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 1 },
     hasNextAyah: true,
     ...patch,
   };
@@ -129,7 +129,7 @@ describe("textual corrections", () => {
     }));
 
     expect(decision).toMatchObject({ action: "repeat-word", reason: "text_missing_word", canAdvance: false });
-    expect(decision.focus).toEqual({ wordIndex: 4, expectedArabic: "الْعَالَمِينَ", source: "tracker" });
+    expect(decision.focus).toEqual({ wordIndex: 4, expectedArabic: "الْعَالَمِينَ", source: "tracker", observation: "not-heard" });
     expect(decision.sequence).toEqual(["show-word", "listen", "repeat-word", "recite-ayah"]);
   });
 
@@ -224,7 +224,7 @@ describe("acoustic findings", () => {
     }));
 
     expect(decision).toMatchObject({ action: "repeat-word", reason: "acoustic_high_confidence", canAdvance: false });
-    expect(decision.focus).toEqual({ wordIndex: 3, expectedArabic: "رَبِّ", source: "acoustic" });
+    expect(decision.focus).toEqual({ wordIndex: 3, expectedArabic: "رَبِّ", source: "acoustic", observation: "sound-observation" });
   });
 
   it.each([
@@ -295,7 +295,7 @@ describe("a word the learner keeps missing", () => {
     }));
 
     expect(decision).toMatchObject({ action: "repeat-word", reason: "text_recurring_word", canAdvance: false });
-    expect(decision.focus).toEqual({ wordIndex: 3, expectedArabic: "رَبِّ", source: "recurring" });
+    expect(decision.focus).toEqual({ wordIndex: 3, expectedArabic: "رَبِّ", source: "recurring", observation: "not-heard" });
     expect(decision.sequence).toEqual(["show-word", "listen", "repeat-word", "recite-ayah"]);
   });
 

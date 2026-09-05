@@ -38,7 +38,7 @@ function evidence(patch: Partial<TeacherEvidence> = {}): TeacherEvidence {
     attempt: null,
     acoustic: null,
     memory: { reviewDue: false, recurringWordIndexes: [] },
-    livePosition: { currentAyah: 2, expectedWordIndex: 1 },
+    livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 1 },
     hasNextAyah: true,
     ...patch,
   };
@@ -82,7 +82,7 @@ describe("one instruction, at most one button", () => {
 
     expect(action.titleKey, action.kind).toBeTruthy();
     expect(en.strings[action.titleKey], `${action.kind}: ${action.titleKey} is not defined in the reference pack`).toBeTruthy();
-    expect(["neutral", "attention", "success"]).toContain(action.tone);
+    expect(["neutral", "attention", "success", "unsure"]).toContain(action.tone);
   });
 
   it.each(everyState)("offers no more than one contextual button for %s", (_name, input) => {
