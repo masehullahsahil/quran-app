@@ -12,19 +12,8 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowRight, BookOpen, Check, Lock, RotateCcw, Volume2 } from "lucide-react";
-import {
-  QAIDA_LESSONS,
-  QAIDA_LEVELS,
-  curriculumProgressPercent,
-  followingLesson,
-  getQaidaLesson,
-  getQaidaLevel,
-  isLessonUnlocked,
-  lessonsForLevel,
-  levelProgress,
-  type QaidaLesson,
-  type QaidaLessonStage,
-} from "@shared/qaidaCurriculum";
+import { type QaidaLesson, type QaidaLessonStage } from "@shared/qaidaCurriculum";
+import { describeCourseView } from "@/lib/courseView";
 import { isReadExercise } from "@shared/qaidaExercises";
 import {
   answerItem,
@@ -63,13 +52,9 @@ export function QaidaCourse({
 }) {
   const { t } = useLocale();
   const letterAudio = useLetterAudio();
-  const initialLesson = getQaidaLesson(progress.currentLessonId) ?? QAIDA_LESSONS[0];
-  const [session, setSession] = useState<QaidaSession>(() => startSession(initialLesson));
-
-  const lesson = initialLesson;
-  const level = getQaidaLevel(lesson.level);
-  const levelLessons = useMemo(() => lessonsForLevel(lesson.level), [lesson.level]);
-  const positionInLevel = levelLessons.findIndex((entry) => entry.id === lesson.id) + 1;
+  const view = useMemo(() => describeCourseView(progress), [progress]);
+  const { lesson, level } = view;
+  const [session, setSession] = useState<QaidaSession>(() => startSession(lesson));
 
   // A lesson change — the learner finished one, or opened an earlier one to
   // review — starts its practice from the beginning.
@@ -78,9 +63,9 @@ export function QaidaCourse({
   }, [lesson.id]);
 
   const item = currentItem(lesson, session);
-  const alreadyCompleted = progress.completedLessons.includes(lesson.id);
+  const alreadyCompleted = view.isReview;
   const finished = isSessionFinished(lesson, session);
-  const next = followingLesson(lesson.id);
+  const next = view.nextLesson;
 
   const answer = (choiceId: string | null) => setSession((current) => answerItem(lesson, current, choiceId));
   const continueToNextItem = () => setSession((current) => continueSession(lesson, current));
@@ -102,41 +87,33 @@ export function QaidaCourse({
         <div>
           <span className="eyebrow">{t("course.eyebrow")}</span>
           <h3>{t("course.levelLabel", { order: level?.order ?? 1, title: level?.title ?? "" })}</h3>
-          <p>{level?.objective}</p>
+          <p className="course-level-objective">{level?.objective}</p>
         </div>
         <span className="course-progress">
-          {t("course.percentComplete", { percent: curriculumProgressPercent(progress.completedLessons) })}
+          {t("course.percentComplete", { percent: view.percentComplete })}
         </span>
       </div>
 
-      {/* Where am I? Every level, with what is done in each. */}
-      <div className="course-levels" aria-label={t("course.levelsLabel")}>
-        {QAIDA_LEVELS.map((entry) => {
-          const summary = levelProgress(entry.id, progress.completedLessons);
-          const target = lessonsForLevel(entry.id).find(
-            (candidate) => isLessonUnlocked(candidate.id, progress.completedLessons),
-          );
-          const isCurrent = entry.id === lesson.level;
-          return (
-            <button
-              type="button"
-              key={entry.id}
-              className={`course-level ${isCurrent ? "is-current" : ""} ${summary?.unlocked ? "" : "is-locked"}`}
-              aria-current={isCurrent}
-              disabled={!target}
-              title={target ? entry.objective : t("course.locked")}
-              onClick={() => target && goToLesson(target.id)}
-            >
-              <span>{String(entry.order).padStart(2, "0")}</span>
-              <strong>{entry.title}</strong>
-              <small>
-                {summary?.unlocked
-                  ? t("course.levelProgress", { done: summary.completed, total: summary.total })
-                  : t("course.locked")}
-              </small>
-            </button>
-          );
-        })}
+      {/* Where am I? A compact strip: the current level reads in full, the rest
+          are numbers with their state. It orients without competing with the
+          lesson below. */}
+      <div className="course-levels" role="tablist" aria-label={t("course.levelsLabel")}>
+        {view.levels.map((chip) => (
+          <button
+            type="button"
+            key={chip.level.id}
+            role="tab"
+            className={`course-level ${chip.isCurrent ? "is-current" : ""} ${chip.isDone ? "is-done" : ""} ${chip.target ? "" : "is-locked"}`}
+            aria-selected={chip.isCurrent}
+            disabled={!chip.target}
+            aria-label={`${t("course.levelLabel", { order: chip.level.order, title: chip.level.title })} — ${chip.target ? t("course.levelProgress", { done: chip.completed, total: chip.total }) : t("course.locked")}`}
+            title={chip.target ? chip.level.objective : t("course.locked")}
+            onClick={() => chip.target && goToLesson(chip.target)}
+          >
+            <span aria-hidden="true">{chip.isDone ? <Check size={12} /> : !chip.target ? <Lock size={12} /> : String(chip.level.order).padStart(2, "0")}</span>
+            {chip.isCurrent && <strong>{chip.level.title}</strong>}
+          </button>
+        ))}
       </div>
 
       {/* What am I learning? */}
@@ -144,7 +121,7 @@ export function QaidaCourse({
         <div className="course-lesson-head">
           <div>
             <span className="eyebrow">
-              {t("course.lessonPosition", { number: positionInLevel, total: levelLessons.length })}
+              {t("course.lessonPosition", { number: view.positionInLevel, total: view.lessonsInLevel })}
             </span>
             <h4>{lesson.title}</h4>
             <p className="course-objective">{lesson.objective}</p>
@@ -152,23 +129,26 @@ export function QaidaCourse({
           {alreadyCompleted && <span className="course-completed"><Check size={13} /> {t("course.completedBadge")}</span>}
         </div>
 
-        <div className="course-stages" aria-label={t("course.stagesLabel")}>
-          {lesson.stages.map((stage) => <span key={stage}>{t(stageLabels[stage])}</span>)}
-        </div>
-
-        <p className="course-teaching">{lesson.teaching}</p>
-
-        {lesson.examples.length > 0 && (
-          <div className="course-examples" aria-label={t("course.examplesLabel")}>
-            {lesson.examples.map((example, index) => (
-              <div key={`${example.arabic}-${index}`} className={`course-example is-${example.source}`}>
-                <span lang="ar" dir="rtl">{example.arabic}</span>
-                <small>{example.gloss}</small>
-                <em>{example.source === "quran" ? t("course.quranBadge", { reference: example.reference ?? "" }) : t("course.teachingBadge")}</em>
-              </div>
-            ))}
+        {/* Open while the lesson is new, and foldable once practice is under
+            way, so one exercise is what the learner sees. */}
+        <details className="course-teaching-details" open={session.attemptedIds.length === 0}>
+          <summary>{t("course.teachingSummary")}</summary>
+          <p className="course-teaching">{lesson.teaching}</p>
+          {lesson.examples.length > 0 && (
+            <div className="course-examples" aria-label={t("course.examplesLabel")}>
+              {lesson.examples.map((example, index) => (
+                <div key={`${example.arabic}-${index}`} className={`course-example is-${example.source}`}>
+                  <span lang="ar" dir="rtl">{example.arabic}</span>
+                  <small>{example.gloss}</small>
+                  <em>{example.source === "quran" ? t("course.quranBadge", { reference: example.reference ?? "" }) : t("course.teachingBadge")}</em>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="course-stages" aria-label={t("course.stagesLabel")}>
+            {lesson.stages.map((stage) => <span key={stage}>{t(stageLabels[stage])}</span>)}
           </div>
-        )}
+        </details>
 
         {/* What do I do next? One exercise, or the lesson's completion state. */}
         {!finished && item ? (
@@ -275,24 +255,20 @@ export function QaidaCourse({
 
       {/* Completed lessons stay open for review. */}
       <div className="course-lesson-list" aria-label={t("course.lessonListLabel")}>
-        {levelLessons.map((entry) => {
-          const unlocked = isLessonUnlocked(entry.id, progress.completedLessons);
-          const done = progress.completedLessons.includes(entry.id);
-          return (
-            <button
-              type="button"
-              key={entry.id}
-              className={`${entry.id === lesson.id ? "is-current" : ""} ${done ? "is-done" : ""}`}
-              disabled={!unlocked}
-              aria-current={entry.id === lesson.id}
-              onClick={() => goToLesson(entry.id)}
-            >
-              {done ? <Check size={12} /> : unlocked ? null : <Lock size={12} />}
-              <span>{entry.title}</span>
-              {done && entry.id !== lesson.id && <em>{t("course.reviewLesson")}</em>}
-            </button>
-          );
-        })}
+        {view.lessonsOfLevel.map(({ lesson: entry, unlocked, done, isCurrent }) => (
+          <button
+            type="button"
+            key={entry.id}
+            className={`${isCurrent ? "is-current" : ""} ${done ? "is-done" : ""}`}
+            disabled={!unlocked}
+            aria-current={isCurrent}
+            onClick={() => goToLesson(entry.id)}
+          >
+            {done ? <Check size={12} /> : unlocked ? null : <Lock size={12} />}
+            <span>{entry.title}</span>
+            {done && !isCurrent && <em>{t("course.reviewLesson")}</em>}
+          </button>
+        ))}
       </div>
     </div>
   );
