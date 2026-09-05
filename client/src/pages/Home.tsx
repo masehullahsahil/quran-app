@@ -45,6 +45,7 @@ import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/r
 import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
+import { synchronizeLearnerPersistence } from "@/lib/learnerPersistence";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
 import { resolveTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
 import { describeStudyTiers } from "@/lib/studyView";
@@ -493,17 +494,9 @@ export default function Home() {
     if (!me.data) return;
     let cancelled = false;
     const synchronize = async () => {
-      const pending = historyRepository.pending();
-      const attempts = Array.from(new Map([...historyRepository.list(), ...pending].map(item => [item.id, item])).values());
       try {
-        const snapshot = await syncProgress.mutateAsync({
-          qaida: readQaidaProgress(),
-          memorizationAttempts: attempts.map(attempt => ({ ...attempt, stability: "final" as const })),
-        });
+        const snapshot = await synchronizeLearnerPersistence(historyRepository, input => syncProgress.mutateAsync(input));
         if (cancelled) return;
-        historyRepository.replace(snapshot.memorizationAttempts);
-        pending.forEach(attempt => historyRepository.acknowledge(attempt.id));
-        writeQaidaProgress(snapshot.qaida);
         setMemorizationAttempts(snapshot.memorizationAttempts);
         const merged = { completedLessons: snapshot.qaida.completedLessons, currentLessonId: snapshot.qaida.currentLessonId };
         setQaidaProgress(current => JSON.stringify(current) === JSON.stringify(merged)
