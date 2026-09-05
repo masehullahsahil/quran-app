@@ -295,6 +295,14 @@ export default function Home() {
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
   const ingestRecitationChunk = trpc.recitation.ingestChunk.useMutation();
+  const me = trpc.auth.me.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
+  const syncProgress = trpc.learner.syncProgress.useMutation();
+  const syncQaidaProgress = trpc.learner.syncQaidaProgress.useMutation();
+  const recordMemorizationAttempt = trpc.learner.recordMemorizationAttempt.useMutation();
+  const durableReview = trpc.learner.getReviewQueue.useQuery(undefined, {
+    enabled: Boolean(me.data),
+    refetchOnWindowFocus: false,
+  });
 
   // The Quran's text does not change, so both queries are cached indefinitely
   // for the session and the server keeps its own TTL cache in front of
@@ -394,7 +402,10 @@ export default function Home() {
   const lettersPractisedPercent = progressPercent(lettersPractised.length, alphabet.length);
   const activeMemory = useMemo(() => deriveAyahMemory(surahNumber, selectedVerse, memorizationAttempts), [surahNumber, selectedVerse, memorizationAttempts]);
   const reviewSummary = useMemo(() => summarizeReview(memorizationAttempts), [memorizationAttempts]);
-  const activeRecommendation = useMemo(() => buildReviewQueue(memorizationAttempts).find((item) => item.surah === surahNumber && item.ayah === selectedVerse), [memorizationAttempts, surahNumber, selectedVerse]);
+  const activeRecommendation = useMemo(() => {
+    const queue = me.data && durableReview.data ? durableReview.data.queue : buildReviewQueue(memorizationAttempts);
+    return queue.find((item) => item.surah === surahNumber && item.ayah === selectedVerse);
+  }, [durableReview.data, me.data, memorizationAttempts, surahNumber, selectedVerse]);
 
   useEffect(() => () => {
     audioRef.current?.pause();
@@ -444,7 +455,47 @@ export default function Home() {
 
   useEffect(() => {
     writeQaidaProgress(qaidaProgress);
+    if (me.data) syncQaidaProgress.mutate(qaidaProgress, {
+      onSuccess: snapshot => {
+        writeQaidaProgress(snapshot.qaida);
+        const merged = { completedLessons: snapshot.qaida.completedLessons, currentLessonId: snapshot.qaida.currentLessonId };
+        setQaidaProgress(current => JSON.stringify(current) === JSON.stringify(merged)
+          ? current
+          : merged);
+      },
+    });
   }, [qaidaProgress]);
+
+  // Sign-in is the migration boundary. Upload the local cache and retry queue,
+  // then adopt the merged server snapshot as the local cache.
+  useEffect(() => {
+    if (!me.data) return;
+    let cancelled = false;
+    const synchronize = async () => {
+      const pending = historyRepository.pending();
+      const attempts = Array.from(new Map([...historyRepository.list(), ...pending].map(item => [item.id, item])).values());
+      try {
+        const snapshot = await syncProgress.mutateAsync({
+          qaida: readQaidaProgress(),
+          memorizationAttempts: attempts.map(attempt => ({ ...attempt, stability: "final" as const })),
+        });
+        if (cancelled) return;
+        historyRepository.replace(snapshot.memorizationAttempts);
+        pending.forEach(attempt => historyRepository.acknowledge(attempt.id));
+        writeQaidaProgress(snapshot.qaida);
+        setMemorizationAttempts(snapshot.memorizationAttempts);
+        const merged = { completedLessons: snapshot.qaida.completedLessons, currentLessonId: snapshot.qaida.currentLessonId };
+        setQaidaProgress(current => JSON.stringify(current) === JSON.stringify(merged)
+          ? current
+          : merged);
+      } catch {
+        // Local state and queued attempts remain intact for the next retry.
+      }
+    };
+    void synchronize();
+    window.addEventListener("online", synchronize);
+    return () => { cancelled = true; window.removeEventListener("online", synchronize); };
+  }, [me.data?.id]);
 
   useEffect(() => {
     setLetterExerciseResult(null);
@@ -675,7 +726,12 @@ export default function Home() {
       setReviewError(null);
       setRecorderMessage(t("recorder.reviewing"));
       const audioBase64 = await blobToBase64(blob);
-      const attemptId = `${liveSessionRef.current.sessionId}-recording`;
+      // One stable key for this finalized recording. tRPC/network retries reuse
+      // the same object, while a later recording in the same session gets a new
+      // key and therefore remains a distinct learning attempt.
+      const attemptId = typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${liveSessionRef.current.sessionId}-${Date.now()}-${liveChunkSequenceRef.current}`;
       const result = await evaluateRecitation.mutateAsync({
         expectedArabic: activeVerse.arabic,
         audioBase64,
@@ -716,6 +772,17 @@ export default function Home() {
           errors, attemptsRequired: position.attemptsOnCurrentAyah + 1, eventuallyAdvanced,
         };
         if (historyRepository.save(attempt)) setMemorizationAttempts(historyRepository.list());
+        if (me.data) {
+          historyRepository.enqueue(attempt);
+          // Feedback is already visible. Persistence deliberately runs in the
+          // background and a failure leaves the item queued.
+          recordMemorizationAttempt.mutate({ ...attempt, stability: "final" }, {
+            onSuccess: () => {
+              historyRepository.acknowledge(attempt.id);
+              void durableReview.refetch();
+            },
+          });
+        }
       }
       setRecorderMessage(review.wordReviewAvailable ? t("recorder.reviewReady") : review.reviewMessage ?? t("feedback.reviewUnavailable"));
       if (review.wordReviewAvailable && coachAudioOn) speakGuidance(review.spokenGuidance);
