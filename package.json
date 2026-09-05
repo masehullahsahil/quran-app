@@ -12,6 +12,7 @@
     "format": "prettier --write .",
     "test": "vitest run",
     "benchmark:recitation": "tsx scripts/recitation-benchmark.ts",
+    "verify:qaida": "tsx scripts/verify-qaida-quran.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate"
   },
   "dependencies": {
