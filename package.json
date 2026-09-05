@@ -14,6 +14,9 @@
     "benchmark:recitation": "tsx scripts/recitation-benchmark.ts",
     "verify:qaida": "tsx scripts/verify-qaida-quran.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:verify-learner-persistence": "tsx scripts/verify-learner-persistence-db.ts",
+    "verify:production-readiness": "tsx scripts/verify-production-readiness.ts",
     "benchmark:acoustic": "tsx scripts/acoustic-benchmark.ts",
     "acoustic:dev": "tsx watch services/quran-acoustic-evaluator/index.ts",
     "test:acoustic": "vitest run services/quran-acoustic-evaluator"

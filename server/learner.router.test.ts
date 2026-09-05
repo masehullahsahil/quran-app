@@ -81,4 +81,23 @@ describe("learner router", () => {
     const review = await caller(1).learner.getReviewQueue();
     expect(review.queue[0]).toMatchObject({ surah: 1, ayah: 1 });
   });
+
+  it("preserves the full Learn-to-Study path for a fresh authenticated session", async () => {
+    const nextLesson = QAIDA_LESSONS[1].id;
+    const sessionA = caller(1);
+    await sessionA.learner.syncQaidaProgress({ currentLessonId: nextLesson, completedLessons: [FIRST_LESSON_ID] });
+    const finalized = attempt({ id: "study-finalized-1", result: "corrected", score: 86, matchedCount: 3,
+      correctionWordIndexes: [4], errors: [{ type: "omission", wordIndex: 4 }], eventuallyAdvanced: true });
+    await sessionA.learner.recordMemorizationAttempt(finalized);
+
+    // A new caller represents a new cookie/browser session for the same user.
+    const sessionB = caller(1);
+    const restored = await sessionB.learner.getProgress();
+    const review = await sessionB.learner.getReviewQueue();
+    expect(restored.qaida).toMatchObject({ currentLessonId: nextLesson, completedLessons: [FIRST_LESSON_ID] });
+    expect(restored.memorizationAttempts).toEqual([expect.objectContaining({ id: "study-finalized-1", result: "corrected" })]);
+    expect(review.queue).toEqual([expect.objectContaining({ surah: 1, ayah: 1 })]);
+    await sessionB.learner.recordMemorizationAttempt(finalized);
+    expect(await sessionB.learner.getMemorizationHistory()).toHaveLength(1);
+  });
 });
