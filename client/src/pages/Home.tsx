@@ -45,7 +45,7 @@ import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
-import { resolveTeacherAction, type TeacherAction } from "@/lib/teacherAction";
+import { resolveTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -120,6 +120,15 @@ const masteryLabels: Record<MasteryState, StringKey> = {
   needs_review: "mastery.needs_review",
   strong: "mastery.strong",
   mastered: "mastery.mastered",
+};
+
+// The teaching sequence, as a fixed set of steps. Wording per step, no prose.
+const teachingStepLabels: Record<TeachingStep, StringKey> = {
+  "show-word": "step.showWord",
+  listen: "step.listen",
+  "repeat-word": "step.repeatWord",
+  "recite-ayah": "step.reciteAyah",
+  "record-again": "step.recordAgain",
 };
 
 type BrowserRecognition = {
@@ -876,19 +885,29 @@ export default function Home() {
   // One instruction, chosen from every signal Study holds. The rules live in
   // client/src/lib/teacherAction.ts so they can be tested without a browser.
   const reviewDue = Boolean(activeMemory.nextReviewAt && new Date(activeMemory.nextReviewAt) <= new Date());
+  // Everything the teacher knows about this attempt, gathered once. The rules
+  // that turn it into one instruction live in shared/teacherDecision.ts.
   const teacherAction: TeacherAction = resolveTeacherAction({
-    isRecording,
-    isReviewing: evaluateRecitation.isPending,
-    recordingError: Boolean(reviewError),
-    review: feedback
+    recording: {
+      isRecording,
+      isReviewing: evaluateRecitation.isPending,
+      failed: Boolean(reviewError),
+    },
+    attempt: feedback
       ? {
-          wordReviewAvailable: feedback.wordReviewAvailable,
+          reviewable: feedback.wordReviewAvailable,
           corrections: feedback.corrections,
           verseFollowing: feedback.verseFollowing,
         }
       : null,
-    position: { currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
-    reviewDue,
+    acoustic: feedback?.quranAwareReview ?? null,
+    memory: {
+      reviewDue,
+      // Word positions this learner keeps missing in this ayah, from the
+      // existing deterministic memory layer — no new mastery model.
+      recurringWordIndexes: activeRecommendation?.focusWordIndexes ?? [],
+    },
+    livePosition: { currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
     hasNextAyah: Boolean(nextVerse),
   });
   const runTeacherAction = () => {
@@ -1077,6 +1096,7 @@ export default function Home() {
                 <p className="now-place">{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
                 <h3 className="now-instruction" aria-live="polite">{t(teacherAction.titleKey, teacherAction.titleParams)}</h3>
                 {teacherAction.focusArabic && <p className="now-word" lang="ar" dir="rtl">{teacherAction.focusArabic}</p>}
+                {teacherAction.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{teacherAction.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step])}</li>)}</ol>}
                 <div className="loop-actions">
                   <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
                   <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
@@ -1105,6 +1125,18 @@ export default function Home() {
                   Collapsed by default, and never carrying a warning of its own. */}
               <details className="teacher-notes">
                 <summary><span>{t("notes.summary")}</span><small>{t("notes.hint")}</small></summary>
+
+                {teacherAction.secondaryNotes.length > 0 && <div className="notes-block notes-observed">
+                  <div><span className="eyebrow">{t("notes.observedLabel")}</span></div>
+                  <ul>{teacherAction.secondaryNotes.map((note, index) => <li key={`${note.kind}-${index}`}>{note.kind === "acoustic"
+                    ? t("notes.observedAcoustic", { number: note.wordIndex ?? 0 })
+                    : note.kind === "recurring"
+                      ? t("notes.observedRecurring", { number: note.wordIndex })
+                      : note.kind === "extra-words"
+                        ? t("notes.observedExtra", { count: note.count })
+                        : t(note.status === "missing" ? "notes.observedMissing" : "notes.observedReview", { number: note.wordIndex })}{note.kind === "acoustic" && <em> {note.guidance}</em>}</li>)}</ul>
+                  <small><AlertCircle size={13} /> {t("notes.observedBoundary")}</small>
+                </div>}
 
                 {feedback && <div className="notes-block">
                   <div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div>

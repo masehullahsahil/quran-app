@@ -231,11 +231,22 @@ export const strings = {
   // would use — never the tracker's internal state names. See
   // client/src/lib/teacherAction.ts for which one is chosen when.
   "now.label": "What to do now",
+  "now.stepsLabel": "How to practise this",
+  "step.showWord": "Look at the word",
+  "step.listen": "Listen",
+  "step.repeatWord": "Repeat the word",
+  "step.reciteAyah": "Recite the ayah",
+  "step.recordAgain": "Record again",
   "now.place": "Ayah {ayah} of {total}",
   "now.listening": "Listening…",
   "now.reviewing": "Checking what you recited…",
   "now.recordAgain": "That recording could not be checked",
   "now.repeatWord": "Repeat word {number}",
+  // A word the learner has missed before, and a word a confidence-gated
+  // acoustic observation named. Both still say what to do, not how it sounded.
+  "now.repeatWordAgain": "This word again — word {number}",
+  "now.repeatWordSound": "Listen closely to word {number}, then repeat it",
+  "now.unclear": "That was not clear enough to check",
   "now.repeatAyah": "Repeat ayah {number}",
   "now.continueFromWord": "Continue from word {number}",
   "now.nextAyah": "Ayah complete — move to ayah {number}",
@@ -248,6 +259,13 @@ export const strings = {
 
   // -- Study: teacher notes (secondary detail) ------------------------------
   "notes.summary": "Teacher notes",
+  "notes.observedLabel": "What this attempt showed",
+  "notes.observedMissing": "Word {number} was not heard.",
+  "notes.observedReview": "Word {number} came through differently.",
+  "notes.observedRecurring": "Word {number} has needed work before.",
+  "notes.observedExtra": "{count} extra word(s) were heard.",
+  "notes.observedAcoustic": "A sound observation was made about word {number}.",
+  "notes.observedBoundary": "These are observations, not a judgement of your recitation. What to do about them is the one instruction above.",
   "notes.hint": "Your score, your history with this ayah, and the practice plan.",
   "notes.placeLabel": "Where you are",
   "notes.whyLabel": "Why",
