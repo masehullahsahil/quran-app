@@ -132,10 +132,9 @@ export function quranWord(arabic: string, gloss: string, reference: string): Qai
 }
 
 /**
- * Builds the choice list from a correct answer and its distractors, keeping the
- * correct option's position stable so the data — and therefore the tests — are
- * deterministic. Ordering is the caller's business: pass the options in the
- * order they should appear.
+ * Builds the choice list. Lesson data is written correct-answer-first because
+ * that is how it reads, so the answer must be moved before it reaches a learner
+ * — see `placeChoices`, which every lesson's items are passed through.
  */
 export function choices(options: Array<{ label?: string; arabic?: string; correct?: boolean }>): QaidaChoice[] {
   return options.map((option, index) => ({
@@ -144,6 +143,33 @@ export function choices(options: Array<{ label?: string; arabic?: string; correc
     ...(option.arabic === undefined ? {} : { arabic: option.arabic }),
     correct: option.correct === true,
   }));
+}
+
+/** A small stable hash, so answer placement is fixed per item and repeatable. */
+function hashExerciseId(id: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < id.length; index += 1) {
+    hash ^= id.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return Math.abs(hash);
+}
+
+/**
+ * Moves the correct answer off the first position.
+ *
+ * Lesson data lists the right answer first, which would let a learner finish the
+ * whole course by always tapping the top option — passing every lesson without
+ * reading a single letter. Rotating by a hash of the exercise id fixes that
+ * while keeping the data deterministic: the same item always presents its
+ * options in the same order, so tests and screenshots do not drift.
+ */
+export function placeChoices(exerciseId: string, options: QaidaChoice[]): QaidaChoice[] {
+  if (options.length < 2) return options;
+  const offset = hashExerciseId(exerciseId) % options.length;
+  const rotated = [...options.slice(offset), ...options.slice(0, offset)];
+  // Re-number after rotating so the ids read in the order they are shown.
+  return rotated.map((choice, index) => ({ ...choice, id: `option-${index + 1}` }));
 }
 
 /** The correct choice of a choice exercise, or null for a read exercise. */

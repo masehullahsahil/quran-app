@@ -25,6 +25,7 @@
 import {
   choices,
   isChoiceExercise,
+  placeChoices,
   quranWord,
   teaching,
   type QaidaArabicText,
@@ -37,11 +38,21 @@ export const QAIDA_LEVEL_IDS = [
   "forms",
   "harakat",
   "tanween",
+  // Long vowels come before sukoon and shaddah, as a Qaida teaches them: a madd
+  // letter is the short vowel just learned, held longer, while sukoon closes a
+  // syllable and shaddah is a sakin letter joined to a vowelled one — so
+  // shaddah depends on sukoon, and both are harder than madd. Long vowels also
+  // appear in almost every Quranic word, so the learner needs them to read
+  // anything real.
+  "madd",
   "sukoon",
   "shaddah",
-  "madd",
-  "hamzah",
+  // The definite article comes before hamzah: hamzat al-wasl is explained
+  // through ال, which the learner should already be reading by then, and the
+  // small alif belongs with the other orthographic forms rather than in front
+  // of them.
   "lam",
+  "hamzah",
   "tajweed-patterns",
   "mushaf-symbols",
   "quran-reading",
@@ -63,11 +74,11 @@ export const QAIDA_LEVELS: QaidaLevel[] = [
   { id: "forms", order: 2, title: "Letter forms and joining", arabicTitle: "الاتصال", objective: "Read a letter in its isolated, beginning, middle and ending forms, and know which letters never join forward." },
   { id: "harakat", order: 3, title: "Short vowels", arabicTitle: "الحركات", objective: "Read fatha, kasra and damma on a single letter, then across two-letter combinations." },
   { id: "tanween", order: 4, title: "Tanween", arabicTitle: "التنوين", objective: "Read the doubled endings — fathatayn, kasratayn and dammatayn." },
-  { id: "sukoon", order: 5, title: "Sukoon", arabicTitle: "السكون", objective: "Read a vowelled letter joined into a letter carrying sukoon." },
-  { id: "shaddah", order: 6, title: "Shaddah", arabicTitle: "الشدة", objective: "Read a doubled consonant, and a shaddah carrying fatha, kasra or damma." },
-  { id: "madd", order: 7, title: "Long vowels", arabicTitle: "المد", objective: "Tell a short vowel from its long partner: alif, waw and ya madd." },
-  { id: "hamzah", order: 8, title: "Hamzah and orthographic forms", arabicTitle: "الهمزة", objective: "Read hamzah on its seats, alif maqsura, ta marbuta, and the small alif of the mushaf." },
-  { id: "lam", order: 9, title: "The definite article", arabicTitle: "أل التعريف", objective: "Read ال before sun letters and moon letters as the mushaf writes it." },
+  { id: "madd", order: 5, title: "Long vowels", arabicTitle: "المد", objective: "Hold a vowel longer when its own letter follows it: alif, waw and ya." },
+  { id: "sukoon", order: 6, title: "Sukoon", arabicTitle: "السكون", objective: "Read a vowelled letter joined into a letter carrying sukoon." },
+  { id: "shaddah", order: 7, title: "Shaddah", arabicTitle: "الشدة", objective: "Read a doubled letter, and a shaddah carrying fatha, kasra or damma." },
+  { id: "lam", order: 8, title: "The definite article", arabicTitle: "أل التعريف", objective: "Read ال before sun letters and moon letters as the mushaf writes it." },
+  { id: "hamzah", order: 9, title: "Hamzah and written forms", arabicTitle: "الهمزة", objective: "Read hamzah on its seats, the joining alif, ى and ة, and the small alif of the mushaf." },
   { id: "tajweed-patterns", order: 10, title: "Introductory tajweed patterns", arabicTitle: "التجويد", objective: "Recognise qalqalah letters, noon and meem sakinah cases, and ghunnah on the page." },
   { id: "mushaf-symbols", order: 11, title: "Mushaf symbols", arabicTitle: "علامات المصحف", objective: "Read the stop marks and small signs printed in the mushaf." },
   { id: "quran-reading", order: 12, title: "Guided Quran reading", arabicTitle: "القراءة", objective: "Read Quranic words, phrases and short ayat, then carry them into recorded practice." },
@@ -295,34 +306,110 @@ const letterLessons: LessonSeed[] = LETTER_GROUPS.map((group, index) => ({
   prerequisites: index === 0 ? [] : [`letters-${LETTER_GROUPS[index - 1].id}`],
 }));
 
-/** Pairs that are told apart by their dots alone — the classic Qaida review. */
-const SIMILAR_PAIRS: Array<[CurriculumLetter, CurriculumLetter]> = [
-  [{ slug: "ba", glyph: "ب", name: "Baa" }, { slug: "ta", glyph: "ت", name: "Taa" }],
-  [{ slug: "jeem", glyph: "ج", name: "Jeem" }, { slug: "kha", glyph: "خ", name: "Khaa" }],
-  [{ slug: "dal", glyph: "د", name: "Daal" }, { slug: "dhal", glyph: "ذ", name: "Dhaal" }],
-  [{ slug: "seen", glyph: "س", name: "Seen" }, { slug: "sheen", glyph: "ش", name: "Sheen" }],
-  [{ slug: "sad", glyph: "ص", name: "Saad" }, { slug: "dad", glyph: "ض", name: "Daad" }],
-  [{ slug: "ayn", glyph: "ع", name: "Ayn" }, { slug: "ghayn", glyph: "غ", name: "Ghayn" }],
+/**
+ * The letters a beginner actually confuses, split into two sittings.
+ *
+ * The first group is told apart by dots alone; the second adds the pairs whose
+ * bodies differ slightly as well, plus the two that sound close enough to be
+ * worth contrasting on the page (ه/ح and ك/ق). Every group named in a standard
+ * Qaida's revision page is covered, and a test checks that.
+ *
+ * Each item asks for one named letter among its look-alikes, so the learner has
+ * to read the shape rather than eliminate an obviously different one.
+ */
+type SimilarGroup = { id: string; letters: CurriculumLetter[]; ask: number };
+
+const SIMILAR_DOTS: SimilarGroup[] = [
+  { id: "ba-ta-tha", ask: 2, letters: [
+    { slug: "ba", glyph: "ب", name: "Baa" },
+    { slug: "ta", glyph: "ت", name: "Taa" },
+    { slug: "tha", glyph: "ث", name: "Thaa" },
+  ] },
+  { id: "jeem-hha-kha", ask: 1, letters: [
+    { slug: "jeem", glyph: "ج", name: "Jeem" },
+    { slug: "hha", glyph: "ح", name: "Haa" },
+    { slug: "kha", glyph: "خ", name: "Khaa" },
+  ] },
+  { id: "dal-dhal", ask: 1, letters: [
+    { slug: "dal", glyph: "د", name: "Daal" },
+    { slug: "dhal", glyph: "ذ", name: "Dhaal" },
+  ] },
+  { id: "ra-zay", ask: 1, letters: [
+    { slug: "ra", glyph: "ر", name: "Raa" },
+    { slug: "zay", glyph: "ز", name: "Zaay" },
+  ] },
+  { id: "seen-sheen", ask: 0, letters: [
+    { slug: "seen", glyph: "س", name: "Seen" },
+    { slug: "sheen", glyph: "ش", name: "Sheen" },
+  ] },
 ];
+
+const SIMILAR_SHAPES: SimilarGroup[] = [
+  { id: "sad-dad", ask: 1, letters: [
+    { slug: "sad", glyph: "ص", name: "Saad" },
+    { slug: "dad", glyph: "ض", name: "Daad" },
+  ] },
+  { id: "tta-zza", ask: 1, letters: [
+    { slug: "tta", glyph: "ط", name: "Taa" },
+    { slug: "zza", glyph: "ظ", name: "Zaa" },
+  ] },
+  { id: "ayn-ghayn", ask: 0, letters: [
+    { slug: "ayn", glyph: "ع", name: "Ayn" },
+    { slug: "ghayn", glyph: "غ", name: "Ghayn" },
+  ] },
+  { id: "fa-qaf", ask: 1, letters: [
+    { slug: "fa", glyph: "ف", name: "Faa" },
+    { slug: "qaf", glyph: "ق", name: "Qaaf" },
+  ] },
+  { id: "ha-hha", ask: 0, letters: [
+    { slug: "ha", glyph: "ه", name: "Haa (soft)" },
+    { slug: "hha", glyph: "ح", name: "Haa (deep)" },
+  ] },
+  { id: "kaf-qaf", ask: 0, letters: [
+    { slug: "kaf", glyph: "ك", name: "Kaaf" },
+    { slug: "qaf", glyph: "ق", name: "Qaaf" },
+  ] },
+];
+
+function similarGroupExercise(group: SimilarGroup): QaidaExercise {
+  const target = group.letters[group.ask];
+  return {
+    id: `similar-${group.id}`,
+    type: "distinguish-similar" as QaidaExerciseType,
+    prompt: `Which of these is ${target.name}?`,
+    choices: choices(
+      group.letters.map((letter) => ({
+        arabic: letter.glyph,
+        label: letter.name,
+        correct: letter.slug === target.slug,
+      })),
+    ),
+  };
+}
 
 const similarLettersLesson: LessonSeed = {
   id: "letters-similar",
   level: "letters",
-  title: "Letters that look alike",
-  objective: "Tell apart the letters that share a shape and differ only in their dots.",
-  teaching: "Most Arabic letters share a body with one or two others. The dots are the whole difference: read the shape first, then count the dots and see whether they sit above or below.",
-  examples: SIMILAR_PAIRS.map(([left, right]) => teaching(`${left.glyph} ${right.glyph}`, `${left.name} and ${right.name}`)),
+  title: "Letters told apart by their dots",
+  objective: "Tell apart the letters that share one body and differ only in their dots.",
+  teaching: "Most Arabic letters share a body with one or two others. The dots are the whole difference: read the body first, then count the dots and notice whether they sit above or below the line.",
+  examples: SIMILAR_DOTS.map((group) => teaching(group.letters.map((letter) => letter.glyph).join(" "), group.letters.map((letter) => letter.name).join(", "))),
   stages: ["learn", "recognize", "check", "complete"],
-  practice: SIMILAR_PAIRS.map(([left, right]) => ({
-    id: `similar-${left.slug}-${right.slug}`,
-    type: "distinguish-similar" as QaidaExerciseType,
-    prompt: `Which of these is ${left.name}?`,
-    choices: choices([
-      { arabic: left.glyph, label: left.name, correct: true },
-      { arabic: right.glyph, label: right.name },
-    ]),
-  })),
+  practice: SIMILAR_DOTS.map(similarGroupExercise),
   prerequisites: [`letters-${LETTER_GROUPS[LETTER_GROUPS.length - 1].id}`],
+};
+
+const similarShapesLesson: LessonSeed = {
+  id: "letters-similar-shapes",
+  level: "letters",
+  title: "More letters that are easily mixed up",
+  objective: "Tell apart the heavy and light partners, and the pairs a beginner most often reads for one another.",
+  teaching: "These pairs differ by a dot, a loop or a stroke. Two of them — ه and ح, ك and ق — are worth looking at side by side because beginners often read one for the other. Look at the shape on the page; how each one is said is something to hear from your teacher and from the reciter.",
+  examples: SIMILAR_SHAPES.map((group) => teaching(group.letters.map((letter) => letter.glyph).join(" "), group.letters.map((letter) => letter.name).join(" and "))),
+  stages: ["learn", "recognize", "check", "complete"],
+  practice: SIMILAR_SHAPES.map(similarGroupExercise),
+  prerequisites: ["letters-similar"],
+  boundary: "This is telling shapes apart on the page. Which part of the mouth each letter is made from — its makhraj — has to be heard from a qualified teacher; a written exercise cannot show it and the app does not judge it.",
 };
 
 // ---------------------------------------------------------------------------
@@ -358,7 +445,7 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "ـم", correct: true }, { arabic: "مـ" }, { arabic: "ـمـ" }]),
       },
     ],
-    prerequisites: ["letters-similar"],
+    prerequisites: ["letters-similar-shapes"],
   },
   {
     id: "forms-non-connectors",
@@ -499,8 +586,8 @@ const laterLessons: LessonSeed[] = [
     level: "harakat",
     title: "Two-letter combinations",
     objective: "Read two vowelled letters together, then a short Quranic word made only of short vowels.",
-    teaching: "Read each letter with its own vowel, then join them without a pause: بَتَ reads ba-ta. Once the pair is comfortable, the same reading carries a short Quranic word.",
-    examples: [teaching("بَتَ", "ba-ta"), teaching("نِمَ", "ni-ma"), quranWord("لَكَ", "laka — 'for you'", "108:1")],
+    teaching: "Read each letter with its own vowel, then join them without a pause: بَتَ reads ba-ta. Once the pair is comfortable the same reading carries a real word — هُوَ, from Surah al-Ikhlas, is two letters with two short vowels and nothing else.",
+    examples: [teaching("بَتَ", "ba-ta"), teaching("نِمَ", "ni-ma"), quranWord("هُوَ", "huwa — 'He'; two letters, two short vowels", "112:1")],
     stages: ["learn", "read", "check", "complete"],
     practice: [
       {
@@ -533,14 +620,14 @@ const laterLessons: LessonSeed[] = [
     title: "The three tanween",
     objective: "Recognise fathatayn, kasratayn and dammatayn.",
     teaching: "Tanween is a doubled vowel mark at the end of a word. Fathatayn ً reads 'an', kasratayn ٍ reads 'in', dammatayn ٌ reads 'un'. Fathatayn usually sits on an alif written at the end.",
-    examples: [teaching("بً", "ban"), teaching("بٍ", "bin"), teaching("بٌ", "bun")],
+    examples: [teaching("بًا", "ban — fathatayn, written on the alif"), teaching("بٍ", "bin"), teaching("بٌ", "bun")],
     stages: ["learn", "recognize", "check", "complete"],
     practice: [
       {
         id: "tanween-pick-un",
         type: "choose-vowelled-form",
         prompt: "Which one reads 'bun'?",
-        choices: choices([{ arabic: "بٌ", correct: true }, { arabic: "بً" }, { arabic: "بٍ" }]),
+        choices: choices([{ arabic: "بٌ", correct: true }, { arabic: "بًا" }, { arabic: "بٍ" }]),
       },
       {
         id: "tanween-name-in",
@@ -558,7 +645,7 @@ const laterLessons: LessonSeed[] = [
     title: "Reading words that end in tanween",
     objective: "Read a Quranic word ending in tanween.",
     teaching: "A word ending in tanween is read with the doubled vowel when you continue past it. Read the word through to its ending rather than stopping short of the mark.",
-    examples: [quranWord("أَحَدٌ", "ahadun — 'One', ending in dammatayn", "112:1"), teaching("كِتَابٍ", "kitabin — a teaching example of kasratayn")],
+    examples: [quranWord("أَحَدٌ", "ahadun — 'One', ending in dammatayn", "112:1"), teaching("بَتٍ", "batin — a teaching combination ending in kasratayn")],
     stages: ["learn", "read", "check", "complete"],
     practice: [
       {
@@ -576,108 +663,6 @@ const laterLessons: LessonSeed[] = [
       },
     ],
     prerequisites: ["tanween-three-marks"],
-  },
-
-  {
-    id: "sukoon-basics",
-    level: "sukoon",
-    title: "Sukoon",
-    objective: "Read a letter carrying sukoon.",
-    teaching: "Sukoon is a small circle above the letter. It means the letter has no vowel of its own: it closes the sound that came before it. بَبْ reads bab.",
-    examples: [teaching("بْ", "b with no vowel"), teaching("بَبْ", "bab"), teaching("مِنْ", "min — a teaching combination")],
-    stages: ["learn", "recognize", "read", "check", "complete"],
-    practice: [
-      {
-        id: "sukoon-name",
-        type: "identify-symbol",
-        prompt: "What does this small circle above the letter mean?",
-        subject: teaching("بْ", "b with sukoon"),
-        choices: choices([{ label: "The letter carries no vowel", correct: true }, { label: "The letter is doubled" }, { label: "The letter is lengthened" }]),
-      },
-      {
-        id: "sukoon-read-pair",
-        type: "build-combination",
-        prompt: "How does this read?",
-        subject: teaching("نَمْ", "nam"),
-        choices: choices([{ label: "nam", correct: true }, { label: "na-ma" }, { label: "nim" }]),
-      },
-    ],
-    prerequisites: ["tanween-reading"],
-  },
-  {
-    id: "sukoon-quran-words",
-    level: "sukoon",
-    title: "Sukoon in Quranic words",
-    objective: "Read short Quranic words that contain a sakin letter.",
-    teaching: "Most Quranic words join a vowelled letter into a sakin one. Read the vowelled letter, then close it on the sakin letter without adding a vowel of your own.",
-    examples: [quranWord("قُلْ", "qul — 'say'", "112:1"), quranWord("الْحَمْدُ", "al-hamdu — 'all praise'", "1:2")],
-    stages: ["learn", "read", "check", "complete"],
-    practice: [
-      {
-        id: "sukoon-read-qul",
-        type: "read-word",
-        prompt: "Read this Quranic word aloud, then continue.",
-        subject: quranWord("قُلْ", "qul — from Surah al-Ikhlas", "112:1"),
-      },
-      {
-        id: "sukoon-find-sakin",
-        type: "identify-symbol",
-        prompt: "In قُلْ, which letter carries the sukoon?",
-        subject: quranWord("قُلْ", "qul", "112:1"),
-        choices: choices([{ arabic: "ل", label: "Laam", correct: true }, { arabic: "ق", label: "Qaaf" }, { label: "Neither" }]),
-      },
-    ],
-    prerequisites: ["sukoon-basics"],
-  },
-
-  {
-    id: "shaddah-basics",
-    level: "shaddah",
-    title: "Shaddah",
-    objective: "Read a doubled consonant.",
-    teaching: "Shaddah is a small shape like a rounded w above the letter. It doubles the letter: the first is sakin, the second carries the vowel. بَبَّ is read with the Baa held.",
-    examples: [teaching("بَّ", "bba"), teaching("رَبَّ", "rabba")],
-    stages: ["learn", "recognize", "read", "check", "complete"],
-    practice: [
-      {
-        id: "shaddah-name",
-        type: "identify-symbol",
-        prompt: "What does the shaddah tell you to do?",
-        subject: teaching("بَّ", "the letter doubled"),
-        choices: choices([{ label: "Read the letter twice as one held sound", correct: true }, { label: "Skip the letter" }, { label: "Lengthen the vowel" }]),
-      },
-      {
-        id: "shaddah-with-vowel",
-        type: "choose-vowelled-form",
-        prompt: "Which shows a shaddah carrying kasra?",
-        choices: choices([{ arabic: "بِّ", correct: true }, { arabic: "بَّ" }, { arabic: "بُّ" }]),
-      },
-    ],
-    prerequisites: ["sukoon-quran-words"],
-  },
-  {
-    id: "shaddah-quran-words",
-    level: "shaddah",
-    title: "Shaddah in Quranic words",
-    objective: "Read Quranic words that carry a shaddah.",
-    teaching: "Shaddah is everywhere in the Quran, and it changes the word: read the doubled letter as one held sound rather than two separate letters.",
-    examples: [quranWord("رَبِّ", "rabbi — 'Lord of'", "1:2"), quranWord("إِيَّاكَ", "iyyaka — 'You alone'", "1:5"), quranWord("الصَّمَدُ", "as-samad", "112:2")],
-    stages: ["learn", "read", "check", "complete"],
-    practice: [
-      {
-        id: "shaddah-read-rabbi",
-        type: "read-word",
-        prompt: "Read this Quranic word aloud, then continue.",
-        subject: quranWord("رَبِّ", "rabbi — from Surah al-Fatiha", "1:2"),
-      },
-      {
-        id: "shaddah-spot",
-        type: "identify-symbol",
-        prompt: "Which of these words carries a shaddah?",
-        choices: choices([{ arabic: "إِيَّاكَ", correct: true }, { arabic: "قُلْ" }, { arabic: "أَحَدٌ" }]),
-      },
-    ],
-    prerequisites: ["shaddah-basics"],
   },
 
   {
@@ -702,8 +687,8 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "نُو", correct: true }, { arabic: "نِي" }, { arabic: "نَا" }]),
       },
     ],
-    prerequisites: ["shaddah-quran-words"],
-    boundary: "This lesson is about seeing a long vowel on the page. How long to hold it is a matter for a qualified teacher; the app does not measure it.",
+    prerequisites: ["tanween-reading"],
+    boundary: "This lesson is about noticing a long vowel on the page. How long to hold it, and how it sounds, is for a qualified teacher and the reciter\u2019s recording; the app does not measure it.",
   },
   {
     id: "madd-short-vs-long",
@@ -711,7 +696,7 @@ const laterLessons: LessonSeed[] = [
     title: "Short against long",
     objective: "Tell a short vowel from its long partner at a glance.",
     teaching: "بَ and بَا are the same letter with the same vowel; the alif is what makes it long. Reading them the same way is the most common beginner's mistake, and it is a reading mistake before it is a sound one.",
-    examples: [teaching("بَ / بَا", "ba against baa"), quranWord("الْعَالَمِينَ", "al-'alamin — carries a long alif", "1:2")],
+    examples: [teaching("بَ / بَا", "ba against baa"), quranWord("مَالِكِ", "malik — the alif holds the first vowel long", "1:4")],
     stages: ["learn", "recognize", "read", "check", "complete"],
     practice: [
       {
@@ -723,31 +708,170 @@ const laterLessons: LessonSeed[] = [
       {
         id: "madd-read-quran-word",
         type: "read-word",
-        prompt: "Read this Quranic word aloud, holding the long vowel.",
-        subject: quranWord("الْعَالَمِينَ", "al-'alamin — from Surah al-Fatiha", "1:2"),
+        prompt: "Read this word from the Quran aloud, holding the long vowel.",
+        subject: quranWord("مَالِكِ", "malik — from Surah al-Fatiha", "1:4"),
       },
     ],
     prerequisites: ["madd-long-vowels"],
-    boundary: "The app checks that you can see the difference, not that you held it for the right count.",
+    boundary: "The app checks that you can tell the two apart on the page. Whether you held the long one for the right count is for a qualified teacher; the app does not measure it.",
   },
   {
-    id: "madd-signs",
-    level: "madd",
-    title: "The madd sign",
-    objective: "Recognise the madd sign written above a long vowel in the mushaf.",
-    teaching: "The mushaf marks some long vowels with a wavy sign, ٓ, above the letter. It tells the reader this madd is longer than the basic two counts.",
-    examples: [teaching("ـٓـ", "the madd sign"), quranWord("الرَّحْمَٰنِ", "ar-rahman — written with a small alif", "1:1")],
-    stages: ["learn", "recognize", "check", "complete"],
+    id: "sukoon-basics",
+    level: "sukoon",
+    title: "Sukoon",
+    objective: "Read a letter carrying sukoon.",
+    teaching: "Sukoon is a small circle above the letter. It means the letter has no vowel of its own: it closes the sound that came before it. بَبْ reads bab.",
+    examples: [teaching("بْ", "Baa with no vowel of its own"), teaching("بَبْ", "bab"), teaching("نَمْ", "nam")],
+    stages: ["learn", "recognize", "read", "check", "complete"],
     practice: [
       {
-        id: "madd-sign-meaning",
+        id: "sukoon-name",
         type: "identify-symbol",
-        prompt: "What does the wavy madd sign above a letter tell the reader?",
-        choices: choices([{ label: "This long vowel is held longer than the basic length", correct: true }, { label: "Stop here" }, { label: "The letter is doubled" }]),
+        prompt: "What does this small circle above the letter mean?",
+        subject: teaching("بْ", "b with sukoon"),
+        choices: choices([{ label: "The letter carries no vowel", correct: true }, { label: "The letter is doubled" }, { label: "The letter is lengthened" }]),
+      },
+      {
+        id: "sukoon-read-pair",
+        type: "build-combination",
+        prompt: "How does this read?",
+        subject: teaching("نَمْ", "nam"),
+        choices: choices([{ label: "nam", correct: true }, { label: "na-ma" }, { label: "nim" }]),
       },
     ],
     prerequisites: ["madd-short-vs-long"],
-    boundary: "Recognising the sign is a reading skill. The exact count belongs to a qualified teacher, and the app does not measure duration.",
+  },
+  {
+    id: "sukoon-quran-words",
+    level: "sukoon",
+    title: "Sukoon in Quranic words",
+    objective: "Read short Quranic words that contain a sakin letter.",
+    teaching: "Most Quranic words join a vowelled letter into a sakin one. Read the vowelled letter, then close it on the sakin letter without adding a vowel of your own.",
+    examples: [quranWord("قُلْ", "qul — 'say'", "112:1"), quranWord("أَنْعَمْتَ", "an'amta — two sakin letters, one after the other", "1:7")],
+    stages: ["learn", "read", "check", "complete"],
+    practice: [
+      {
+        id: "sukoon-read-qul",
+        type: "read-word",
+        prompt: "Read this word from the Quran aloud, closing the Laam without a vowel.",
+        subject: quranWord("قُلْ", "qul — from Surah al-Ikhlas", "112:1"),
+      },
+      {
+        id: "sukoon-read-anamta",
+        type: "read-word",
+        prompt: "Read this one aloud — two sakin letters in the same word.",
+        subject: quranWord("أَنْعَمْتَ", "an'amta — from Surah al-Fatiha", "1:7"),
+      },
+      {
+        id: "sukoon-find-sakin",
+        type: "identify-symbol",
+        prompt: "In this word, which letter carries the sukoon?",
+        subject: quranWord("قُلْ", "qul", "112:1"),
+        choices: choices([{ arabic: "لْ", label: "Laam", correct: true }, { arabic: "قُ", label: "Qaaf" }, { arabic: "ق", label: "Qaaf, with no mark" }]),
+      },
+    ],
+    prerequisites: ["sukoon-basics"],
+  },
+
+  {
+    id: "shaddah-basics",
+    level: "shaddah",
+    title: "Shaddah",
+    objective: "Read a doubled consonant.",
+    teaching: "Shaddah is a small shape like a rounded w above the letter. It doubles that letter: the first of the two carries sukoon and the second carries the vowel, so the letter is held rather than said twice. This is why sukoon comes first — a shaddah is a sakin letter joined to a vowelled one.",
+    examples: [teaching("بَّ", "bba — the Baa held, then a fatha"), teaching("رَبَّ", "rabba"), teaching("مَدَّ", "madda")],
+    stages: ["learn", "recognize", "read", "check", "complete"],
+    practice: [
+      {
+        id: "shaddah-name",
+        type: "identify-symbol",
+        prompt: "What does the shaddah tell you to do?",
+        subject: teaching("بَّ", "the letter doubled"),
+        choices: choices([{ label: "Read the letter twice as one held sound", correct: true }, { label: "Skip the letter" }, { label: "Lengthen the vowel" }]),
+      },
+      {
+        id: "shaddah-with-vowel",
+        type: "choose-vowelled-form",
+        prompt: "Which shows a shaddah carrying kasra?",
+        choices: choices([{ arabic: "بِّ", correct: true }, { arabic: "بَّ" }, { arabic: "بُّ" }]),
+      },
+    ],
+    prerequisites: ["sukoon-quran-words"],
+  },
+  {
+    id: "shaddah-quran-words",
+    level: "shaddah",
+    title: "Shaddah in Quranic words",
+    objective: "Read Quranic words that carry a shaddah.",
+    teaching: "Shaddah is everywhere in the Quran, and it changes the word: read the doubled letter as one held sound rather than two separate letters.",
+    examples: [quranWord("رَبِّ", "rabbi — 'Lord of'", "1:2"), quranWord("إِيَّاكَ", "iyyaka — 'You alone'", "1:5"), quranWord("إِنَّ", "inna — a held Noon", "103:2")],
+    stages: ["learn", "read", "check", "complete"],
+    practice: [
+      {
+        id: "shaddah-read-rabbi",
+        type: "read-word",
+        prompt: "Read this Quranic word aloud, then continue.",
+        subject: quranWord("رَبِّ", "rabbi — from Surah al-Fatiha", "1:2"),
+      },
+      {
+        id: "shaddah-spot",
+        type: "identify-symbol",
+        prompt: "Which of these words carries a shaddah?",
+        choices: choices([{ arabic: "إِيَّاكَ", label: "iyyaka", correct: true }, { arabic: "قُلْ", label: "qul" }, { arabic: "أَحَدٌ", label: "ahadun" }]),
+      },
+    ],
+    prerequisites: ["shaddah-basics"],
+  },
+
+  {
+    id: "lam-sun-moon",
+    level: "lam",
+    title: "Sun letters and moon letters",
+    objective: "Read ال correctly before both kinds of letter.",
+    teaching: "Before a moon letter the Laam of ال is read and carries sukoon: الْحَمْدُ. Before a sun letter the Laam is not read; the next letter is doubled instead and carries a shaddah: الصِّرَاطَ. The mushaf shows you which: look for the sukoon on the Laam, or the shaddah on the letter after it.",
+    examples: [quranWord("الْحَمْدُ", "al-hamdu — moon letter, Laam read", "1:2"), quranWord("الصِّرَاطَ", "as-sirat — sun letter, Laam not read", "1:6"), quranWord("الرَّحِيمِ", "ar-rahim — sun letter", "1:1")],
+    stages: ["learn", "recognize", "read", "check", "complete"],
+    practice: [
+      {
+        id: "lam-moon-example",
+        type: "identify-symbol",
+        prompt: "In الْحَمْدُ, is the Laam of ال read?",
+        subject: quranWord("الْحَمْدُ", "al-hamdu", "1:2"),
+        choices: choices([{ label: "Yes — the Laam carries sukoon and is read", correct: true }, { label: "No — the Haa is doubled instead" }]),
+      },
+      {
+        id: "lam-sun-example",
+        type: "identify-symbol",
+        prompt: "In الصِّرَاطَ, why is there a shaddah on the Saad?",
+        subject: quranWord("الصِّرَاطَ", "as-sirat", "1:6"),
+        choices: choices([{ label: "Saad is a sun letter, so the Laam merges into it", correct: true }, { label: "The word is emphasised" }, { label: "The Saad is lengthened" }]),
+      },
+    ],
+    prerequisites: ["shaddah-quran-words"],
+  },
+  {
+    id: "lam-reading-practice",
+    level: "lam",
+    title: "Reading ال in place",
+    objective: "Read words with ال without stopping to work out which kind of letter follows.",
+    teaching: "With practice the shaddah and the sukoon do the work for you: you read what is printed. Read these aloud in turn and notice how the Laam behaves each time.",
+    examples: [quranWord("الرَّحِيمِ", "ar-rahim — sun letter", "1:1"), quranWord("الْعَالَمِينَ", "al-'alamin — moon letter", "1:2"), quranWord("الدِّينِ", "ad-din — sun letter", "1:4")],
+    stages: ["read", "check", "complete"],
+    practice: [
+      {
+        id: "lam-read-rahim",
+        type: "read-word",
+        prompt: "Read this aloud — a sun letter, so the Laam merges into it.",
+        subject: quranWord("الرَّحِيمِ", "ar-rahim — from Surah al-Fatiha", "1:1"),
+      },
+      {
+        id: "lam-read-alamin",
+        type: "read-word",
+        prompt: "Read this aloud — a moon letter, so the Laam is read with its sukoon.",
+        subject: quranWord("الْعَالَمِينَ", "al-'alamin — from Surah al-Fatiha", "1:2"),
+      },
+    ],
+    prerequisites: ["lam-sun-moon"],
   },
 
   {
@@ -772,15 +896,15 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Yaa", correct: true }, { label: "Waaw" }, { label: "Alif" }]),
       },
     ],
-    prerequisites: ["madd-signs"],
+    prerequisites: ["lam-reading-practice"],
   },
   {
     id: "hamzah-wasl",
     level: "hamzah",
     title: "Hamzat al-wasl",
     objective: "Recognise the alif that is read when you start on it and passed over when you continue.",
-    teaching: "The alif of ال and of some verbs is a joining alif. Start a phrase on it and you read it; continue into it from the word before and you read straight past it into the next letter.",
-    examples: [quranWord("الْحَمْدُ", "al-hamdu — begun with the joining alif", "1:2"), quranWord("اهْدِنَا", "ihdina — begun with the joining alif", "1:6")],
+    teaching: "The alif of ال, and of words like اهْدِنَا, is a joining alif. Start a phrase on it and you read it; continue into it from the word before and you read straight past it into the next letter. Many mushafs print it as ٱ, with a small ص-like sign above, to show that it is passed over.",
+    examples: [teaching("ٱ", "the joining alif as many mushafs print it"), quranWord("الْحَمْدُ", "al-hamdu — begun on the joining alif", "1:2"), quranWord("اهْدِنَا", "ihdina — begun on the joining alif", "1:6")],
     stages: ["learn", "recognize", "read", "check", "complete"],
     practice: [
       {
@@ -801,9 +925,9 @@ const laterLessons: LessonSeed[] = [
   {
     id: "hamzah-orthography",
     level: "hamzah",
-    title: "Alif maqsura, ta marbuta and the small alif",
+    title: "Three written forms to know: ى, ة and the small alif",
     objective: "Read the three written forms a beginner meets constantly in the mushaf.",
-    teaching: "Alif maqsura ى is written like a ya without dots and read as a long 'a'. Ta marbuta ة is read as 't' when you continue and as 'h' when you stop on it. The small alif is a miniature alif printed above a letter where a long 'a' is read but no alif is written.",
+    teaching: "Three shapes to know by sight. ى looks like a Yaa without its dots, and at the end of a word it is read as a long 'a' — its name is alif maqsura, the 'shortened alif'. ة is a Haa with two dots, called ta marbuta; read it as 't' when you carry on into the next word, and as 'h' when you stop on it. The small alif is a tiny alif printed above a letter: read a long 'a' there even though no full alif is written.",
     examples: [teaching("ى", "alif maqsura"), teaching("ة", "ta marbuta"), quranWord("الرَّحْمَٰنِ", "ar-rahman — the small alif above the Meem", "1:1")],
     stages: ["learn", "recognize", "check", "complete"],
     practice: [
@@ -831,57 +955,6 @@ const laterLessons: LessonSeed[] = [
   },
 
   {
-    id: "lam-sun-moon",
-    level: "lam",
-    title: "Sun letters and moon letters",
-    objective: "Read ال correctly before both kinds of letter.",
-    teaching: "Before a moon letter the Laam of ال is read and carries sukoon: الْحَمْدُ. Before a sun letter the Laam is not read; the next letter is doubled instead and carries a shaddah: الصِّرَاطَ. The mushaf shows you which: look for the sukoon on the Laam, or the shaddah on the letter after it.",
-    examples: [quranWord("الْحَمْدُ", "al-hamdu — moon letter, Laam read", "1:2"), quranWord("الصِّرَاطَ", "as-sirat — sun letter, Laam not read", "1:6"), quranWord("الرَّحِيمِ", "ar-rahim — sun letter", "1:1")],
-    stages: ["learn", "recognize", "read", "check", "complete"],
-    practice: [
-      {
-        id: "lam-moon-example",
-        type: "identify-symbol",
-        prompt: "In الْحَمْدُ, is the Laam of ال read?",
-        subject: quranWord("الْحَمْدُ", "al-hamdu", "1:2"),
-        choices: choices([{ label: "Yes — the Laam carries sukoon and is read", correct: true }, { label: "No — the Haa is doubled instead" }]),
-      },
-      {
-        id: "lam-sun-example",
-        type: "identify-symbol",
-        prompt: "In الصِّرَاطَ, why is there a shaddah on the Saad?",
-        subject: quranWord("الصِّرَاطَ", "as-sirat", "1:6"),
-        choices: choices([{ label: "Saad is a sun letter, so the Laam merges into it", correct: true }, { label: "The word is emphasised" }, { label: "The Saad is lengthened" }]),
-      },
-    ],
-    prerequisites: ["hamzah-orthography"],
-  },
-  {
-    id: "lam-reading-practice",
-    level: "lam",
-    title: "Reading ال in place",
-    objective: "Read words with ال without stopping to work out which kind of letter follows.",
-    teaching: "With practice the shaddah and the sukoon do the work for you: you read what is printed. Read these aloud in turn and notice how the Laam behaves each time.",
-    examples: [quranWord("الرَّحْمَٰنِ", "ar-rahman", "1:1"), quranWord("الْعَالَمِينَ", "al-'alamin", "1:2"), quranWord("الدِّينِ", "ad-din", "1:4")],
-    stages: ["read", "check", "complete"],
-    practice: [
-      {
-        id: "lam-read-rahman",
-        type: "read-word",
-        prompt: "Read this aloud — a sun letter, so the Laam merges.",
-        subject: quranWord("الرَّحْمَٰنِ", "ar-rahman — from Surah al-Fatiha", "1:1"),
-      },
-      {
-        id: "lam-read-alamin",
-        type: "read-word",
-        prompt: "Read this aloud — a moon letter, so the Laam is read.",
-        subject: quranWord("الْعَالَمِينَ", "al-'alamin — from Surah al-Fatiha", "1:2"),
-      },
-    ],
-    prerequisites: ["lam-sun-moon"],
-  },
-
-  {
     id: "tajweed-qalqalah",
     level: "tajweed-patterns",
     title: "Qalqalah letters",
@@ -897,35 +970,49 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "ط", label: "Taa", correct: true }, { arabic: "س", label: "Seen" }, { arabic: "ف", label: "Faa" }]),
       },
       {
-        id: "qalqalah-count",
+        id: "qalqalah-in-word",
         type: "identify-symbol",
-        prompt: "How many qalqalah letters are there?",
-        choices: choices([{ label: "Five", correct: true }, { label: "Three" }, { label: "Seven" }]),
+        prompt: "Which of these words ends in a qalqalah letter, so it echoes when you stop on it?",
+        choices: choices([
+          { arabic: "الْفَلَقِ", label: "al-falaq", correct: true },
+          { arabic: "الرَّحِيمِ", label: "ar-rahim" },
+          { arabic: "نَسْتَعِينُ", label: "nasta'in" },
+        ]),
+        note: "Listen to the reciter's recording for how the echo sounds. This exercise only asks you to spot the letter.",
       },
     ],
-    prerequisites: ["lam-reading-practice"],
+    prerequisites: ["hamzah-orthography"],
     boundary: "Recognising a qalqalah letter is a reading skill. Whether your qalqalah was produced correctly is for a qualified teacher; the app does not judge it from a transcript.",
   },
   {
     id: "tajweed-noon-sakinah",
     level: "tajweed-patterns",
     title: "Noon sakinah and tanween",
-    objective: "Name the four cases of noon sakinah and tanween by the letter that follows.",
-    teaching: "A sakin Noon, and tanween, behave in one of four ways depending on the letter after them: izhar (clear), idgham (merged), iqlab (turned into a Meem sound), ikhfa (hidden). At this level you are learning to recognise which case a printed word falls into.",
+    objective: "Recognise a Noon carrying sukoon, and tanween, and know that the letter after them decides which of four ways they are read.",
+    teaching: "A Noon carrying sukoon, and tanween, are read in one of four ways depending on the letter that follows: izhar (said clearly), idgham (merged into the next letter), iqlab (turned towards a Meem), ikhfa (hidden between the two). At this level you are learning to spot the Noon and the tanween on the page and to know that four possibilities exist — which one applies, and how each is said, you learn with a teacher and by listening to the reciter.",
     examples: [teaching("نْ", "noon with sukoon"), teaching("ـً ـٍ ـٌ", "the three tanween")],
     stages: ["learn", "recognize", "check", "complete"],
     practice: [
       {
-        id: "noon-cases-count",
+        id: "noon-sakinah-spot",
         type: "identify-symbol",
-        prompt: "How many cases does a sakin Noon have?",
-        choices: choices([{ label: "Four", correct: true }, { label: "Two" }, { label: "Six" }]),
+        prompt: "Which of these carries a Noon with sukoon?",
+        choices: choices([
+          { arabic: "أَنْعَمْتَ", label: "an'amta", correct: true },
+          { arabic: "نَعْبُدُ", label: "na'budu" },
+          { arabic: "أَحَدٌ", label: "ahadun" },
+        ]),
       },
       {
-        id: "noon-iqlab",
+        id: "noon-tanween-same-rule",
         type: "identify-symbol",
-        prompt: "Which case turns the Noon sound towards a Meem?",
-        choices: choices([{ label: "Iqlab", correct: true }, { label: "Izhar" }, { label: "Ikhfa" }]),
+        prompt: "Tanween follows the same four cases as a sakin Noon. Which of these carries tanween?",
+        choices: choices([
+          { arabic: "أَحَدٌ", label: "ahadun", correct: true },
+          { arabic: "قُلْ", label: "qul" },
+          { arabic: "رَبِّ", label: "rabbi" },
+        ]),
+        note: "Which of the four cases applies, and how each one sounds, is learned with a teacher and by listening to the reciter.",
       },
     ],
     prerequisites: ["tajweed-qalqalah"],
@@ -935,7 +1022,7 @@ const laterLessons: LessonSeed[] = [
     id: "tajweed-meem-ghunnah",
     level: "tajweed-patterns",
     title: "Meem sakinah and ghunnah",
-    objective: "Recognise a sakin Meem and the nasal sound carried by a doubled Noon or Meem.",
+    objective: "Recognise a Meem carrying sukoon, and the mark that tells you a Noon or Meem is held with ghunnah.",
     teaching: "A sakin Meem has three cases of its own, and any Noon or Meem carrying a shaddah is read with ghunnah — a nasal hum. On the page, look for the shaddah.",
     examples: [teaching("مْ", "meem with sukoon"), quranWord("إِنَّ", "inna — a doubled Noon, read with ghunnah", "103:2")],
     stages: ["learn", "recognize", "check", "complete"],
@@ -947,21 +1034,25 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "إِنَّ", label: "Doubled Noon", correct: true }, { arabic: "قُلْ", label: "Sakin Laam" }, { arabic: "بَا", label: "Long alif" }]),
       },
       {
-        id: "ghunnah-source",
+        id: "ghunnah-mark",
         type: "identify-symbol",
-        prompt: "Where in the body does ghunnah resonate?",
-        choices: choices([{ label: "The nose", correct: true }, { label: "The throat" }, { label: "The lips" }]),
+        prompt: "Which mark on a Noon or a Meem tells you the reader holds a ghunnah there?",
+        choices: choices([
+          { arabic: "نَّ", label: "Shaddah", correct: true },
+          { arabic: "نْ", label: "Sukoon" },
+          { arabic: "نٌ", label: "Dammatayn" },
+        ]),
       },
     ],
     prerequisites: ["tajweed-noon-sakinah"],
-    boundary: "This is recognition on the page. Ghunnah duration is not something the app measures.",
+    boundary: "This is recognition on the page. How long a ghunnah is held, and how it should sound, comes from a qualified teacher and from listening to the reciter; the app does not measure it.",
   },
 
   {
     id: "symbols-stop-marks",
     level: "mushaf-symbols",
     title: "Stop marks",
-    objective: "Read the small letters printed above the line that tell you where to stop.",
+    objective: "Recognise the small letters printed above the line that tell you where you may stop.",
     teaching: "The mushaf marks stopping places with small letters: م a required stop, لا do not stop here, ج stopping is allowed, قلى stopping is better, صلى continuing is better. They are a reading aid, put there so the meaning is not broken.",
     examples: [teaching("م", "required stop"), teaching("لا", "do not stop"), teaching("ج", "stop permitted"), teaching("قلى", "stopping preferred"), teaching("صلى", "continuing preferred")],
     stages: ["learn", "recognize", "check", "complete"],
@@ -989,13 +1080,14 @@ const laterLessons: LessonSeed[] = [
       },
     ],
     prerequisites: ["tajweed-meem-ghunnah"],
+    boundary: "These marks tell you where a stop is allowed or preferred. Where to stop for meaning, and how to begin again afterwards, is guided by a qualified teacher; the app does not check where you stopped.",
   },
   {
     id: "symbols-small-marks",
     level: "mushaf-symbols",
     title: "Small marks in the text",
-    objective: "Read the small signs printed inside the words themselves.",
-    teaching: "Besides the stop marks, the mushaf prints small signs inside the line: the small alif for an unwritten long 'a', the madd sign for a lengthened vowel, and the ayah number in its own medallion at the end of each ayah.",
+    objective: "Recognise the small signs printed inside the words themselves.",
+    teaching: "Besides the stop marks, the mushaf prints small signs inside the line itself: the small alif you met earlier, for a long 'a' where no alif is written; the wavy madd sign ٓ, which says this long vowel is held longer than usual; and the ayah number in its own medallion at the end of each ayah.",
     examples: [quranWord("الرَّحْمَٰنِ", "the small alif above the Meem", "1:1"), teaching("ـٓـ", "the madd sign")],
     stages: ["learn", "recognize", "check", "complete"],
     practice: [
@@ -1006,13 +1098,20 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "The ayah number", correct: true }, { label: "A required stop" }, { label: "A madd sign" }]),
       },
       {
-        id: "symbols-small-alif-again",
+        id: "symbols-madd-sign",
         type: "identify-symbol",
-        prompt: "A small alif is printed above a letter. What do you read?",
-        choices: choices([{ label: "A long 'a', as though an alif were written", correct: true }, { label: "Nothing — it is decorative" }, { label: "A short 'a'" }]),
+        prompt: "What does the wavy madd sign above a letter tell the reader?",
+        subject: teaching("ـٓـ", "the madd sign"),
+        choices: choices([
+          { label: "Hold this long vowel longer than the usual length", correct: true },
+          { label: "Stop here" },
+          { label: "Read the letter twice" },
+        ]),
+        note: "How much longer is settled by the way you were taught to recite, with a qualified teacher. The sign only tells you that it is longer.",
       },
     ],
     prerequisites: ["symbols-stop-marks"],
+    boundary: "Recognising a sign is a reading skill. How long a madd is held is settled with a qualified teacher; the app does not measure it.",
   },
 
   {
@@ -1020,7 +1119,7 @@ const laterLessons: LessonSeed[] = [
     level: "quran-reading",
     title: "Quranic words",
     objective: "Read single Quranic words that use everything learned so far.",
-    teaching: "Every rule you have met appears in these four words: a joining alif, a sun letter, a shaddah, a long vowel, a sakin letter. Read each one slowly, then again at a steady pace.",
+    teaching: "Almost everything you have met appears in these four words: a sakin letter, a long vowel, a shaddah, a sun letter and a moon letter, and the small alif. Read each one slowly, then again at a steady pace.",
     examples: [quranWord("بِسْمِ", "bismi", "1:1"), quranWord("اللَّهِ", "Allahi", "1:1"), quranWord("الرَّحْمَٰنِ", "ar-rahman", "1:1"), quranWord("الرَّحِيمِ", "ar-rahim", "1:1")],
     stages: ["learn", "read", "check", "complete"],
     practice: [
@@ -1040,6 +1139,30 @@ const laterLessons: LessonSeed[] = [
     prerequisites: ["symbols-small-marks"],
   },
   {
+    id: "quran-phrases",
+    level: "quran-reading",
+    title: "Two words together",
+    objective: "Read two Quranic words joined into a phrase without stopping between them.",
+    teaching: "Single words are the hard part; joining them is the next step. Read each pair straight through, without a pause in the middle, then listen to the reciter read the same phrase and follow along.",
+    examples: [quranWord("بِسْمِ اللَّهِ", "bismillah — the first two words of the Quran", "1:1"), quranWord("الْحَمْدُ لِلَّهِ", "al-hamdu lillah", "1:2")],
+    stages: ["learn", "listen", "read", "check", "complete"],
+    practice: [
+      {
+        id: "quran-read-phrase-bismillah",
+        type: "read-word",
+        prompt: "Read these two words as one phrase.",
+        subject: quranWord("بِسْمِ اللَّهِ", "bismillah — from Surah al-Fatiha", "1:1"),
+      },
+      {
+        id: "quran-read-phrase-hamd",
+        type: "read-word",
+        prompt: "Read this phrase — a sun letter, then a held Laam.",
+        subject: quranWord("الْحَمْدُ لِلَّهِ", "al-hamdu lillah — from Surah al-Fatiha", "1:2"),
+      },
+    ],
+    prerequisites: ["quran-words"],
+  },
+  {
     id: "quran-first-ayah",
     level: "quran-reading",
     title: "Your first ayah",
@@ -1055,34 +1178,34 @@ const laterLessons: LessonSeed[] = [
         quran: { surah: 1, ayah: 1, label: "Al-Fatiha 1:1" },
       },
     ],
-    prerequisites: ["quran-words"],
+    prerequisites: ["quran-phrases"],
   },
   {
     id: "quran-short-ayat",
     level: "quran-reading",
     title: "Short ayat",
     objective: "Read several short ayat in sequence.",
-    teaching: "Read these one after another. Each is short enough to hold in one breath, and each uses the letters, vowels and signs you now know.",
+    teaching: "Read these one after another, shortest first. Each is short enough to hold in one breath, and each uses only the letters, vowels and signs you now know.",
     examples: [],
     stages: ["listen", "read", "complete"],
     practice: [
       {
-        id: "quran-open-fatiha-2",
+        id: "quran-open-asr-1",
         type: "read-quran",
-        prompt: "Read this ayah aloud.",
-        quran: { surah: 1, ayah: 2, label: "Al-Fatiha 1:2" },
+        prompt: "Start with the shortest — one word. Listen, then read it aloud.",
+        quran: { surah: 103, ayah: 1, label: "Al-'Asr 103:1" },
       },
       {
         id: "quran-open-ikhlas-1",
         type: "read-quran",
-        prompt: "Read this ayah aloud.",
+        prompt: "Now four words, all of them familiar by this point.",
         quran: { surah: 112, ayah: 1, label: "Al-Ikhlas 112:1" },
       },
       {
-        id: "quran-open-asr-1",
+        id: "quran-open-fatiha-2",
         type: "read-quran",
-        prompt: "Read this ayah aloud.",
-        quran: { surah: 103, ayah: 1, label: "Al-'Asr 103:1" },
+        prompt: "And the ayah your phrases came from.",
+        quran: { surah: 1, ayah: 2, label: "Al-Fatiha 1:2" },
       },
     ],
     prerequisites: ["quran-first-ayah"],
@@ -1090,23 +1213,29 @@ const laterLessons: LessonSeed[] = [
   {
     id: "quran-short-surah",
     level: "quran-reading",
-    title: "A short surah, recorded",
-    objective: "Read a short surah from beginning to end and record it for word-recall review.",
-    teaching: "The last step of the Qaida is the first step of your recitation practice. Open the surah in Study mode, listen to the reciter, then record yourself. The review tells you which words were recognised and where to pick up again — it is a reading check, not a judgement of tajwid.",
+    title: "A whole surah, recorded",
+    objective: "Finish a complete short surah, recording each ayah for word-recall review.",
+    teaching: "The last step of the Qaida is the first step of your recitation practice. You read the opening ayah of al-Ikhlas in the last lesson; these three complete it. Open each one in Study mode, listen to the reciter, then record yourself. The review tells you which words were recognised and where to pick up again — a reading check, not a judgement of how it sounded.",
     examples: [],
     stages: ["listen", "read", "repeat", "complete"],
     practice: [
       {
-        id: "quran-open-ikhlas-full",
+        id: "quran-open-ikhlas-2",
         type: "read-quran",
-        prompt: "Open Surah al-Ikhlas and record your recitation of its first ayah.",
-        quran: { surah: 112, ayah: 1, label: "Al-Ikhlas 112:1" },
+        prompt: "You have read the first ayah of al-Ikhlas. Carry on: listen, then record the second.",
+        quran: { surah: 112, ayah: 2, label: "Al-Ikhlas 112:2" },
       },
       {
-        id: "quran-open-kawthar",
+        id: "quran-open-ikhlas-3",
         type: "read-quran",
-        prompt: "Open Surah al-Kawthar and record its first ayah.",
-        quran: { surah: 108, ayah: 1, label: "Al-Kawthar 108:1" },
+        prompt: "The third ayah.",
+        quran: { surah: 112, ayah: 3, label: "Al-Ikhlas 112:3" },
+      },
+      {
+        id: "quran-open-ikhlas-4",
+        type: "read-quran",
+        prompt: "And the fourth, which completes the surah.",
+        quran: { surah: 112, ayah: 4, label: "Al-Ikhlas 112:4" },
       },
     ],
     prerequisites: ["quran-short-ayat"],
@@ -1114,7 +1243,7 @@ const laterLessons: LessonSeed[] = [
   },
 ];
 
-const LESSON_SEEDS: LessonSeed[] = [...letterLessons, similarLettersLesson, ...laterLessons];
+const LESSON_SEEDS: LessonSeed[] = [...letterLessons, similarLettersLesson, similarShapesLesson, ...laterLessons];
 
 /**
  * Every lesson, in course order. `next` is filled in from that order so a lesson
@@ -1123,6 +1252,10 @@ const LESSON_SEEDS: LessonSeed[] = [...letterLessons, similarLettersLesson, ...l
 export const QAIDA_LESSONS: QaidaLesson[] = LESSON_SEEDS.map((seed, index) => ({
   ...seed,
   examples: seed.examples ?? [],
+  // Lesson data is written answer-first for readability. Placing the answer here
+  // — once, for every item — is what stops the course being passable by tapping
+  // the top option forty-two times.
+  practice: seed.practice.map((item) => (item.choices ? { ...item, choices: placeChoices(item.id, item.choices) } : item)),
   mastery: {
     correctRequired: seed.mastery?.correctRequired ?? seed.practice.length,
     itemsRequired: seed.mastery?.itemsRequired ?? seed.practice.length,
