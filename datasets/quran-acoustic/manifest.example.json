@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "recordings": [
     {
       "fixtureId": "fatiha-noisy",
@@ -11,6 +11,11 @@
       "mimeType": "audio/webm",
       "knownErrorLabel": "uncertain",
       "teacherReviewedLabel": "uncertain",
+      "targetGrapheme": null,
+      "observedTeacherLabel": "uncertain",
+      "confusionPairId": null,
+      "teacherConfidence": 0.95,
+      "adjudication": "agreed",
       "recordingQuality": "noisy",
       "consentSourceNotes": "Example metadata only; no recording is distributed."
     }
