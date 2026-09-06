@@ -44,6 +44,40 @@ export const LEARNING_COACH_PLANS: Record<LearningLevel, LearningCoachPlan> = {
   },
 };
 
+/**
+ * The same plan, as locale keys.
+ *
+ * The plan above is one structure, and the server still echoes its English text
+ * in the review response. What a learner *reads* is rendered from these keys, so
+ * the coaching panel speaks the interface language while the plan itself — which
+ * level, which loop, which boundary — stays declared once, here. A key added
+ * here without a translation shows up in the locale coverage report rather than
+ * silently rendering English.
+ */
+export const LEARNING_PLAN_TEXT_KEYS: Record<
+  LearningLevel,
+  { title: string; focus: string; lessonGoal: string; boundary: string; practiceLoop: readonly string[] }
+> = {
+  qaida: {
+    title: "plan.qaida.title",
+    focus: "plan.qaida.focus",
+    lessonGoal: "plan.qaida.lessonGoal",
+    boundary: "plan.qaida.boundary",
+    practiceLoop: ["plan.qaida.loopListen", "plan.qaida.loopIdentify", "plan.qaida.loopJoin", "plan.qaida.loopRepeat", "plan.qaida.loopReview"],
+  },
+  tajweed: {
+    title: "plan.tajweed.title",
+    focus: "plan.tajweed.focus",
+    lessonGoal: "plan.tajweed.lessonGoal",
+    boundary: "plan.tajweed.boundary",
+    practiceLoop: ["plan.tajweed.loopRecall", "plan.tajweed.loopRecord", "plan.tajweed.loopLocate", "plan.tajweed.loopTeacher"],
+  },
+};
+
+export function learningPlanTextKeys(level: LearningLevel) {
+  return LEARNING_PLAN_TEXT_KEYS[level];
+}
+
 export function getLearningCoachPlan(level: LearningLevel): LearningCoachPlan {
   return LEARNING_COACH_PLANS[level];
 }

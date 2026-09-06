@@ -7,10 +7,10 @@ The app is built to teach in five languages. This document is the contract for h
 | Code | Language | Direction | Status | Native review |
 |---|---|---|---|---|
 | `en` | English | LTR | reference — everything originates here | n/a |
-| `ps` | پښتو (Pashto) | RTL | ai-drafted | **pending** |
-| `fa-AF` | دری (Dari) | RTL | ai-drafted | **pending** |
-| `ur` | اردو (Urdu) | RTL | ai-drafted | **pending** |
-| `ar` | العربية (Arabic) | RTL | ai-drafted | **pending** |
+| `ps` | پښتو (Pashto) | RTL | ai-drafted, complete | **pending** |
+| `fa-AF` | دری (Dari) | RTL | ai-drafted, complete | **pending** |
+| `ur` | اردو (Urdu) | RTL | ai-drafted, complete | **pending** |
+| `ar` | العربية (Arabic) | RTL | ai-drafted, complete | **pending** |
 
 ### Coverage today
 
@@ -19,20 +19,22 @@ Measured by `shared/localizationCoverage.ts` and printed by the coverage tests:
 | Language | Overall | Critical UI | Supporting UI | Lesson text | Exercise text | Articulation |
 |---|---|---|---|---|---|---|
 | English | 100% | 100% | 100% | 100% | 100% | 100% |
-| Pashto | 48% | 100% | 28% | 47% | 54% | 100% |
-| Dari | 48% | 100% | 28% | 47% | 54% | 100% |
-| Urdu | 48% | 100% | 28% | 47% | 54% | 100% |
-| Arabic | 48% | 100% | 28% | 47% | 54% | 100% |
+| Pashto | 100% | 100% | 100% | 100% | 100% | 100% |
+| Dari | 100% | 100% | 100% | 100% | 100% | 100% |
+| Urdu | 100% | 100% | 100% | 100% | 100% | 100% |
+| Arabic | 100% | 100% | 100% | 100% | 100% | 100% |
 
-**What is translated:** every teacher instruction and control; the correction panel; the recorder's states; Study's secondary notes, memorization and review labels, and the verse-following explanations; all 28 letter articulation notes and their practice cues; the Qaida lessons of Levels 1–4 (21 lessons — letters, joining, harakat, tanween); and the exercise prompts that repeat across the course.
+**What is translated:** everything a learner reads. Every teacher instruction and control; the correction panel; the recorder's states; the reader, playback, memorise and side-panel chrome; the Study notes, memorization and review labels, and the verse-following explanations; all 28 letter articulation notes and their practice cues; the coaching plans; and the whole Qaida course — all 12 levels, every lesson's title, objective, teaching text and boundary note, and every exercise prompt and note.
 
-**What still falls back to English:** Qaida Levels 5–12 (madd, sukoon, shaddah, the definite article, hamzah, tajweed patterns, mushaf symbols, guided Quran reading), the coaching plans in `shared/learningPath.ts`, the reader and course chrome not on the critical list, and the lower-frequency exercise prompts that appear once each.
+**What is deliberately not translated:** the Arabic of the Quran and the curriculum's Arabic examples (content, never pack text); the unit symbol `MB`; and the established Arabic terminology a qaida teaches — *sukoon*, *shaddah*, *tanween*, *qalqalah*, *ghunnah*, *tajwid*, *makhraj* — which each pack keeps in Arabic script and explains in its own words where the lesson introduces it. A test enumerates every Latin-script term left in each pack and fails on anything outside that list, so retained terms are reported rather than counted as coverage.
 
-A test holds a floor under each surface so coverage cannot silently regress, and prints the breakdown plus what remains on every run.
+**What is still English outside the packs:** `ErrorBoundary` (renders above the provider), the template screens that are not part of the learner's app, and the review response's `note` / `nextStep` sentences composed in `server/routers.ts`. See Known gaps.
+
+The floor under every surface is now 100%: a key added to the reference pack without a translation in all four packs fails the coverage test, which also prints the breakdown, what remains, and the retained-term list on every run.
 
 `shared/languages.ts` is the single source of truth for this table. The registry, the picker, the document direction and the tests all read it from there, so they cannot disagree about what exists.
 
-> The four non-English packs were **drafted by a language model and read by the team**. They have **not been read by a speaker of any of these languages**. Two fields record this and neither may be changed without an actual review: `nativeReviewed: false`, and `translationStatus: "ai-drafted"`. The picker labels an interface-only pack as such. Treat these as drafts, in the same way the Qaida curriculum is pending a qualified teacher — and note that nothing translated here is a religious ruling.
+> The four non-English packs were **drafted by a language model and read by the team**. They have **not been read by a speaker of any of these languages**. Two fields record this and neither may be changed without an actual review: `nativeReviewed: false`, and `translationStatus: "ai-drafted"`. The picker labels each of these packs as an AI draft that no speaker of the language has read — `languageNoteKey` in `shared/languages.ts` chooses that note, so a pack that is complete but unreviewed cannot present itself as finished. Treat these as drafts, in the same way the Qaida curriculum is pending a qualified teacher — and note that nothing translated here is a religious ruling.
 
 ### Translation-status policy
 
@@ -128,7 +130,7 @@ qaida: {
 
 `localizedLesson` and `localizedExercise` in `shared/qaidaText.ts` fall back field by field. A lesson added to the curriculum appears in every language immediately, in English until someone translates its four strings, and no translation can change what a lesson teaches, which answer is correct, or which Arabic is shown. The Arabic examples and their glosses are deliberately not translatable: the Arabic is content, and a drifting gloss would be a second source of truth.
 
-All four non-English packs now carry a `qaida` map covering Levels 1–4. Levels 5–12 fall back to English, field by field, so a learner sees a translated title beside an English explanation only where a pack has translated one and not the other — never a blank.
+All four non-English packs carry a `qaida` map covering all 12 levels — every lesson field and every exercise prompt and note. The per-field fallback stays in place for a lesson added later: it appears in English until its strings are written, and never as a blank.
 
 Repeated prompts are handled by `promptsFromPhrasebook`: Level 1 generates fifty exercises from three prompts, so a pack translates each distinct English prompt once and the helper expands it across the ids the curriculum actually has. A lesson added later that reuses a known prompt is translated the moment it appears.
 
@@ -157,5 +159,5 @@ The choice persists in `localStorage` under `miqra-locale`. For a signed-in lear
 - **`ErrorBoundary` is English-only.** It renders above `LocaleProvider`, so it has no pack to read; localizing it would mean a second, provider-free translation path for one crash screen.
 - **`DashboardLayout` and `ComponentShowcase`** carry untranslated template strings. They are scaffolding from the project template and are not part of the learner's app.
 - **The coach model replies in the interface language.** `recitation.evaluate` takes a `uiLanguage` and the coach prompt asks for that language. This is wording only: the teaching action, the word to return to, and whether the learner may advance are all decided deterministically before the model is called, and its text appears in Teacher notes, never as the instruction. An unknown code falls back to English.
-- **Qaida Levels 5–12 and the coaching plans are still English** in every non-English pack. See the coverage table above for the exact split.
+- **The review response's composed sentences are English.** `server/routers.ts` builds the `note` and `nextStep` text of a review from the plan's English strings. The instruction a learner acts on, the coaching panel and every label around it are translated; this one secondary line is not, and localizing it means moving the composition into the client where the pack lives.
 - **No pack has been read by a speaker of its language.** This is the single most important gap, and no amount of coverage percentage substitutes for it.
