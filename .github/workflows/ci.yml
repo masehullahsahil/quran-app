@@ -50,6 +50,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Smoke test production shell
+        run: pnpm smoke:production
+
       - name: Verify production readiness
         run: pnpm verify:production-readiness
 
