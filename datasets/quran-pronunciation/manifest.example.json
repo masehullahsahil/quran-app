@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "note": "Synthetic example. No audio exists behind this record and no consent record with this id exists.",
+  "samples": [
+    {
+      "sampleId": "sample-example-0001",
+      "speakerAnonymizedId": "speaker-0001",
+      "sessionId": "session-0001",
+      "recordingFamilyId": "family-0001",
+      "surah": 112,
+      "ayah": 1,
+      "expectedText": "قُلْ هُوَ اللَّهُ أَحَدٌ",
+      "audioRef": {
+        "storageKey": "s3://private-bucket/never-in-this-repo/sample-example-0001.webm",
+        "mimeType": "audio/webm",
+        "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "device": {
+        "deviceClass": "phone",
+        "deviceFamily": "android-midrange",
+        "microphone": "built-in",
+        "sampleRateHz": 16000,
+        "channels": 1,
+        "codec": "opus",
+        "durationMs": 4200,
+        "environment": "quiet-room"
+      },
+      "consent": {
+        "consentRecordId": "consent-0001",
+        "obtainedAt": "2026-01-01",
+        "permittedUses": ["teacher-review", "training"],
+        "retainUntil": "2027-01-01",
+        "withdrawalRoute": "Email the address in the consent form; audio and labels are deleted within 30 days."
+      },
+      "research": {
+        "firstLanguage": {
+          "value": "Pashto",
+          "justification": "Study question: does letter-substitution error rate differ by first language?",
+          "consentScope": "research"
+        }
+      },
+      "quality": "clean",
+      "usability": { "training": true, "evaluation": false },
+      "capturedAt": "2026-01-02T10:00:00.000Z"
+    }
+  ]
+}

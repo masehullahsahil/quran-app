@@ -655,3 +655,78 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .audit-page { max-width: none; padding: 0; }
   .audit-lesson { page-break-inside: avoid; border-color: #bbb; }
 }
+
+/* ---------------------------------------------------------------------------
+   The pronunciation labeling prototype (/pronunciation-labeling).
+
+   A reviewer's tool, like the curriculum audit: dense, plain, and built around
+   the Arabic. Word and letter targets are large enough to hit on a tablet,
+   because that is what a teacher is likely to be holding.
+--------------------------------------------------------------------------- */
+.label-page { max-width: 1100px; margin: 0 auto; padding: 28px 20px 80px; color: #1f332b; font-size: 15px; }
+.label-page h1 { margin: 4px 0 10px; font-size: 27px; }
+.label-page h2 { margin: 0 0 6px; font-size: 19px; }
+.label-page h3 { margin: 0 0 8px; font-size: 16px; }
+.label-eyebrow { margin: 0; color: #5d7a6d; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.label-header { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: flex-start; padding-bottom: 18px; border-bottom: 1px solid #dfe7e1; }
+.label-statement { display: flex; gap: 7px; align-items: flex-start; margin: 0 0 8px; padding: 10px 12px; background: #fdf3e3; border: 1px solid #e8d5ad; border-radius: 10px; font-weight: 600; }
+.label-note { max-width: 76ch; margin: 0 0 6px; color: #4e6a5d; font-size: 13px; line-height: 1.55; }
+.label-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.label-page button { display: inline-flex; gap: 6px; align-items: center; min-height: 38px; padding: 8px 14px; color: #1f332b; background: #fff; border: 1px solid #cfdcd4; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.label-page button:hover { background: #f2f7f4; }
+.label-reviewer { margin: 22px 0; padding: 16px; background: #f6faf7; border: 1px solid #dfe7e1; border-radius: 12px; }
+.label-reviewer-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.label-reviewer-fields label, .label-field, .label-form-row label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; }
+.label-page input[type="text"], .label-page input:not([type]), .label-page select, .label-page textarea { min-height: 38px; padding: 8px 10px; color: #1f332b; background: #fff; border: 1px solid #cfdcd4; border-radius: 8px; font: inherit; font-size: 14px; font-weight: 400; }
+.label-page textarea { min-height: 56px; line-height: 1.5; resize: vertical; }
+.label-sample-rail { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 18px; }
+.label-sample-rail button { display: grid; gap: 2px; min-width: 168px; min-height: 62px; text-align: left; font-size: 12px; }
+.label-sample-rail button.is-current { color: #fdfaf3; background: #1f332b; border-color: #1f332b; }
+.label-sample { padding: 18px; background: #fff; border: 1px solid #dfe7e1; border-radius: 14px; }
+.label-sample-head { display: flex; flex-wrap: wrap; gap: 18px; justify-content: space-between; align-items: flex-start; }
+.label-expected { margin: 8px 0; font-size: clamp(28px, 5vw, 42px); line-height: 2; text-align: right; }
+.label-meta { display: grid; gap: 6px; min-width: 240px; margin: 0; font-size: 12px; }
+.label-meta div { display: flex; gap: 8px; justify-content: space-between; }
+.label-meta dt { color: #5d7a6d; font-weight: 700; }
+.label-meta dd { margin: 0; text-align: right; }
+.label-audio { margin: 14px 0; padding: 12px; background: #f4f8f5; border: 1px solid #dfe7e1; border-radius: 10px; }
+.label-audio p { margin: 0 0 8px; font-size: 13px; color: #4e6a5d; }
+.label-audio audio { display: block; width: 100%; margin-top: 10px; }
+.label-timeline ol { display: grid; gap: 6px; margin: 0 0 14px; padding: 0; list-style: none; }
+.label-timeline li { display: flex; gap: 10px; align-items: baseline; justify-content: space-between; padding: 6px 10px; background: #f6faf7; border-radius: 8px; }
+.label-timeline span { font-size: 20px; }
+.label-timeline small, .label-selection { color: #5d7a6d; font-size: 12px; }
+.label-prediction { margin-bottom: 14px; padding: 12px; background: #eef2f7; border: 1px solid #cfd9e4; border-radius: 10px; font-size: 13px; }
+.label-prediction p { margin: 0; }
+.label-words { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; }
+.label-word { display: grid; gap: 6px; }
+.label-word > button { display: grid; gap: 2px; min-height: 62px; padding: 10px 14px; }
+.label-word > button span { font-size: 26px; line-height: 1.7; }
+.label-word.is-selected > button { color: #fdfaf3; background: #1f332b; border-color: #1f332b; }
+.label-letters { display: flex; flex-wrap: wrap; gap: 4px; }
+.label-letters button { min-width: 44px; min-height: 44px; padding: 4px 6px; display: grid; gap: 0; justify-items: center; }
+.label-letters button.is-selected { color: #fdfaf3; background: #3c5349; border-color: #3c5349; }
+.label-observation-form, .label-submit-form, .label-adjudication, .label-severity { margin-top: 16px; padding: 14px; background: #f6faf7; border: 1px solid #dfe7e1; border-radius: 12px; }
+.label-form-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 10px; }
+.label-checkbox { display: flex; gap: 8px; align-items: center; font-size: 12px; font-weight: 600; }
+.label-definition { margin: 0 0 6px; font-size: 13px; }
+.label-open-question { margin: 0 0 8px; padding: 8px 10px; background: #fdf3e3; border: 1px solid #e8d5ad; border-radius: 8px; font-size: 12px; }
+.label-form-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.label-pending { display: grid; gap: 6px; margin: 12px 0; padding: 0; list-style: none; font-size: 13px; }
+.label-pending li { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 10px; background: #fff; border: 1px solid #dfe7e1; border-radius: 8px; }
+.label-error { margin: 0 0 10px; padding: 8px 10px; color: #8a2f2f; background: #fbe9e9; border-radius: 8px; font-size: 13px; }
+.label-reviews article { margin-bottom: 10px; padding: 10px 12px; background: #f4f8f5; border: 1px solid #dfe7e1; border-radius: 10px; font-size: 13px; }
+.label-reviews article p { margin: 0 0 4px; }
+.label-adjudication table { width: 100%; margin-bottom: 12px; border-collapse: collapse; font-size: 13px; }
+.label-adjudication th, .label-adjudication td { padding: 6px 8px; text-align: left; border-bottom: 1px solid #dfe7e1; }
+.label-severity dl { display: grid; gap: 6px; margin: 0; font-size: 13px; }
+.label-severity dt { font-weight: 700; }
+.label-severity dd { margin: 0 0 6px; color: #4e6a5d; }
+
+@media (max-width: 720px) {
+  .label-page { padding: 18px 14px 60px; }
+  .label-page h1 { font-size: 22px; }
+  .label-actions button { flex: 1 1 auto; justify-content: center; }
+  .label-meta div { justify-content: flex-start; }
+  .label-meta dd { text-align: left; }
+}

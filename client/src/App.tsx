@@ -7,6 +7,7 @@ import { LocaleProvider } from "./contexts/LocaleContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import CurriculumAudit from "./pages/CurriculumAudit";
+import PronunciationLabeling from "./pages/PronunciationLabeling";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -16,6 +17,9 @@ function Router() {
       {/* The qualified-teacher review workspace for the Qaida curriculum.
           Reviewer tooling, not part of the learner's app. */}
       <Route path={"/curriculum-audit"} component={CurriculumAudit} />
+      {/* Teacher labeling prototype for the future pronunciation dataset.
+          Synthetic fixtures only — it collects and stores no audio. */}
+      <Route path={"/pronunciation-labeling"} component={PronunciationLabeling} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

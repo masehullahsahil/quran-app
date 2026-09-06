@@ -348,6 +348,14 @@ Nothing in this repository can approve that content: a passing test suite says t
 
 ---
 
+## Pronunciation dataset specification
+
+Pronunciation and tajwid evaluation is not something this app does today: the acoustic evaluator abstains by default and has never been measured against qualified-teacher labels. [docs/pronunciation-dataset-spec.md](./docs/pronunciation-dataset-spec.md) specifies the dataset that would be needed before it could be — a 21-category label taxonomy marked as a proposal, a recording schema with privacy-safe reciter ids and consent references, five separated ground-truth layers where machine output can never become a teacher label, a two-reviewer workflow with adjudication, speaker-level train/validation/test/benchmark separation with leakage detection, and nine benchmark metrics whose targets are all placeholders.
+
+**No learner audio exists in this repository and none may be added.** Collection must not begin until consent, retention, deletion and access controls exist. A teacher labeling prototype runs at `/pronunciation-labeling` against synthetic fixtures.
+
+---
+
 ## Instruction languages
 
 The language a learner is *taught in* is separate from the Quran itself. Each
