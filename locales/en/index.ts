@@ -37,6 +37,7 @@ export const strings = {
 
   // -- Language picker -----------------------------------------------------
   "language.partial": "interface only",
+  "language.aiDrafted": "AI draft, not reviewed by a speaker",
   "language.label": "Instruction language",
   "language.hint": "Arabic text and recitation stay the same in every language.",
 
@@ -358,6 +359,27 @@ export const strings = {
   "coach.practiceLoopLabel": "Practice loop",
   "coach.reviewPlanLabel": "Coaching plan used for this review",
   "coach.reviewPlanEyebrow": "AI practice coach",
+
+  // -- AI coaching plans, by learning level --------------------------------
+  // The plan itself — level, loop, boundary — is declared once in
+  // shared/learningPath.ts. These are the words a learner reads for it.
+  "plan.qaida.title": "Qaida",
+  "plan.qaida.focus": "Letters, articulation points, short vowels, and joining forms",
+  "plan.qaida.lessonGoal": "Build letter recognition and a deliberate listen–repeat habit, then join letters into words.",
+  "plan.qaida.boundary": "Single-letter articulation and makhraj must be confirmed by a qualified teacher.",
+  "plan.qaida.loopListen": "Listen",
+  "plan.qaida.loopIdentify": "Identify",
+  "plan.qaida.loopJoin": "Join",
+  "plan.qaida.loopRepeat": "Repeat",
+  "plan.qaida.loopReview": "Review",
+  "plan.tajweed.title": "Tajweed",
+  "plan.tajweed.focus": "Recitation rules — elongation, nasalization, and stopping — with teacher-guided refinement",
+  "plan.tajweed.lessonGoal": "Recite with deliberate repetition and identify where to return for focused supervised practice.",
+  "plan.tajweed.boundary": "Only a qualified teacher should confirm tajwid, makhraj, madd, waqf, melody, or religious correctness.",
+  "plan.tajweed.loopRecall": "Recall",
+  "plan.tajweed.loopRecord": "Record",
+  "plan.tajweed.loopLocate": "Locate return",
+  "plan.tajweed.loopTeacher": "Repeat with a teacher",
 
   // -- Study: feedback -----------------------------------------------------
   "feedback.available": "Words recognised",

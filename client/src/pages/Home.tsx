@@ -33,7 +33,7 @@ import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
 import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
 import { QaidaCourse } from "@/components/QaidaCourse";
 import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
-import { SUPPORTED_LANGUAGES, type SupportedLanguageCode } from "@shared/languages";
+import { SUPPORTED_LANGUAGES, languageNoteKey, type SupportedLanguageCode } from "@shared/languages";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { ACTIVE_LETTER_AUDIO_SOURCE } from "@/lib/letterAudioSources";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
@@ -42,7 +42,7 @@ import { SurahPicker } from "@/components/SurahPicker";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
 import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
-import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
+import { learningPlanTextKeys, type LearningLevel } from "@shared/learningPath";
 import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import { synchronizeLearnerPersistence } from "@/lib/learnerPersistence";
@@ -403,7 +403,18 @@ export default function Home() {
   }, [juzs, surahNumber, selectedVerse]);
   const expectedWords = useMemo(() => (activeVerse?.arabic ?? "").split(/\s+/).filter(Boolean), [activeVerse]);
   const activeLevel = useMemo(() => learningLevels.find((level) => level.id === learningLevel) ?? learningLevels[0], [learningLevel]);
-  const activeCoachPlan = useMemo(() => getLearningCoachPlan(learningLevel), [learningLevel]);
+  // The plan's own words come from the learner's pack, keyed by level, so the
+  // coaching panel is never a pocket of English inside a translated screen.
+  const coachPlanKeys = useMemo(() => {
+    const keys = learningPlanTextKeys(learningLevel);
+    return {
+      title: keys.title as StringKey,
+      focus: keys.focus as StringKey,
+      lessonGoal: keys.lessonGoal as StringKey,
+      boundary: keys.boundary as StringKey,
+      practiceLoop: keys.practiceLoop as readonly StringKey[],
+    };
+  }, [learningLevel]);
   const activeLetter = alphabet[selectedLetter] ?? alphabet[0];
   const soloAudioSrc = letterAudioPath(activeLetter.slug);
   /**
@@ -1021,9 +1032,11 @@ export default function Home() {
               <Globe size={15} aria-hidden="true" />
               <span className="sr-only">{t("language.label")}</span>
               <select value={locale} onChange={(event) => setLocale(event.target.value)}>
-                {/* The pack's own name, with an honest note where the
-                    interface is translated but the long lesson text is not. */}
-                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}{SUPPORTED_LANGUAGES[option.code as SupportedLanguageCode]?.coverage === "interface" ? ` — ${t("language.partial")}` : ""}</option>)}
+                {/* The pack's own name, with an honest note about what it is:
+                    "interface only" while long-form lesson text still falls
+                    back to English, and "AI-drafted" once every string is
+                    carried but no speaker of the language has read them. */}
+                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}{languageNoteKey(option.code as SupportedLanguageCode) ? ` — ${t(languageNoteKey(option.code as SupportedLanguageCode)!)}` : ""}</option>)}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
@@ -1206,10 +1219,14 @@ export default function Home() {
                 </div>}
 
                 <div className="notes-block coach-context" aria-label={t("coach.contextLabel")}>
-                  <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{(feedback?.learningPlan ?? activeCoachPlan).title}</strong></div>
-                  <p>{feedback ? feedback.learningPlan.focus : activeCoachPlan.lessonGoal}</p>
-                  <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{(feedback?.learningPlan.practiceLoop ?? activeCoachPlan.practiceLoop).map((step) => <span key={step}>{step}</span>)}</div>
-                  <small><AlertCircle size={13} /> {(feedback?.learningPlan ?? activeCoachPlan).boundary}</small>
+                  {/* The plan is chosen by level, not by wording: the review
+                      response echoes the plan's English text, but what the
+                      learner reads comes from their own pack, keyed by that
+                      level. */}
+                  <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{t(coachPlanKeys.title)}</strong></div>
+                  <p>{t(feedback ? coachPlanKeys.focus : coachPlanKeys.lessonGoal)}</p>
+                  <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{coachPlanKeys.practiceLoop.map((step) => <span key={step}>{t(step)}</span>)}</div>
+                  <small><AlertCircle size={13} /> {t(coachPlanKeys.boundary)}</small>
                 </div>
 
                 <div className="loop-steps" aria-label={t("study.stageLabel", { stage: lessonStage })}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> {t("study.stageListen")}</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> {t("study.stageRepeat")}</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> {t("study.stageReview")}</span></div>

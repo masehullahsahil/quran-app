@@ -1,9 +1,16 @@
 /**
- * Pashto — interface pack.
+ * Pashto — complete pack.
  *
- * The interface, the teacher's instructions and the study controls are in
- * Pashto. Long-form teaching text still falls back to English, per key, and the
- * picker says so.
+ * Everything a learner reads is in Pashto: the interface, the teacher's
+ * instructions, the study controls, all 28 articulation notes, and the whole
+ * Qaida course prose — every lesson and every exercise prompt. Nothing falls
+ * back to English, and a coverage test fails the day something does.
+ *
+ * The wording is Afghan Pashto rather than a Persianised or word-for-word
+ * rendering of the English: instructions are phrased the way a teacher would
+ * say them. Established Arabic terms (سکون، شده، تنوین، قلقله، غنه، تجوید،
+ * مخرج) are kept, with a short Pashto explanation beside them where the lesson
+ * introduces one, because translating them would blur what they mean.
  *
  * The Quran itself is untouched by this file: its Arabic text, the ayah
  * recitations and the letter recordings are shared by every language.
@@ -103,6 +110,7 @@ export const strings: TranslatableStrings = {
   "nav.practiceCopy": "واورئ، تکرار کړئ، بیرته راشئ.",
   "nav.minutesShort": "دقیقې",
   "language.partial": "یوازې مخ",
+  "language.aiDrafted": "د مصنوعي ځیرکتیا مسوده، د ژبې خبرې کوونکي نه ده لوستلې",
   "language.hint": "عربي متن او تلاوت په هره ژبه کې یو شان پاتې کیږي.",
   "mode.label": "د لوستلو ډول",
   "mode.readCaption": "مخ تعقیب کړئ",
@@ -179,6 +187,231 @@ export const strings: TranslatableStrings = {
   "recorder.listenOnce": "یو ځل بشپړ واورئ. کله چې چمتو شئ، ستاسو وار دی.",
   "recorder.audioFailed": "غږ پیل نه شو. د خپل وسیلې غږ وګورئ، بیا هڅه وکړئ.",
   "recorder.retry": "لومړی یو ځل بیا واورئ، بیا آیت په خپل غږ ولولئ.",
+
+  // -- Shell, reader and playback -------------------------------------------
+  "app.tagline": "د لوستلو پلان",
+  "nav.primaryLabel": "اصلي مینو",
+  "reader.eyebrow": "قرآن",
+  "reader.surahLabel": "سورت",
+  "reader.juzLabel": "پاره",
+  "reader.juzNumbered": "{number} پاره",
+  "reader.reciterLabel": "قاري",
+  "reader.translationLabel": "ژباړه",
+  "reader.loadingTranslations": "ژباړې راځي…",
+  "reader.surahSearch": "سورتونه ولټوئ…",
+  "reader.surahNoMatch": "هیڅ سورت ورسره سمون نه خوري.",
+  "reader.translationUnavailable": "د ژباړو لړ لیک ترلاسه نه شو. اصلي انګلیسي ژباړه ښودل کیږي.",
+  "reader.searchLabel": "په قرآن کې لټون",
+  "reader.settingsLabel": "د لوستلو تنظیمات",
+  "reader.loadingSurahs": "سورتونه راځي…",
+  "reader.loadingJuz": "پارې راځي…",
+  "reader.loadingReciters": "قاریان راځي…",
+  "reader.noReciters": "د هیڅ قاري غږ شتون نه لري",
+  "reader.reciterUnavailable": "{reciter} (غږ یې نشته)",
+  "reader.makki": "مکي",
+  "reader.madani": "مدني",
+  "reader.ayahCount": "{count} آیتونه",
+  "reader.versesLabel": "د {surah} سورت آیتونه",
+  "reader.footerHint": "پر یوه آیت ټک ووهئ، بیا تمرین ته لاړ شئ چې واورئ او تکرار یې کړئ.",
+  "reader.showMeaning": "مانا ښکاره کړئ",
+  "reader.hideMeaning": "مانا پټه کړئ",
+  "reader.previousAyah": "پخوانی آیت",
+  "reader.nextAyah": "راتلونکی آیت",
+  "reader.chapterCopy": "آیت ولولئ، له قاري یې واورئ، پخپله یې تکرار کړئ، بیا په ارامۍ هغه ځای ته راستون شئ چې تمرین ته اړتیا لري.",
+  "reader.loading": "راځي…",
+  "playback.label": "د آیت غږ",
+  "playback.noAudio": "دې قاري د دې آیت ثبت نه لري. بل قاري وټاکئ.",
+  "playback.audioFailed": "د {reciter} غږ شتون نه لري. دا ثبت و نه غږېد — بل قاري وټاکئ.",
+  "content.loading": "د قرآن متن او تلاوت راځي…",
+  "content.retry": "بیا هڅه وکړئ",
+
+  // -- Learn: levels and the qaida overview ---------------------------------
+  "learn.heading": "ستاسو د قرآن د زده کړې لاره",
+  "learn.eyebrow": "په خپله کچه زده کړه وکړئ",
+  "learn.copy": "له الفبا او د نښلولو له شکلونو پیل وکړئ، بیا له وړ استاد سره د تلاوت قواعدو ته ورشئ.",
+  "learn.paceEyebrow": "خپله چټکتیا وټاکئ",
+  "learn.paceHeading": "له لومړیو حروفو څخه تر پام سره تلاوته.",
+  "learn.levelsLabel": "د زده کړې کچې",
+  "learn.percentComplete": "{percent}% بشپړ",
+  "learn.level.qaida": "قاعده",
+  "learn.level.qaidaSummary": "عربي حروف، مخرجونه، لنډ حرکتونه او د نښلولو شکلونه.",
+  "learn.level.qaidaCue": "حروف او نښلول",
+  "learn.level.tajweed": "تجوید",
+  "learn.level.tajweedSummary": "د تلاوت قواعد — مد، غنه او وقف — په پام سره تمرین کیږي.",
+  "learn.level.tajweedCue": "د تلاوت قواعد",
+  "qaida.eyebrow": "قاعده · لومړی درس",
+  "qaida.heading": "له کلمو مخکې حروف.",
+  "qaida.copy": "یو یو حرف زده کړئ، غږ یې واورئ، بیا یې له استاد سره تمرین کړئ.",
+  "qaida.practisedCount": "تمرین شوي · {percent}%",
+  "qaida.alphabetLabel": "عربي الفبا",
+  "qaida.writtenAs": "لیکل کیږي {transliteration} · {sound}",
+  "qaida.playLetter": "حرف",
+  "qaida.playLetterLabel": "{letter} یوازې وغږوئ",
+  "qaida.playHarakatLabel": "{letter} له {harakat} سره وغږوئ",
+  "qaida.markPractised": "د تمرین شوي په توګه ونښه کړئ",
+  "qaida.practised": "تمرین شوی",
+  "qaida.nextLetter": "راتلونکی حرف",
+  "qaida.audioIdle": "حرف یوازې یا له حرکت سره وټاکئ چې د قاري غږ واورئ.",
+  "qaida.audioPlaying": "د قاري ثبت غږیږي.",
+  "qaida.audioUnavailable": "دا ثبت لا نه دی زیات شوی. د تلاوت غږ د یوه وړ قاري له خوا ثبتیږي — اپلیکیشن به عربي په جوړ شوي انګلیسي غږ ونه لولي.",
+  "qaida.audioAttribution": "د حروفو غږ د {source} له لارې جوړ شوی، تر هغې چې د قاري ثبتونه یې ځای ونیسي.",
+  "qaida.audioIdlePlaceholder": "حرف یوازې یا له حرکت سره وټاکئ چې واورئ یې. دا غږ جوړ شوی دی، د قاري نه دی.",
+  "qaida.audioPlayingPlaceholder": "یو جوړ شوی غږ غږیږي، د قاري ثبت نه دی.",
+  "qaida.audioUnavailablePlaceholder": "دا ټوټه لا نه ده جوړه شوې. اپلیکیشن به یې پر ځای عربي په جوړ شوي انګلیسي غږ ونه لولي — انګلیسي ځینې دا غږونه بېخي نه شي ادا کولی.",
+  "qaida.audioFormUnavailable": "دا ټولګه یوازې حروف په خپله کې لري. حرکت لرونکي شکلونه د قاري له ټولګې سره راځي — اپلیکیشن به بل غږ د دوی پر ځای ونه کاروي.",
+  "qaida.quickCheck": "چټکه کتنه",
+  "qaida.quickCheckPrompt": "دا کوم حرف دی؟",
+  "qaida.quickCheckCorrect": "سم دی. کله چې مو له استاد سره ووایه، بیا کولای شئ دا حرف تمرین شوی ونښه کړئ.",
+  "qaida.quickCheckRetry": "لا نه. د حرف شکل ته وګورئ، حرف بیا وغږوئ، او یو ځل بیا هڅه وکړئ.",
+  "qaida.boundary": "یوازینیو حروفو ته پخپله نمره نه ورکول کیږي. مصنوعي ځیرکتیا کولای شي ستاسو تمرین منظم کړي، خو ادا او مخرج باید وړ استاد تایید کړي.",
+  "harakat.fatha": "فتحه (زور)",
+  "harakat.fathaHint": "لنډ اَ",
+  "harakat.kasra": "کسره (زېر)",
+  "harakat.kasraHint": "لنډ اِ",
+  "harakat.damma": "ضمه (پېښ)",
+  "harakat.dammaHint": "لنډ اُ",
+  "qaida.openFirstAyah": "د لومړي آیت تمرین پرانیزئ",
+  "tajweed.eyebrow": "د تجوید لاره",
+  "tajweed.heading": "د تلاوت قواعد، هر ځل یو له پامه ډک تکرار.",
+  "tajweed.copy": "له وړ قاري واورئ، تکرار یې کړئ، هغه کلمې وګورئ چې ستاسو ثبت ونیولې، بیا د تجوید د سمون لپاره خپل استاد ته راستون شئ.",
+  "tajweed.principleAudio": "د ریښتیني قاري غږ",
+  "tajweed.principleReview": "د مصنوعي ځیرکتیا د کلمو کتنه",
+  "tajweed.principleTeacher": "د استاد تایید شوی تجوید",
+  "tajweed.begin": "لارښود شوی تلاوت پیل کړئ",
+  "study.stageLabel": "اوسنۍ مرحله: {stage}",
+
+  // -- The Qaida course chrome ----------------------------------------------
+  "course.eyebrow": "د قاعدې کورس",
+  "course.levelLabel": "کچه {order} — {title}",
+  "course.percentComplete": "د کورس {percent}%",
+  "course.levelsLabel": "د کورس کچې",
+  "course.levelProgress": "{done} / {total} درسونه",
+  "course.lessonPosition": "درس {number} له {total} څخه",
+  "course.stagesLabel": "دا درس څنګه روان دی",
+  "course.stageLearn": "زده کړه",
+  "course.stageListen": "اورېدل",
+  "course.stageRecognize": "پېژندل",
+  "course.stageRepeat": "تکرار",
+  "course.stageRead": "لوستل",
+  "course.stageCheck": "کتنه",
+  "course.stageComplete": "بشپړول",
+  "course.examplesLabel": "بېلګې",
+  "course.teachingSummary": "دا درس څه ښیي",
+  "course.quranBadge": "قرآن {reference}",
+  "course.teachingBadge": "زده کړیزه بېلګه",
+  "course.exerciseLabel": "تمرین",
+  "course.exerciseProgress": "پوښتنه {number} له {total} څخه",
+  "course.playAudio": "بېلګه وغږوئ",
+  "course.audioUnavailable": "د دې شکل لپاره لا هیڅ ثبت شوې بېلګه نشته.",
+  "course.correct": "سم دی.",
+  "course.retry": "لا سم نه دی. بیا وګورئ، بیا یو ځل هڅه وکړئ.",
+  "course.letterReference": "د حروفو لړ",
+  "course.letterReferenceHint": "ټول ۲۸ حروف، د هر یوه لپاره د قاري ثبت.",
+  "course.openInStudy": "{reference} په تمرین کې پرانیزئ",
+  "course.lessonComplete": "درس بشپړ شو.",
+  "course.nextLesson": "راتلونکی: {title}",
+  "course.finishCourse": "کورس پای ته ورسوئ",
+  "course.practiseAgain": "دا درس بیا تمرین کړئ",
+  "course.courseComplete": "دا ټوله قاعده وه. په تمرین برخه کې دوام ورکړئ، چیرې چې لومړی قاري لولي او بیا ستاسو ثبت کلمه په کلمه کتل کیږي.",
+  "course.lessonListLabel": "په دې کچه کې درسونه",
+  "course.reviewLesson": "بیاکتنه",
+
+  // -- Recorder, live guidance and the practice plan ------------------------
+  "recorder.noLiveGuide": "ثبتول شونی دي. ژوندۍ لارښوونه یوازې په هغو براوزرونو کې کار کوي چې د عربي غږ پېژندنه لري؛ ستاسو ثبت به بیا هم د درېدو وروسته وکتل شي.",
+  "recorder.liveGuidePaused": "ژوندۍ لارښوونه ودرېده، خو ثبت به بیا هم د درېدو وروسته د کلمو کتنه ترلاسه کړي.",
+  "recorder.reviewFailed": "ثبت و نه کتل شو. لطفاً یوه لنډه ټوټه هڅه کړئ.",
+  "recorder.empty": "هیڅ غږ ونه نیول شو. مایکروفون ته لاسرسی وګورئ، بیا آیت بیا ثبت کړئ.",
+  "recorder.tooLarge": "دا ثبت {size} MB دی، له {limit} MB بریده اوړي، نو کتنې ته و نه لېږل شو. یو آیت په ارامۍ ثبت کړئ او بیا هڅه وکړئ.",
+  "recorder.noRecorder": "دا براوزر غږ نه شي ثبتولی. لطفاً یو نوی براوزر وکاروئ او مایکروفون ته اجازه ورکړئ.",
+  "recorder.noMicrophone": "مایکروفون ته اجازه ورنه کړل شوه. په براوزر تنظیماتو کې یې اجازه ورکړئ، بیا هڅه وکړئ.",
+  "live.guideTitle": "د کلمو ژوندی لارښود",
+  "live.heardTitle": "ستاسو براوزر څه واورېدل",
+  "live.source": "د وسیلې د غږ پېژندنه",
+  "live.waiting": "ستاسو غږ ته انتظار",
+  "coach.contextLabel": "د مصنوعي ځیرکتیا لارښود تمرین پلان",
+  "coach.contextEyebrow": "د تمرین پلان",
+  "coach.practiceLoopLabel": "د تمرین دوره",
+  "coach.reviewPlanLabel": "هغه تمرین پلان چې په دې کتنه کې وکارول شو",
+  "coach.reviewPlanEyebrow": "د مصنوعي ځیرکتیا تمرین لارښود",
+
+  // -- The coaching plan, by learning level ---------------------------------
+  "plan.qaida.title": "قاعده",
+  "plan.qaida.focus": "حروف، مخرجونه، لنډ حرکتونه او د نښلولو شکلونه",
+  "plan.qaida.lessonGoal": "د حروفو پېژندل او د اورېدو-تکرار عادت پیاوړی کړئ، بیا حروف په کلمو کې سره ونښلوئ.",
+  "plan.qaida.boundary": "د یوازینیو حروفو ادا او مخرج باید وړ استاد تایید کړي.",
+  "plan.qaida.loopListen": "واورئ",
+  "plan.qaida.loopIdentify": "وپېژنئ",
+  "plan.qaida.loopJoin": "ونښلوئ",
+  "plan.qaida.loopRepeat": "تکرار کړئ",
+  "plan.qaida.loopReview": "وګورئ",
+  "plan.tajweed.title": "تجوید",
+  "plan.tajweed.focus": "د تلاوت قواعد — مد، غنه او وقف — د استاد په لارښوونه سره",
+  "plan.tajweed.lessonGoal": "په پام سره تکرار سره ولولئ او هغه ځای وټاکئ چې د استاد تر څارنې لاندې تمرین ته اړتیا لري.",
+  "plan.tajweed.boundary": "تجوید، مخرج، مد، وقف، لحن او شرعي سموالی یوازې وړ استاد تاییدولی شي.",
+  "plan.tajweed.loopRecall": "یاد کړئ",
+  "plan.tajweed.loopRecord": "ثبت کړئ",
+  "plan.tajweed.loopLocate": "د راستنېدو ځای ومومئ",
+  "plan.tajweed.loopTeacher": "له استاد سره یې تکرار کړئ",
+
+  // -- Review feedback ------------------------------------------------------
+  "feedback.available": "پېژندل شوې کلمې",
+  "feedback.unavailable": "و نه کتل شو",
+  "feedback.matched": "د دې آیت وپېژندل شو",
+  "feedback.notRecognised": "خدمت هیڅ عربي کلمه ونه پېژندله",
+  "feedback.coachEyebrow": "د مصنوعي ځیرکتیا غږیز لارښود",
+  "feedback.coachCopy": "د تمرین لارښوونه په انګلیسي واورئ، بیا د قرآني عربي لپاره وړ قاري وکاروئ.",
+  "feedback.playGuidance": "لارښوونه وغږوئ",
+  "feedback.transcriptionFailed": "ثبت و نه کتل شو — د غږ پېژندنې خدمت ځواب ورنه کړ. خپله اړیکه وګورئ، بیا آیت بیا ثبت کړئ.",
+  "feedback.noArabicReturned": "په دې ثبت کې هیڅ عربي کلمه ونه پېژندل شوه. په ارام ځای کې، مایکروفون نږدې ونیسئ او بیا هڅه وکړئ.",
+  "feedback.reviewUnavailable": "ثبت خوندي شو، خو دا ځواب د کلمه په کلمه باوري ارزونې ملاتړ نه کوي. وړ قاري بیا واورئ او په ارام ځای کې بیا هڅه وکړئ؛ د ادا او تجوید لپاره استاد ته مراجعه وکړئ.",
+  "feedback.wordIndex": "کلمه {number}",
+  "feedback.extra": "اضافي",
+  "feedback.missing": "وا نه اورېدل شوه",
+  "feedback.review": "بیاکتنه",
+  "feedback.allMatched": "په دې ثبت کې هره تمه شوې کلمه وپېژندل شوه.",
+  "feedback.readAloudToggle": "نوې لارښوونه په لوړ غږ ولولئ",
+  "feedback.tryAgain": "واورئ او بیا هڅه وکړئ",
+  "feedback.acousticLabel": "د غږ کتنې",
+  "feedback.acousticAvailable": "د باور پر کچه ولاړه د تمرین کتنه",
+  "feedback.acousticAbstained": "غږیزې کتنې واورېدل، خو دومره باور یې نه درلود چې سمون وړاندیز کړي.",
+  "feedback.acousticUnavailable": "ځانګړې غږیزه کتنه اوس شتون نه لري. ستاسو د کلمو کتنه بیا هم چمتو ده.",
+  "feedback.acousticConfidence": "د غږ باور: {percent}%",
+  "feedback.acousticPhoneme": "د غږ پام",
+  "feedback.acousticVowelLength": "د حرکت د اوږدوالي پام",
+  "feedback.acousticPause": "د درېدو پام",
+  "feedback.acousticTajweed": "د قاعدې پام",
+  "feedback.acousticBoundary": "دا یوازې د تمرین لارښوونه ده. تجوید، مخرج او شرعي سموالی باید وړ استاد تایید کړي.",
+
+  // -- Memorise, side panel and the rest ------------------------------------
+  "memorise.eyebrow": "په ارامۍ تکرار",
+  "memorise.place": "آیت {number} له {total} څخه",
+  "memorise.prompt": "په لوړ غږ ولولئ، بیا پرېږدئ چې د استاد دوره مو ځای وګوري.",
+  "memorise.covered": "آیت پټ دی",
+  "memorise.meaningHidden": "د ښه تمرکز لپاره مانا پټه ده.",
+  "memorise.reveal": "آیت ښکاره کړئ",
+  "memorise.cover": "آیت پټ کړئ",
+  "memorise.toggleMeaning": "مانا ښکاره یا پټه کړئ",
+  "memorise.practise": "په لوړ غږ تمرین",
+  "memorise.practiseAyah": "آیت {number} تمرین کړئ",
+  "panel.label": "د ټاکل شوي آیت جزئیات",
+  "panel.keepPlace": "خپل ځای وساتئ",
+  "panel.save": "خوندي کړئ",
+  "panel.saved": "خوندي شو",
+  "panel.audioPlaying": "د قاري غږ روان دی",
+  "panel.listenRepeat": "واورئ او تکرار کړئ",
+  "panel.reciterFallback": "قاري",
+  "panel.ayahNumber": "آیت {number}",
+  "panel.listenSelected": "ټاکل شوی آیت واورئ",
+  "panel.playingReciter": "قاري غږیږي",
+  "panel.audioNote": "د ریښتیني قاري غږ په بشپړ اواز. د ښه تمرین لپاره هدفون وکاروئ.",
+  "panel.sequenceEyebrow": "د نن ترتیب",
+  "panel.sequenceCopy": "آیت یو ځل واورئ، په خپل غږ یې تکرار کړئ، بیا په ارامۍ هغه یوه ځای ته راستون شئ چې تمرین غواړي.",
+  "panel.thisReading": "دا لوستل",
+  "panel.progressNote": "یو له پامه ډک تکرار هم ګټوره پرمختیا ده.",
+  "dock.label": "د موبایل د لوستلو کړنې",
+  "notFound.title": "پاڼه و نه موندل شوه",
+  "notFound.copy": "بښنه غواړو، هغه پاڼه چې لټوئ یې شتون نه لري. کېدای شي لېږدول شوې یا ړنګه شوې وي.",
+  "notFound.goHome": "کور ته لاړ شئ",
 };
 
 export const lessons: LocaleLessons = {
@@ -218,8 +451,9 @@ export const lessons: LocaleLessons = {
 /**
  * Qaida course prose in Pashto, keyed by the curriculum's own ids. Text only:
  * order, prerequisites, Arabic examples, Quran references and answer
- * correctness stay in the curriculum. Levels 1–4 are translated; later levels
- * fall back to English, per field.
+ * correctness stay in the curriculum. Every level is translated; a lesson added
+ * to the curriculum appears here in English until its four strings are written,
+ * and the coverage test reports it.
  */
 export const qaida: QaidaTextPack = {
   lessons: {
@@ -329,8 +563,233 @@ export const qaida: QaidaTextPack = {
       objective: "هغه قرآني کلمه ولولئ چې پر تنوین پای ته رسیږي.",
       teaching: "هغه کلمه چې پر تنوین پای ته رسیږي، کله چې تېر شئ، په دوه ځله حرکت لوستل کیږي. کلمه تر پایه ولولئ او له نښې مخکې مه درېږئ.",
     },
+    "madd-long-vowels": {
+      title: "درې اوږده حرکتونه (مد)",
+      objective: "الف، واو او یا د مد په توګه وپېژنئ، کله چې له خپل حرکت وروسته راځي.",
+      teaching: "لنډ حرکت هغه وخت اوږدیږي چې خپل حرف ورپسې راشي: فتحه له الف سره (بَا)، ضمه له واو سره (بُو)، کسره له یا سره (بِي). خوله همغه غږ اوږد ساتي.",
+      boundary: "دا درس یوازې پر مخ د مد پېژندل دي. دا چې څومره یې ونیسئ او څنګه یې ادا کړئ، د وړ استاد او د قاري د ثبت کار دی؛ اپلیکیشن یې نه اندازه کوي.",
+    },
+    "madd-short-vs-long": {
+      title: "لنډ او اوږد په پرتله کې",
+      objective: "لنډ حرکت له خپلې اوږدې جوړې څخه په یوه کتنه جلا کړئ.",
+      teaching: "بَ او بَا همغه حرف او همغه حرکت دی؛ الف هغه څه دی چې اوږد یې کوي. دواړه یو شان لوستل د پیل کوونکو تر ټولو عامه تېروتنه ده، او دا له غږیزې تېروتنې مخکې د لوستلو تېروتنه ده.",
+      boundary: "اپلیکیشن یوازې دا ګوري چې پر مخ دواړه سره جلا کولی شئ. دا چې اوږد مو په سمه اندازه ونیو، د وړ استاد کار دی؛ اپلیکیشن یې نه اندازه کوي.",
+    },
+    "sukoon-basics": {
+      title: "سکون",
+      objective: "هغه حرف ولولئ چې سکون لري.",
+      teaching: "سکون د حرف پر سر یوه وړه کړۍ ده. مانا یې دا ده چې حرف خپل حرکت نه لري: هغه غږ بندوي چې مخکې یې راغلی. بَبْ «بَب» لوستل کیږي.",
+    },
+    "sukoon-quran-words": {
+      title: "سکون په قرآني کلمو کې",
+      objective: "هغه لنډې قرآني کلمې ولولئ چې ساکن حرف لري.",
+      teaching: "ډېری قرآني کلمې یو حرکت لرونکی حرف له ساکن حرف سره نښلوي. لومړی حرکت لرونکی حرف ولولئ، بیا یې پر ساکن حرف بند کړئ، پرته له دې چې خپل حرکت ورزیات کړئ.",
+    },
+    "shaddah-basics": {
+      title: "شده",
+      objective: "دوه چنده شوی حرف ولولئ.",
+      teaching: "شده د حرف پر سر یوه وړه نښه ده، لکه ګرد «و». هغه حرف دوه چنده کوي: لومړی یې سکون لري او دویم حرکت، نو حرف نیول کیږي، نه دا چې دوه ځله ووایل شي. له همدې امله سکون مخکې راځي — شده یو ساکن حرف دی چې له حرکت لرونکي سره نښتی وي.",
+    },
+    "shaddah-quran-words": {
+      title: "شده په قرآني کلمو کې",
+      objective: "هغه قرآني کلمې ولولئ چې شده لري.",
+      teaching: "شده په قرآن کې هرځای شته، او کلمه بدلوي: دوه چنده شوی حرف د یوه نیول شوي غږ په توګه ولولئ، نه د دوو جلا حروفو په توګه.",
+    },
+    "lam-sun-moon": {
+      title: "شمسي او قمري حروف",
+      objective: "«ال» د دواړو ډولونو حروفو مخکې سم ولولئ.",
+      teaching: "له قمري حرف مخکې د «ال» لام لوستل کیږي او سکون لري: الْحَمْدُ. له شمسي حرف مخکې لام نه لوستل کیږي؛ پر ځای یې راتلونکی حرف دوه چنده کیږي او شده اخلي: الصِّرَاطَ. مصحف پخپله درته ښیي: پر لام سکون وګورئ، یا له هغه وروسته پر حرف شده.",
+    },
+    "lam-reading-practice": {
+      title: "«ال» په متن کې لوستل",
+      objective: "هغه کلمې ولولئ چې «ال» لري، پرته له دې چې ودرېږئ او فکر وکړئ کوم ډول حرف ورپسې دی.",
+      teaching: "په تمرین سره شده او سکون پخپله کار کوي: هغه لولئ چې لیکل شوی دی. دا په وار سره په لوړ غږ ولولئ او وګورئ چې لام هر ځل څنګه چلند کوي.",
+    },
+    "hamzah-seats": {
+      title: "همزه او د هغې کرسۍ",
+      objective: "هغه همزه ولولئ چې پر الف، واو او یا لیکل کیږي.",
+      teaching: "همزه خپل غږ لري، چې یا «ء» لیکل کیږي یا پر یوه کرسۍ کېني: أ او إ پر الف، ؤ پر واو، ئ پر یا. کرسۍ لیکدود دی، غږ نه — همزه پر ټولو یو شان لوستل کیږي.",
+    },
+    "hamzah-wasl": {
+      title: "همزة الوصل",
+      objective: "هغه الف وپېژنئ چې د پیل پر مهال لوستل کیږي او د دوام پر مهال ترې تېرېږي.",
+      teaching: "د «ال» الف، او د اهْدِنَا په څېر کلمو الف، د وصل الف دی. که جمله پرې پیل کړئ، لوستل کیږي؛ که له مخکینۍ کلمې ورته دوام ورکړئ، ترې تېرېږئ او سیده راتلونکي حرف ته ځئ. ډېری مصحفونه یې «ٱ» لیکي، له یوې وړې ص په څېر نښې سره، چې ښیي ترې تېرېدل کیږي.",
+    },
+    "hamzah-orthography": {
+      title: "درې لیکل شوي شکلونه: ى، ة او کوچنی الف",
+      objective: "هغه درې لیکل شوي شکلونه ولولئ چې پیل کوونکی یې په مصحف کې تل ویني.",
+      teaching: "درې شکلونه چې په کتلو یې وپېژنئ. «ى» د یا په څېر دی خو ټکي نه لري، او د کلمې په پای کې د اوږد «ا» په توګه لوستل کیږي — نوم یې الف مقصوره دی. «ة» یوه ها ده له دوو ټکو سره، چې تاء مربوطه بلل کیږي؛ کله چې راتلونکې کلمې ته دوام ورکړئ، «ت» یې ولولئ، او کله چې پرې ودرېږئ، «ه». کوچنی الف یو وړوکی الف دی چې د حرف پر سر لیکل کیږي: هلته اوږد «ا» ولولئ، که څه هم بشپړ الف نه دی لیکل شوی.",
+    },
+    "tajweed-qalqalah": {
+      title: "د قلقلې حروف",
+      objective: "پنځه د قلقلې حروف هغه وخت وپېژنئ چې سکون ولري.",
+      teaching: "پنځه حروف — ق ط ب ج د، چې د «قطب جد» په بڼه یادیږي — کله چې سکون ولري یا پرې ودرېږئ، یوه وړه انګازه ورکوي. دا درس یوازې پر مخ د دوی پېژندل دي.",
+      boundary: "د قلقلې د حرف پېژندل د لوستلو مهارت دی. دا چې ستاسو قلقله سمه ادا شوه که نه، د وړ استاد کار دی؛ اپلیکیشن یې له لیکل شوي متن څخه نه شي څېړلی.",
+    },
+    "tajweed-noon-sakinah": {
+      title: "نون ساکنه او تنوین",
+      objective: "ساکنه نون او تنوین وپېژنئ او پوه شئ چې ورپسې حرف ټاکي له څلورو حالتونو کوم یو کارول کیږي.",
+      teaching: "ساکنه نون او تنوین د راتلونکي حرف له مخې په یو له څلورو ډولونو لوستل کیږي: اظهار (څرګند ویل)، ادغام (په راتلونکي حرف کې ننوتل)، اقلاب (میم ته اړول)، اخفا (د دواړو ترمنځ پټول). په دې کچه کې یوازې دا زده کوئ چې نون او تنوین پر مخ وپېژنئ او پوه شئ چې څلور حالتونه شته — دا چې کوم یو راځي او هر یو څنګه ویل کیږي، له استاد سره او د قاري په اورېدو زده کیږي.",
+      boundary: "دا د هغه څه نومونه دي چې لیکل شوي دي. اپلیکیشن نه ارزوي چې ستاسو اخفا، ادغام یا غنه سمه ادا شوه که نه — دا یوازې وړ استاد، یا یوه ځانګړې غږیزه ارزونه ویلی شي.",
+    },
+    "tajweed-meem-ghunnah": {
+      title: "میم ساکنه او غنه",
+      objective: "ساکنه میم وپېژنئ، او هغه نښه چې ښیي نون یا میم په غنه سره نیول کیږي.",
+      teaching: "ساکنه میم خپل درې حالتونه لري، او هره نون یا میم چې شده ولري، په غنه — یعنې د پزې په نرم غږ — لوستل کیږي. پر مخ شده ولټوئ.",
+      boundary: "دا پر مخ پېژندل دي. دا چې غنه څومره نیول کیږي او څنګه باید واورېدل شي، له وړ استاد او د قاري له اورېدو راځي؛ اپلیکیشن یې نه اندازه کوي.",
+    },
+    "symbols-stop-marks": {
+      title: "د وقف نښې",
+      objective: "هغه وړې نښې وپېژنئ چې د کرښې پر سر لیکل کیږي او ښیي چې چیرې درېدلی شئ.",
+      teaching: "مصحف د درېدو ځایونه په وړو حروفو نښه کوي: م لازم وقف، لا دلته مه درېږئ، ج درېدل روا دي، قلى درېدل غوره دي، صلى دوام غوره دی. دا د لوستلو مرسته ده، ځکه چې مانا ماته نه شي.",
+      boundary: "دا نښې ښیي چې وقف چیرې روا یا غوره دی. دا چې د مانا لپاره چیرې ودرېږئ او بیا یې له کومه پیل کړئ، د وړ استاد په لارښوونه ده؛ اپلیکیشن نه ګوري چې چیرې ودرېدئ.",
+    },
+    "symbols-small-marks": {
+      title: "په متن کې وړې نښې",
+      objective: "هغه وړې نښې وپېژنئ چې د کلمو په دننه کې لیکل کیږي.",
+      teaching: "له وقفي نښو پرته، مصحف په خپله کرښه کې هم وړې نښې لیکي: هغه کوچنی الف چې مخکې مو ولید، د اوږد «ا» لپاره چیرې چې الف نه وي لیکل شوی؛ د مد څپه یزه نښه «ٓ»، چې وایي دا اوږد حرکت له عادي څخه ډېر نیول کیږي؛ او د آیت شمېره چې د هر آیت په پای کې په خپله ګلۍ کې راځي.",
+      boundary: "د یوې نښې پېژندل د لوستلو مهارت دی. دا چې مد څومره نیول کیږي، له وړ استاد سره ټاکل کیږي؛ اپلیکیشن یې نه اندازه کوي.",
+    },
+    "quran-words": {
+      title: "قرآني کلمې",
+      objective: "یوازینۍ قرآني کلمې ولولئ چې تر اوسه مو زده کړي هرڅه پکې کارول شوي.",
+      teaching: "نږدې هرڅه چې مو زده کړي، په دې څلورو کلمو کې راځي: ساکن حرف، اوږد حرکت، شده، شمسي او قمري حرف، او کوچنی الف. هره یوه ورو ولولئ، بیا یې په یوه برابره چټکتیا بیا ولولئ.",
+    },
+    "quran-phrases": {
+      title: "دوې کلمې سره یوځای",
+      objective: "دوې قرآني کلمې په یوه ترکیب کې ولولئ، پرته له دې چې ترمنځ یې ودرېږئ.",
+      teaching: "یوازینۍ کلمې سخته برخه ده؛ نښلول یې راتلونکی ګام دی. هره جوړه له سره تر پایه ولولئ، پرته له درېدو په منځ کې، بیا واورئ چې قاري همغه ترکیب څنګه لولي او ورسره ولاړ شئ.",
+    },
+    "quran-first-ayah": {
+      title: "ستاسو لومړی آیت",
+      objective: "له مصحف څخه یو بشپړ آیت ولولئ.",
+      teaching: "هغه کلمې چې اوس مو ولوستې، یو آیت جوړوي. په تمرین برخه کې یې پرانیزئ: متن د اپلیکیشن له قرآني معلوماتو راځي، او لومړی یو وړ قاري ورته اورئ.",
+    },
+    "quran-short-ayat": {
+      title: "لنډ آیتونه",
+      objective: "څو لنډ آیتونه په ترتیب سره ولولئ.",
+      teaching: "دا یو په بل پسې ولولئ، لومړی تر ټولو لنډ. هر یو دومره لنډ دی چې په یوه ساه کې ځای شي، او هر یو یوازې هغه حروف، حرکتونه او نښې لري چې اوس یې پېژنئ.",
+    },
+    "quran-short-surah": {
+      title: "یو بشپړ سورت، ثبت شوی",
+      objective: "یو بشپړ لنډ سورت پای ته ورسوئ، او هر آیت د کلمو د کتنې لپاره ثبت کړئ.",
+      teaching: "د قاعدې وروستی ګام ستاسو د تلاوت د تمرین لومړی ګام دی. په تېر درس کې مو د سورت اخلاص لومړی آیت ولوست؛ دا درې یې بشپړوي. هر یو په تمرین برخه کې پرانیزئ، قاري واورئ، بیا خپل غږ ثبت کړئ. کتنه درته وایي کومې کلمې وپېژندل شوې او له کومه ځایه بیا پیل وکړئ — دا د لوستلو کتنه ده، د تلاوت پر ښکلا پرېکړه نه ده.",
+      boundary: "ثبت شوې کتنه یوازې لیکل شوې کلمې له آیت سره پرتله کوي. تجوید، مخرج، د مد اوږدوالی یا غنه نه ارزوي.",
+    },
   },
   exercises: promptsFromPhrasebook(QAIDA_LESSONS, {
+    "Which of these is Thaa?":
+      "له دې څخه کوم یو ثا دی؟",
+    "Which of these is Haa?":
+      "له دې څخه کوم یو حا دی؟",
+    "Which of these is Dhaal?":
+      "له دې څخه کوم یو ذال دی؟",
+    "Which of these is Zaay?":
+      "له دې څخه کوم یو زې دی؟",
+    "Which of these is Seen?":
+      "له دې څخه کوم یو سین دی؟",
+    "Which of these is Daad?":
+      "له دې څخه کوم یو ضاد دی؟",
+    "Which of these is Zaa?":
+      "له دې څخه کوم یو ظا دی؟",
+    "Which of these is Ayn?":
+      "له دې څخه کوم یو عین دی؟",
+    "Which of these is Qaaf?":
+      "له دې څخه کوم یو قاف دی؟",
+    "Which of these is Haa (soft)?":
+      "له دې څخه کوم یو نرمه ها ده؟",
+    "Which of these is Kaaf?":
+      "له دې څخه کوم یو کاف دی؟",
+    "Which shows a fatha followed by alif?":
+      "کوم یو فتحه ښیي چې الف ورپسې راځي؟",
+    "Which shows a damma followed by waw?":
+      "کوم یو ضمه ښیي چې واو ورپسې راځي؟",
+    "Which of these is the long one?":
+      "له دې څخه کوم یو اوږد دی؟",
+    "Read this word from the Quran aloud, holding the long vowel.":
+      "دا قرآني کلمه په لوړ غږ ولولئ او اوږد حرکت ونیسئ.",
+    "What does this small circle above the letter mean?":
+      "د حرف پر سر دا وړه کړۍ څه مانا لري؟",
+    "How does this read?":
+      "دا څنګه لوستل کیږي؟",
+    "Read this word from the Quran aloud, closing the Laam without a vowel.":
+      "دا قرآني کلمه په لوړ غږ ولولئ او لام پرته له حرکته بند کړئ.",
+    "Read this one aloud — two sakin letters in the same word.":
+      "دا یوه په لوړ غږ ولولئ — په یوه کلمه کې دوه ساکن حروف.",
+    "In this word, which letter carries the sukoon?":
+      "په دې کلمه کې کوم حرف سکون لري؟",
+    "What does the shaddah tell you to do?":
+      "شده تاسو ته څه وایي چې وکړئ؟",
+    "Which shows a shaddah carrying kasra?":
+      "کوم یو شده ښیي چې کسره لري؟",
+    "Which of these words carries a shaddah?":
+      "له دې کلمو څخه کومه یوه شده لري؟",
+    "In الْحَمْدُ, is the Laam of ال read?":
+      "په الْحَمْدُ کې، د «ال» لام لوستل کیږي؟",
+    "In الصِّرَاطَ, why is there a shaddah on the Saad?":
+      "په الصِّرَاطَ کې، ولې پر صاد شده ده؟",
+    "Read this aloud — a sun letter, so the Laam merges into it.":
+      "دا په لوړ غږ ولولئ — شمسي حرف دی، نو لام پکې ننوځي.",
+    "Read this aloud — a moon letter, so the Laam is read with its sukoon.":
+      "دا په لوړ غږ ولولئ — قمري حرف دی، نو لام له خپل سکون سره لوستل کیږي.",
+    "Which one carries a kasra, with the hamzah written below the alif?":
+      "کوم یو کسره لري، چې همزه یې د الف لاندې لیکل شوې؟",
+    "In ئ, what is the hamzah sitting on?":
+      "په ئ کې، همزه پر څه ناسته ده؟",
+    "You are continuing from the previous word into ال. What happens to its alif?":
+      "له مخکینۍ کلمې «ال» ته دوام ورکوئ. د هغې الف ته څه کیږي؟",
+    "Start on this word and read it aloud, sounding the opening alif.":
+      "پر همدې کلمه پیل وکړئ او په لوړ غږ یې ولولئ، د پیل الف ادا کړئ.",
+    "How is ى at the end of a word read?":
+      "د کلمې په پای کې «ى» څنګه لوستل کیږي؟",
+    "What does a small alif printed above a letter tell you?":
+      "د حرف پر سر لیکل شوی کوچنی الف څه ښیي؟",
+    "You stop at the end of a word ending in ة. How is it read?":
+      "پر هغه کلمه ودرېدئ چې پر «ة» پای ته رسیږي. څنګه لوستل کیږي؟",
+    "Which of these is a qalqalah letter?":
+      "له دې څخه کوم یو د قلقلې حرف دی؟",
+    "Which of these words ends in a qalqalah letter, so it echoes when you stop on it?":
+      "له دې کلمو څخه کومه یوه پر قلقلې حرف پای ته رسیږي، نو کله چې پرې ودرېږئ انګازه کوي؟",
+    "Which of these carries a Noon with sukoon?":
+      "له دې څخه کوم یو ساکنه نون لري؟",
+    "Tanween follows the same four cases as a sakin Noon. Which of these carries tanween?":
+      "تنوین هم د ساکنې نون په څېر همغه څلور حالتونه لري. له دې څخه کوم یو تنوین لري؟",
+    "Which of these is read with ghunnah?":
+      "له دې څخه کوم یو په غنه لوستل کیږي؟",
+    "Which mark on a Noon or a Meem tells you the reader holds a ghunnah there?":
+      "پر نون یا میم کومه نښه ښیي چې لوستونکی هلته غنه نیسي؟",
+    "What does لا above the line mean?":
+      "د کرښې پر سر «لا» څه مانا لري؟",
+    "What does م above the line mean?":
+      "د کرښې پر سر «م» څه مانا لري؟",
+    "What does قلى tell the reader?":
+      "«قلى» لوستونکي ته څه وایي؟",
+    "What is the decorated circle at the end of an ayah?":
+      "د آیت په پای کې ښکلې کړۍ څه ده؟",
+    "What does the wavy madd sign above a letter tell the reader?":
+      "د حرف پر سر د مد څپه یزه نښه لوستونکي ته څه وایي؟",
+    "Read this word aloud.":
+      "دا کلمه په لوړ غږ ولولئ.",
+    "Read this word aloud — a sun letter and a long vowel.":
+      "دا کلمه په لوړ غږ ولولئ — یو شمسي حرف او یو اوږد حرکت.",
+    "Read these two words as one phrase.":
+      "دا دوې کلمې د یوه ترکیب په توګه ولولئ.",
+    "Read this phrase — a sun letter, then a held Laam.":
+      "دا ترکیب ولولئ — یو شمسي حرف، بیا نیول شوی لام.",
+    "Listen to the reciter, then read this ayah aloud.":
+      "قاري واورئ، بیا دا آیت په لوړ غږ ولولئ.",
+    "Start with the shortest — one word. Listen, then read it aloud.":
+      "له تر ټولو لنډ پیل وکړئ — یوه کلمه. واورئ، بیا یې په لوړ غږ ولولئ.",
+    "Now four words, all of them familiar by this point.":
+      "اوس څلور کلمې، چې تر دې ځایه مو ټولې پېژندلې دي.",
+    "And the ayah your phrases came from.":
+      "او هغه آیت چې ستاسو ترکیبونه ترې راغلي.",
+    "You have read the first ayah of al-Ikhlas. Carry on: listen, then record the second.":
+      "د سورت اخلاص لومړی آیت مو ولوست. دوام ورکړئ: واورئ، بیا دویم ثبت کړئ.",
+    "The third ayah.":
+      "درېیم آیت.",
+    "And the fourth, which completes the surah.":
+      "او څلورم، چې سورت بشپړوي.",
     "Which letter is this?": "دا کوم حرف دی؟",
     "Play the recording, then choose the letter you heard.": "ثبت وغږوئ، بیا هغه حرف وټاکئ چې واورېد.",
     "Which two letters make this combination?": "دا ترکیب له کومو دوو حروفو جوړ دی؟",
@@ -353,6 +812,12 @@ export const qaida: QaidaTextPack = {
     "What is this ending called?": "د دې پای نوم څه دی؟",
     "Which ending does this word carry?": "دا کلمه کوم پای لري؟",
   }, {
+    "Listen to the reciter's recording for how the echo sounds. This exercise only asks you to spot the letter.":
+      "دا چې انګازه څنګه اوریدل کیږي، د قاري له ثبت څخه یې واورئ. دا تمرین یوازې دا غواړي چې حرف وپېژنئ.",
+    "Which of the four cases applies, and how each one sounds, is learned with a teacher and by listening to the reciter.":
+      "دا چې له څلورو حالتونو کوم یو راځي او هر یو څنګه اوریدل کیږي، له استاد سره او د قاري په اورېدو زده کیږي.",
+    "How much longer is settled by the way you were taught to recite, with a qualified teacher. The sign only tells you that it is longer.":
+      "دا چې څومره اوږد نیول کیږي، ستاسو د تلاوت له طریقې او له وړ استاد سره ټاکل کیږي. نښه یوازې دومره وایي چې اوږد دی.",
     "The recording is a qualified reciter's, played as a reference. The app is not listening to you here.":
       "ثبت د یوه وړ قاري دی، یوازې د لارښوونې لپاره غږول کیږي. اپلیکیشن دلته تاسو ته غوږ نه نیسي.",
   }),

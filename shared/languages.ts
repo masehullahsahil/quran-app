@@ -54,6 +54,13 @@ export type TranslationCoverage =
   | "reference"
   /** Interface, teacher instructions and controls translated; long-form text falls back. */
   | "interface"
+  /**
+   * Every learner-facing string the reference pack defines is carried in this
+   * language, lesson and exercise prose included. It says nothing about
+   * quality: a `full` pack that is still `ai-drafted` has been written but not
+   * read by a speaker of the language, and the picker says exactly that.
+   */
+  | "full"
   /** A scaffold only: a few strings at most, mostly English fallback. */
   | "scaffold";
 
@@ -100,7 +107,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     name: "پښتو",
     englishName: "Pashto",
     direction: "rtl",
-    coverage: "interface",
+    coverage: "full",
     preferredTranslationLanguage: "pashto",
     instructionAudioDir: "/audio/instruction/ps",
     nativeReviewed: false,
@@ -111,7 +118,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     name: "دری",
     englishName: "Dari",
     direction: "rtl",
-    coverage: "interface",
+    coverage: "full",
     preferredTranslationLanguage: "persian",
     instructionAudioDir: "/audio/instruction/fa-AF",
     nativeReviewed: false,
@@ -122,7 +129,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     name: "اردو",
     englishName: "Urdu",
     direction: "rtl",
-    coverage: "interface",
+    coverage: "full",
     preferredTranslationLanguage: "urdu",
     instructionAudioDir: "/audio/instruction/ur",
     nativeReviewed: false,
@@ -133,7 +140,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguageCode, SupportedLanguag
     name: "العربية",
     englishName: "Arabic",
     direction: "rtl",
-    coverage: "interface",
+    coverage: "full",
     preferredTranslationLanguage: "arabic",
     instructionAudioDir: "/audio/instruction/ar",
     nativeReviewed: false,
@@ -152,6 +159,23 @@ export function languagePickerOrder(): SupportedLanguage[] {
   return SUPPORTED_LANGUAGE_CODES.map((code) => SUPPORTED_LANGUAGES[code]).sort((left, right) =>
     left.code === REFERENCE_LANGUAGE ? -1 : right.code === REFERENCE_LANGUAGE ? 1 : left.englishName.localeCompare(right.englishName),
   );
+}
+
+/**
+ * The note the picker puts beside a language's own name, as a locale key, or
+ * null where the language needs none.
+ *
+ * The point is that the note stays true as a pack grows: a pack whose long-form
+ * text still falls back says "interface only", and a pack that carries every
+ * string but has not been read by a speaker of the language says it is an AI
+ * draft. Neither claim is made by the picker itself — it renders whichever key
+ * this returns, and a pack that is complete and native-reviewed gets no note.
+ */
+export function languageNoteKey(code: SupportedLanguageCode): "language.partial" | "language.aiDrafted" | null {
+  const language = SUPPORTED_LANGUAGES[code];
+  if (language.coverage === "interface" || language.coverage === "scaffold") return "language.partial";
+  if (language.translationStatus === "ai-drafted") return "language.aiDrafted";
+  return null;
 }
 
 /**
