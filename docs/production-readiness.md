@@ -55,6 +55,8 @@ The Quran-aware acoustic evaluator is optional. When `QURAN_EVALUATOR_URL` is ab
 
 `pnpm verify:production-readiness` runs the recitation benchmark, focused learner/cross-session/locale/teacher/acoustic tests, and TypeScript checking without external services. It prints `database verification not run` by default. Set `VERIFY_DATABASE=1` together with `DATABASE_URL` to include the live schema check.
 
+GitHub Actions runs the deterministic production gate on pull requests and pushes to `main`: frozen-lockfile install, production dependency audit, tests, type-checking, build, and production-readiness verification. The audit is intentionally scoped to production dependencies (`pnpm audit --prod --audit-level=moderate`) so development-only tooling advisories do not create misleading production failures.
+
 Required for the durable signed-in production flow:
 
 - `DATABASE_URL` — MySQL database with the verified migration.
@@ -64,6 +66,7 @@ Optional integrations:
 
 - `OPENAI_API_KEY` (and optional `OPENAI_BASE_URL`) — live transcription/coach wording; deterministic tests do not need it.
 - `QURAN_EVALUATOR_URL`, optional `QURAN_EVALUATOR_API_KEY`, and `QURAN_EVALUATOR_TIMEOUT_MS` — specialist acoustic service.
+- `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID` — optional analytics script. If either value is absent or blank, the production HTML emits no analytics script and the browser makes no analytics request.
 
 ## Verified scope and remaining blockers
 
@@ -76,3 +79,4 @@ Not production-verified / launch blockers:
 3. A database backup/restore drill and operational monitoring for failed syncs have not been demonstrated here.
 4. Attempt-history reads currently return complete account history. This preserves the auditable source of truth, but pagination/retention must be designed before history volume becomes large; silently truncating history would change mastery.
 5. Locale follows a device, not an account; cross-device locale sync remains future work.
+
