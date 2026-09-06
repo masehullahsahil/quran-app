@@ -177,7 +177,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .mode-tab.is-active .tab-icon { color: #174d42; background: #e7f0eb; }
 .mode-tab.is-active strong { color: #174d42; }
 
-.manuscript-stage { position: relative; min-height: 587px; overflow: hidden; background: #fffdf8 url('/manus-storage/quran-reading-arch-texture_7fae99c7.png') center / cover; border: 1px solid #dcd4c6; box-shadow: 0 19px 38px rgba(56,62,50,.09), 0 2px 5px rgba(56,62,50,.05); }
+.manuscript-stage { position: relative; min-height: 587px; overflow: hidden; background: #fffdf8 url('/assets/quran-reading-arch-texture.svg') center / cover; border: 1px solid #dcd4c6; box-shadow: 0 19px 38px rgba(56,62,50,.09), 0 2px 5px rgba(56,62,50,.05); }
 .manuscript-stage::before { content: ""; position: absolute; z-index: 0; top: 59px; right: 9%; bottom: -104px; left: 9%; border: 1px solid rgba(174,136,70,.34); border-bottom: 0; border-radius: 260px 260px 0 0 / 146px 146px 0 0; pointer-events: none; }
 .manuscript-stage::after { content: ""; position: absolute; z-index: 0; top: 77px; right: 13.5%; bottom: -105px; left: 13.5%; border: 1px solid rgba(23,77,66,.19); border-bottom: 0; border-radius: 220px 220px 0 0 / 123px 123px 0 0; pointer-events: none; }
 .manuscript-light { position: absolute; inset: 0; background: linear-gradient(100deg, rgba(255,253,248,.65), rgba(255,253,248,.04) 50%, rgba(255,253,248,.57)); pointer-events: none; }
@@ -555,3 +555,4 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .mobile-dock button.is-active { color: #fffdf8; background: rgba(255,255,255,.13); }
   .mobile-dock .dock-listen { color: #173c32; background: #dfece4; }
 }
+
