@@ -1,11 +1,15 @@
+/**
+ * The presentation half: one instruction key, at most one button, and nothing
+ * a service wrote showing up as the thing the learner is told to do.
+ *
+ * The decision rules themselves are covered in shared/teacherDecision.test.ts.
+ */
 import { describe, expect, it } from "vitest";
+import type { QuranAwareReview } from "@shared/quranEvaluation";
 import type { VerseFollowingResult } from "@shared/verseFollowing";
-import {
-  pickCorrectionFocus,
-  resolveTeacherAction,
-  type ReviewEvidence,
-  type TeacherActionInput,
-} from "./teacherAction";
+import { decideTeacherAction, type AttemptEvidence, type TeacherEvidence } from "@shared/teacherDecision";
+import { presentDecision, resolveTeacherAction, type TeacherAction } from "./teacherAction";
+import en from "@locales/en";
 
 function follow(patch: Partial<VerseFollowingResult> = {}): VerseFollowingResult {
   return {
@@ -24,266 +28,185 @@ function follow(patch: Partial<VerseFollowingResult> = {}): VerseFollowingResult
   };
 }
 
-function review(patch: Partial<ReviewEvidence> = {}): ReviewEvidence {
-  return { wordReviewAvailable: true, corrections: [], verseFollowing: follow(), ...patch };
+function attempt(patch: Partial<AttemptEvidence> = {}): AttemptEvidence {
+  return { reviewable: true, corrections: [], verseFollowing: follow(), ...patch };
 }
 
-function input(patch: Partial<TeacherActionInput> = {}): TeacherActionInput {
+function evidence(patch: Partial<TeacherEvidence> = {}): TeacherEvidence {
   return {
-    isRecording: false,
-    isReviewing: false,
-    recordingError: false,
-    review: null,
-    position: { currentAyah: 2, expectedWordIndex: 1 },
-    reviewDue: false,
+    recording: { isRecording: false, isReviewing: false, failed: false },
+    attempt: null,
+    acoustic: null,
+    memory: { reviewDue: false, recurringWordIndexes: [] },
+    livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 1 },
     hasNextAyah: true,
     ...patch,
   };
 }
 
-describe("the microphone comes first", () => {
-  it("says it is listening while recording, with no competing button", () => {
-    const action = resolveTeacherAction(input({ isRecording: true, review: review() }));
+/** Every state the page can be in, for the sweeps below. */
+const everyState: Array<[string, TeacherEvidence]> = [
+  ["recording", evidence({ recording: { isRecording: true, isReviewing: false, failed: false } })],
+  ["reviewing", evidence({ recording: { isRecording: false, isReviewing: true, failed: false } })],
+  ["recorder failed", evidence({ recording: { isRecording: false, isReviewing: false, failed: true } })],
+  ["unreviewable", evidence({ attempt: attempt({ reviewable: false }) })],
+  ["uncertain", evidence({ attempt: attempt({ verseFollowing: follow({ state: "uncertain", reason: "no_transcript", evidence: "none" }) }) })],
+  ["missing word", evidence({
+    attempt: attempt({ corrections: [{ expected: "رَبِّ", heard: null, status: "missing", wordIndex: 3 }], verseFollowing: follow({ state: "correcting" }) }),
+  })],
+  ["recurring word", evidence({
+    attempt: attempt({ corrections: [{ expected: "رَبِّ", heard: null, status: "missing", wordIndex: 3 }], verseFollowing: follow({ state: "correcting" }) }),
+    memory: { reviewDue: false, recurringWordIndexes: [3] },
+  })],
+  ["acoustic finding", evidence({
+    attempt: attempt({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 3, evidence: "strong" }) }),
+    acoustic: {
+      status: "available",
+      provider: "test",
+      confidence: 0.92,
+      summary: "A summary the learner may read in Teacher notes.",
+      findings: [{ kind: "phoneme", wordIndex: 4, expectedArabic: "الْعَالَمِينَ", guidance: "Guidance text from the evaluator." }],
+    } satisfies QuranAwareReview,
+  })],
+  ["repeat ayah", evidence({ attempt: attempt({ verseFollowing: follow({ state: "correcting" }) }) })],
+  ["advance", evidence({ attempt: attempt({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 3, evidence: "strong" }) }) })],
+  ["surah complete", evidence({ hasNextAyah: false, attempt: attempt({ verseFollowing: follow({ state: "completed" }) }) })],
+  ["partial progress", evidence({ attempt: attempt({ verseFollowing: follow({ state: "following", expectedWordIndex: 4 }) }) })],
+  ["review due", evidence({ memory: { reviewDue: true, recurringWordIndexes: [] } })],
+  ["nothing yet", evidence()],
+];
 
-    expect(action.kind).toBe("listening");
-    expect(action.button).toBeNull();
+describe("one instruction, at most one button", () => {
+  it.each(everyState)("presents a single defined instruction for %s", (_name, input) => {
+    const action = resolveTeacherAction(input);
+
+    expect(action.titleKey, action.kind).toBeTruthy();
+    expect(en.strings[action.titleKey], `${action.kind}: ${action.titleKey} is not defined in the reference pack`).toBeTruthy();
+    expect(["neutral", "attention", "success", "unsure"]).toContain(action.tone);
   });
 
-  it("says it is reviewing while the attempt is being checked", () => {
-    const action = resolveTeacherAction(input({ isReviewing: true }));
+  it.each(everyState)("offers no more than one contextual button for %s", (_name, input) => {
+    const action = resolveTeacherAction(input);
 
-    expect(action.kind).toBe("reviewing");
-    expect(action.button).toBeNull();
+    if (action.button) {
+      expect(["retry-ayah", "next-ayah"]).toContain(action.button.command);
+      expect(en.strings[action.button.labelKey], action.button.labelKey).toBeTruthy();
+    }
+    // A next-ayah button must always name where it goes.
+    if (action.button?.command === "next-ayah") expect(action.targetAyah).not.toBeNull();
+    else expect(action.canAdvance, action.kind).toBe(false);
   });
 
-  it("recording state outranks a pending correction", () => {
-    const withCorrection = review({ verseFollowing: follow({ state: "correcting", correctionFocus: { wordIndex: 3, expectedArabic: "رَبِّ", kind: "missing" } }) });
+  it("mirrors the decision's advancement permission rather than deciding again", () => {
+    for (const [name, input] of everyState) {
+      const decision = decideTeacherAction(input);
+      const action = resolveTeacherAction(input);
 
-    expect(resolveTeacherAction(input({ isRecording: true, review: withCorrection })).kind).toBe("listening");
-    expect(resolveTeacherAction(input({ review: withCorrection })).kind).toBe("repeat-word");
-  });
-});
-
-describe("failures", () => {
-  it("asks for another recording when the attempt could not be reviewed", () => {
-    const action = resolveTeacherAction(input({ recordingError: true }));
-
-    expect(action.kind).toBe("recording-problem");
-    expect(action.button).toEqual({ command: "retry-ayah", labelKey: "now.tryAgain" });
-    expect(action.tone).toBe("attention");
-  });
-
-  it("treats an unavailable word review the same way", () => {
-    const action = resolveTeacherAction(input({ review: review({ wordReviewAvailable: false }) }));
-
-    expect(action.kind).toBe("recording-problem");
-  });
-});
-
-describe("a completed ayah maps to the next-ayah action", () => {
-  it("offers exactly one button, pointing at the tracker's ayah", () => {
-    const action = resolveTeacherAction(input({
-      review: review({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 3, state: "following", reason: "ayah_completed", evidence: "strong" }) }),
-    }));
-
-    expect(action.kind).toBe("next-ayah");
-    expect(action.targetAyah).toBe(3);
-    expect(action.button).toEqual({ command: "next-ayah", labelKey: "now.goToAyah", params: { number: 3 } });
-    expect(action.tone).toBe("success");
-    expect(action.focusArabic).toBeNull();
-  });
-
-  it("reports the surah finished instead of advancing past the last ayah", () => {
-    const action = resolveTeacherAction(input({
-      hasNextAyah: false,
-      review: review({ verseFollowing: follow({ state: "completed", currentAyah: 7, shouldAdvance: false, reason: "surah_completed", evidence: "strong" }) }),
-    }));
-
-    expect(action.kind).toBe("surah-complete");
-    expect(action.button).toBeNull();
-  });
-
-  it("does not advance past the end even if the tracker asks to", () => {
-    const action = resolveTeacherAction(input({
-      hasNextAyah: false,
-      review: review({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 7 }) }),
-    }));
-
-    expect(action.kind).not.toBe("next-ayah");
+      expect(action.canAdvance, name).toBe(decision.canAdvance);
+      expect(action.reason, name).toBe(decision.reason);
+      expect(action.kind, name).toBe(decision.action);
+      expect(action.targetAyah, name).toBe(decision.targetAyah);
+    }
   });
 });
 
-describe("a correction maps to one primary action", () => {
-  it("puts the tracked word in front of the learner", () => {
-    const action = resolveTeacherAction(input({
-      review: review({ verseFollowing: follow({ state: "correcting", reason: "mistake_to_correct", correctionFocus: { wordIndex: 4, expectedArabic: "الْعَالَمِينَ", kind: "missing" } }) }),
+describe("wording follows the evidence that named the word", () => {
+  it("says something different for a repeated word than for a first miss", () => {
+    const first = resolveTeacherAction(evidence({
+      attempt: attempt({ corrections: [{ expected: "رَبِّ", heard: null, status: "missing", wordIndex: 3 }], verseFollowing: follow({ state: "correcting" }) }),
+    }));
+    const again = resolveTeacherAction(evidence({
+      attempt: attempt({ corrections: [{ expected: "رَبِّ", heard: null, status: "missing", wordIndex: 3 }], verseFollowing: follow({ state: "correcting" }) }),
+      memory: { reviewDue: false, recurringWordIndexes: [3] },
     }));
 
-    expect(action.kind).toBe("repeat-word");
-    expect(action.titleParams).toEqual({ number: 4 });
-    expect(action.focusArabic).toBe("الْعَالَمِينَ");
+    expect(first.titleKey).toBe("now.repeatWord");
+    expect(again.titleKey).toBe("now.repeatWordAgain");
+    expect(first.focusArabic).toBe("رَبِّ");
+    expect(again.focusArabic).toBe("رَبِّ");
+  });
+
+  it("uses listening wording for a sound observation, not a spelling correction", () => {
+    const action = resolveTeacherAction(everyState.find(([name]) => name === "acoustic finding")![1]);
+
+    expect(action.titleKey).toBe("now.repeatWordSound");
     expect(action.focusWordIndex).toBe(4);
-    expect(action.button).toEqual({ command: "retry-ayah", labelKey: "now.repeat" });
+    expect(action.canAdvance).toBe(false);
   });
 
-  it("falls back to the first correction of the recorded review", () => {
-    const action = resolveTeacherAction(input({
-      review: review({
-        corrections: [{ expected: "رَبِّ", heard: null, wordIndex: 3 }, { expected: "لِلَّهِ", heard: null, wordIndex: 2 }],
-        verseFollowing: follow({ state: "correcting" }),
-      }),
-    }));
-
-    expect(action.kind).toBe("repeat-word");
-    expect(action.focusWordIndex).toBe(3);
-  });
-
-  it("ignores an unanchored extra word, which names no place to return to", () => {
-    const action = resolveTeacherAction(input({
-      review: review({ corrections: [{ expected: "", heard: "زائد", wordIndex: null }], verseFollowing: follow({ state: "correcting" }) }),
-    }));
-
-    expect(action.kind).toBe("repeat-ayah");
-    expect(action.focusArabic).toBeNull();
-  });
-
-  it("asks for the whole ayah again when there is no single word to blame", () => {
-    const action = resolveTeacherAction(input({ review: review({ verseFollowing: follow({ state: "correcting", currentAyah: 5 }) }) }));
-
-    expect(action.kind).toBe("repeat-ayah");
-    expect(action.titleParams).toEqual({ number: 5 });
-    expect(action.button).toEqual({ command: "retry-ayah", labelKey: "now.repeat" });
+  it("names the word position in the instruction parameters", () => {
+    const action = resolveTeacherAction(everyState.find(([name]) => name === "missing word")![1]);
+    expect(action.titleParams).toEqual({ number: 3 });
   });
 });
 
-describe("an uncertain attempt never shows an advance action", () => {
-  it.each(["no_transcript", "too_little_evidence", "noisy_transcript"] as const)(
-    "keeps the learner on the ayah for %s",
-    (reason) => {
-      const action = resolveTeacherAction(input({
-        review: review({ verseFollowing: follow({ state: "uncertain", reason, evidence: "none" }) }),
-      }));
+describe("the language-model boundary", () => {
+  /**
+   * The primary instruction is always one of a fixed set of locale keys. Text
+   * written by the coach model or by the acoustic evaluator can only reach the
+   * learner through Teacher notes, never as the thing they are told to do.
+   */
+  it("never lets service text become the instruction", () => {
+    for (const [name, input] of everyState) {
+      const action: TeacherAction = resolveTeacherAction(input);
 
-      expect(action.kind).toBe("repeat-ayah");
-      expect(action.targetAyah).toBeNull();
-      expect(action.button?.command).toBe("retry-ayah");
-    },
-  );
-
-  it("never offers a next-ayah command for any non-advancing state", () => {
-    for (const state of ["following", "correcting", "uncertain"] as const) {
-      const action = resolveTeacherAction(input({ review: review({ verseFollowing: follow({ state }) }) }));
-      expect(action.button?.command, state).not.toBe("next-ayah");
-      expect(action.targetAyah, state).toBeNull();
+      expect(action.titleKey.startsWith("now."), `${name}: ${action.titleKey}`).toBe(true);
+      const rendered = JSON.stringify({ titleKey: action.titleKey, titleParams: action.titleParams, focusArabic: action.focusArabic });
+      expect(rendered, name).not.toContain("Guidance text from the evaluator");
+      expect(rendered, name).not.toContain("A summary the learner may read");
     }
   });
-});
 
-describe("partial progress", () => {
-  it("says where to carry on and leaves the mic as the next step", () => {
-    const action = resolveTeacherAction(input({
-      review: review({ verseFollowing: follow({ state: "following", expectedWordIndex: 5 }) }),
+  it("keeps evaluator prose in the secondary notes only", () => {
+    // A finding the teacher did not act on: the missing word is the
+    // instruction, and the evaluator's sentence is available as detail.
+    const action = resolveTeacherAction(evidence({
+      attempt: attempt({ corrections: [{ expected: "رَبِّ", heard: null, status: "missing", wordIndex: 3 }], verseFollowing: follow({ state: "correcting" }) }),
+      acoustic: {
+        status: "available",
+        provider: "test",
+        confidence: 0.92,
+        summary: "A summary the learner may read in Teacher notes.",
+        findings: [{ kind: "phoneme", wordIndex: 6, expectedArabic: null, guidance: "Guidance text from the evaluator." }],
+      },
     }));
 
-    expect(action.kind).toBe("continue");
-    expect(action.titleParams).toEqual({ number: 5 });
-    expect(action.button).toBeNull();
+    expect(action.titleKey).toBe("now.repeatWord");
+    expect(action.secondaryNotes).toContainEqual({ kind: "acoustic", wordIndex: 6, guidance: "Guidance text from the evaluator." });
+  });
+
+  it("does not repeat the finding it acted on as a note as well", () => {
+    const action = resolveTeacherAction(everyState.find(([name]) => name === "acoustic finding")![1]);
+
+    expect(action.focusWordIndex).toBe(4);
+    expect(action.secondaryNotes.filter((note) => note.kind === "acoustic")).toEqual([]);
+  });
+
+  it("cannot be handed an instruction from outside: presentation reads only the decision", () => {
+    const input = everyState.find(([name]) => name === "advance")![1];
+    const decision = decideTeacherAction(input);
+    const presented = presentDecision(decision, input);
+
+    expect(presented.kind).toBe(decision.action);
+    expect(presented.titleKey).toBe("now.nextAyah");
+    expect(presented.button).toEqual({ command: "next-ayah", labelKey: "now.goToAyah", params: { number: 3 } });
   });
 });
 
-describe("a review due today stays secondary", () => {
-  it("shows before any attempt has been made", () => {
-    const action = resolveTeacherAction(input({ reviewDue: true }));
-
-    expect(action.kind).toBe("review-today");
-    expect(action.button).toBeNull();
+describe("the teaching sequence travels with the action", () => {
+  it("gives a word repeat the show-listen-repeat-recite sequence", () => {
+    const action = resolveTeacherAction(everyState.find(([name]) => name === "missing word")![1]);
+    expect(action.sequence).toEqual(["show-word", "listen", "repeat-word", "recite-ayah"]);
   });
 
-  it("never displaces an active correction", () => {
-    const action = resolveTeacherAction(input({
-      reviewDue: true,
-      review: review({ verseFollowing: follow({ state: "correcting", correctionFocus: { wordIndex: 2, expectedArabic: "لِلَّهِ", kind: "review" } }) }),
-    }));
-
-    expect(action.kind).toBe("repeat-word");
+  it("asks only for another recording when the attempt was unusable", () => {
+    expect(resolveTeacherAction(evidence({ attempt: attempt({ reviewable: false }) })).sequence).toEqual(["record-again"]);
+    expect(resolveTeacherAction(evidence({
+      attempt: attempt({ verseFollowing: follow({ state: "uncertain", reason: "no_transcript", evidence: "none" }) }),
+    })).sequence).toEqual(["listen", "record-again"]);
   });
 
-  it("never displaces a finished ayah", () => {
-    const action = resolveTeacherAction(input({
-      reviewDue: true,
-      review: review({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 3 }) }),
-    }));
-
-    expect(action.kind).toBe("next-ayah");
-  });
-
-  it("never displaces a recording that could not be reviewed", () => {
-    expect(resolveTeacherAction(input({ reviewDue: true, recordingError: true })).kind).toBe("recording-problem");
-  });
-});
-
-describe("nothing attempted yet", () => {
-  it("asks the learner to listen first", () => {
-    const action = resolveTeacherAction(input());
-
-    expect(action.kind).toBe("listen-first");
-    expect(action.titleKey).toBe("now.listenFirst");
-    expect(action.button).toBeNull();
-  });
-
-  it("names the live tracker's place when the learner is already part-way in", () => {
-    const action = resolveTeacherAction(input({ position: { currentAyah: 2, expectedWordIndex: 4 } }));
-
-    expect(action.kind).toBe("listen-first");
-    expect(action.titleKey).toBe("now.continueFromWord");
-    expect(action.titleParams).toEqual({ number: 4 });
-  });
-});
-
-describe("pickCorrectionFocus", () => {
-  it("has nothing to show without a usable review", () => {
-    expect(pickCorrectionFocus(null)).toBeNull();
-    expect(pickCorrectionFocus(review({ wordReviewAvailable: false }))).toBeNull();
-  });
-
-  it("has nothing to show once the ayah has been passed", () => {
-    expect(pickCorrectionFocus(review({
-      corrections: [{ expected: "رَبِّ", heard: null, wordIndex: 3 }],
-      verseFollowing: follow({ shouldAdvance: true }),
-    }))).toBeNull();
-  });
-
-  it("prefers the tracker's focus over the correction list", () => {
-    const focus = pickCorrectionFocus(review({
-      corrections: [{ expected: "لِلَّهِ", heard: null, wordIndex: 2 }],
-      verseFollowing: follow({ correctionFocus: { wordIndex: 4, expectedArabic: "الْعَالَمِينَ", kind: "missing" } }),
-    }));
-
-    expect(focus).toEqual({ wordIndex: 4, expectedArabic: "الْعَالَمِينَ" });
-  });
-});
-
-describe("the whole surface", () => {
-  it("returns exactly one instruction and at most one button for every state", () => {
-    const states = ["following", "correcting", "uncertain", "completed"] as const;
-    const cases: TeacherActionInput[] = [
-      input(),
-      input({ isRecording: true }),
-      input({ isReviewing: true }),
-      input({ recordingError: true }),
-      input({ reviewDue: true }),
-      ...states.map((state) => input({ review: review({ verseFollowing: follow({ state }) }) })),
-      ...states.map((state) => input({ hasNextAyah: false, review: review({ verseFollowing: follow({ state, shouldAdvance: true }) }) })),
-    ];
-
-    for (const testCase of cases) {
-      const action = resolveTeacherAction(testCase);
-      expect(action.titleKey, action.kind).toBeTruthy();
-      expect(["neutral", "attention", "success"], action.kind).toContain(action.tone);
-      // "At most one" is the whole point: the type allows a single button only,
-      // and a next-ayah button must always name the ayah it moves to.
-      if (action.button?.command === "next-ayah") expect(action.targetAyah, action.kind).not.toBeNull();
-      if (action.kind !== "repeat-word") expect(action.focusArabic, action.kind).toBeNull();
-    }
+  it("asks for nothing further once the ayah is complete", () => {
+    expect(resolveTeacherAction(everyState.find(([name]) => name === "advance")![1]).sequence).toEqual([]);
   });
 });

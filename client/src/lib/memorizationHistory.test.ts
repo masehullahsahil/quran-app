@@ -68,4 +68,16 @@ describe("memorization history repository", () => {
     repository.replace([value, value]);
     expect(repository.list()).toEqual([value]);
   });
+
+  it("bounds the retry queue and retains the newest 500 attempts", () => {
+    const data = new Map<string, string>();
+    const repository = new LocalMemorizationHistoryRepository({
+      getItem: key => data.get(key) ?? null,
+      setItem: (key, item) => { data.set(key, item); },
+    });
+    for (let index = 0; index < 501; index += 1) repository.enqueue({ ...value, id: `attempt-${index}` });
+    expect(repository.pending()).toHaveLength(500);
+    expect(repository.pending()[0]?.id).toBe("attempt-1");
+    expect(repository.pending().at(-1)?.id).toBe("attempt-500");
+  });
 });

@@ -8,6 +8,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
+import { SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, type SupportedLanguageCode } from "@shared/languages";
 import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import {
@@ -48,6 +49,13 @@ const recitationInput = z.object({
   surah: z.number().int().min(1).max(114),
   ayah: z.number().int().min(1).max(286),
   learningLevel: z.enum(LEARNING_LEVELS).default("qaida"),
+  /**
+   * The learner's interface language, so the coach's encouragement can be in it.
+   * Wording only: the teaching action, the word to return to and whether the
+   * learner may advance are decided before this is used and are not affected
+   * by it. An unknown code falls back to English.
+   */
+  uiLanguage: z.enum(SUPPORTED_LANGUAGE_CODES).default("en"),
   totalAyahs: z.number().int().min(1).max(286).optional(),
   previousAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
   nextAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
@@ -118,6 +126,17 @@ const memorizationAttemptInput = z.object({
 
 const durableAttempt = memorizationAttemptInput.transform(({ stability: _stability, ...attempt }) => attempt);
 
+/**
+ * Wording only.
+ *
+ * The coach model phrases encouragement around a decision that has already been
+ * made deterministically. It never chooses what the learner should do next: the
+ * teaching action, the word to return to, and whether the learner may move on
+ * come from the alignment, the verse-following tracker and the decision engine
+ * in shared/teacherDecision.ts, and the Study view takes its one instruction
+ * from there. These three fields are shown in Teacher notes, never as the
+ * primary instruction — see docs/ai-teacher-decisions.md.
+ */
 type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };
 
 async function createCoachSummary(input: {
@@ -127,6 +146,7 @@ async function createCoachSummary(input: {
   corrections: Array<{ expected: string; heard: string | null; status: string; wordIndex: number | null }>;
   fallbackNextStep: string;
   learningLevel: LearningLevel;
+  uiLanguage: SupportedLanguageCode;
 }): Promise<CoachSummary> {
   const plan = getLearningCoachPlan(input.learningLevel);
   const fallback: CoachSummary = {
@@ -145,7 +165,7 @@ async function createCoachSummary(input: {
       messages: [
         {
           role: "system",
-          content: "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
+          content: `Reply in ${SUPPORTED_LANGUAGES[input.uiLanguage].englishName}. ` + "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error: every word you mention must appear in the supplied corrections. Do not tell the learner to move on to another ayah, and do not contradict the supplied next step — the app decides what comes next, and your text is shown as a note beside that decision. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
         },
         {
           role: "user",
@@ -343,7 +363,14 @@ export const appRouter = router({
         language: "ar",
       });
       const quranAwareReview = await quranAwareReviewPromise;
-      const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string) => ({
+      /**
+       * A stable reason the client can render in the learner's own language.
+       * The English strings below remain in the response for API compatibility
+       * and for server logs, but no learner-facing surface reads them: the
+       * Study view renders `reviewMessageCode` through its locale pack.
+       */
+      const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string, reviewMessageCode: "transcription_failed" | "no_arabic_returned") => ({
+        reviewMessageCode,
         // No usable transcript means no evidence, so the tracker holds the
         // learner exactly where they were rather than guessing.
         verseFollowing: followRecitation({ position, totalAyahs, alignment: null, transcriptUsable: false }),
@@ -377,6 +404,7 @@ export const appRouter = router({
           transcription.error,
           "",
           "Check your connection and microphone, then record the ayah again. The app could not complete this review, but you can retry now.",
+          "transcription_failed",
         );
       }
 
@@ -385,6 +413,7 @@ export const appRouter = router({
           "The speech service did not return Arabic words for this recording.",
           transcription.text,
           "Try the ayah again in a quiet place. Keep the microphone close and recite one ayah at a calm pace.",
+          "no_arabic_returned",
         );
       }
 
@@ -404,10 +433,11 @@ export const appRouter = router({
           ? assessRecitationTranscript(input.nextAyahArabic, transcription.text)
           : null,
       });
-      const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel });
+      const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel, uiLanguage: input.uiLanguage });
 
       return {
         ...assessment,
+        reviewMessageCode: null,
         verseFollowing,
         quranAwareReview,
         learningPlan: {

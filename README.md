@@ -349,7 +349,7 @@ locales/
   types.ts       the pack shape
   index.ts       registry, loader, per-key fallback
   en/index.ts    reference pack — every key defined here
-  ur/index.ts    scaffold — empty, falls back to English
+  ur/index.ts    one of four complete packs (ps, fa-AF, ur, ar)
 ```
 
 A pack holds UI strings, lesson explanation text, and a path to spoken

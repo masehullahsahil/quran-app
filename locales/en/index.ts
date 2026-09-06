@@ -36,6 +36,8 @@ export const strings = {
   "nav.minutesShort": "min",
 
   // -- Language picker -----------------------------------------------------
+  "language.partial": "interface only",
+  "language.aiDrafted": "AI draft, not reviewed by a speaker",
   "language.label": "Instruction language",
   "language.hint": "Arabic text and recitation stay the same in every language.",
 
@@ -230,12 +232,36 @@ export const strings = {
   // The dominant line in Study mode. One instruction, in the words a teacher
   // would use — never the tracker's internal state names. See
   // client/src/lib/teacherAction.ts for which one is chosen when.
+  // -- Study: the active correction (tier 2) --------------------------------
+  // What was observed about one word, in a teacher's words. Never a score, and
+  // never a claim about how it sounded unless the acoustic evaluator said so.
+  "correction.label": "The word to fix",
+  "correction.notHeard": "This word was not heard.",
+  "correction.different": "Something else came through in its place.",
+  "correction.sound": "The words were right. Listen closely to how this one is said.",
+  "correction.unsure": "This was not clear enough to be sure.",
+  "correction.listen": "Listen to the ayah slowly",
+  "correction.retry": "Listen, repeat the word, then recite the ayah again.",
+  "correction.wordAt": "Word {number}",
+
   "now.label": "What to do now",
+  "now.stepsLabel": "How to practise this",
+  "step.showWord": "Look at the word",
+  "step.listen": "Listen",
+  "step.repeatWord": "Repeat the word",
+  "step.reciteAyah": "Recite the ayah",
+  "step.recordAgain": "Record again",
   "now.place": "Ayah {ayah} of {total}",
+  "now.placeWord": "Word {number}",
   "now.listening": "Listening…",
   "now.reviewing": "Checking what you recited…",
   "now.recordAgain": "That recording could not be checked",
   "now.repeatWord": "Repeat word {number}",
+  // A word the learner has missed before, and a word a confidence-gated
+  // acoustic observation named. Both still say what to do, not how it sounded.
+  "now.repeatWordAgain": "This word again — word {number}",
+  "now.repeatWordSound": "Listen closely to word {number}, then repeat it",
+  "now.unclear": "That was not clear enough to check",
   "now.repeatAyah": "Repeat ayah {number}",
   "now.continueFromWord": "Continue from word {number}",
   "now.nextAyah": "Ayah complete — move to ayah {number}",
@@ -248,6 +274,13 @@ export const strings = {
 
   // -- Study: teacher notes (secondary detail) ------------------------------
   "notes.summary": "Teacher notes",
+  "notes.observedLabel": "What this attempt showed",
+  "notes.observedMissing": "Word {number} was not heard.",
+  "notes.observedReview": "Word {number} came through differently.",
+  "notes.observedRecurring": "Word {number} has needed work before.",
+  "notes.observedExtra": "{count} extra word(s) were heard.",
+  "notes.observedAcoustic": "A sound observation was made about word {number}.",
+  "notes.observedBoundary": "These are observations, not a judgement of your recitation. What to do about them is the one instruction above.",
   "notes.hint": "Your score, your history with this ayah, and the practice plan.",
   "notes.placeLabel": "Where you are",
   "notes.whyLabel": "Why",
@@ -327,6 +360,27 @@ export const strings = {
   "coach.reviewPlanLabel": "Coaching plan used for this review",
   "coach.reviewPlanEyebrow": "AI practice coach",
 
+  // -- AI coaching plans, by learning level --------------------------------
+  // The plan itself — level, loop, boundary — is declared once in
+  // shared/learningPath.ts. These are the words a learner reads for it.
+  "plan.qaida.title": "Qaida",
+  "plan.qaida.focus": "Letters, articulation points, short vowels, and joining forms",
+  "plan.qaida.lessonGoal": "Build letter recognition and a deliberate listen–repeat habit, then join letters into words.",
+  "plan.qaida.boundary": "Single-letter articulation and makhraj must be confirmed by a qualified teacher.",
+  "plan.qaida.loopListen": "Listen",
+  "plan.qaida.loopIdentify": "Identify",
+  "plan.qaida.loopJoin": "Join",
+  "plan.qaida.loopRepeat": "Repeat",
+  "plan.qaida.loopReview": "Review",
+  "plan.tajweed.title": "Tajweed",
+  "plan.tajweed.focus": "Recitation rules — elongation, nasalization, and stopping — with teacher-guided refinement",
+  "plan.tajweed.lessonGoal": "Recite with deliberate repetition and identify where to return for focused supervised practice.",
+  "plan.tajweed.boundary": "Only a qualified teacher should confirm tajwid, makhraj, madd, waqf, melody, or religious correctness.",
+  "plan.tajweed.loopRecall": "Recall",
+  "plan.tajweed.loopRecord": "Record",
+  "plan.tajweed.loopLocate": "Locate return",
+  "plan.tajweed.loopTeacher": "Repeat with a teacher",
+
   // -- Study: feedback -----------------------------------------------------
   "feedback.available": "Words recognised",
   "feedback.unavailable": "Could not be checked",
@@ -335,6 +389,8 @@ export const strings = {
   "feedback.coachEyebrow": "AI audio coach",
   "feedback.coachCopy": "Hear the practice cue in English, then use the qualified reciter for Quranic Arabic.",
   "feedback.playGuidance": "Play guidance",
+  "feedback.transcriptionFailed": "The recording could not be checked — the speech service did not respond. Check your connection, then record the ayah again.",
+  "feedback.noArabicReturned": "No Arabic words were recognised in that recording. Try again in a quieter place, with the microphone close.",
   "feedback.reviewUnavailable": "The recording is saved, but this response cannot support a reliable word-by-word score. Replay the qualified reciter and retry in a quieter place; use a teacher for pronunciation and tajwid.",
   "feedback.wordIndex": "Word {number}",
   "feedback.extra": "Extra",

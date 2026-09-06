@@ -33,6 +33,7 @@ import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
 import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
 import { QaidaCourse } from "@/components/QaidaCourse";
 import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
+import { SUPPORTED_LANGUAGES, languageNoteKey, type SupportedLanguageCode } from "@shared/languages";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { ACTIVE_LETTER_AUDIO_SOURCE } from "@/lib/letterAudioSources";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
@@ -41,11 +42,13 @@ import { SurahPicker } from "@/components/SurahPicker";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
 import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
-import { getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
+import { learningPlanTextKeys, type LearningLevel } from "@shared/learningPath";
 import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
+import { synchronizeLearnerPersistence } from "@/lib/learnerPersistence";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
-import { resolveTeacherAction, type TeacherAction } from "@/lib/teacherAction";
+import { resolveTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
+import { describeStudyTiers } from "@/lib/studyView";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -72,6 +75,8 @@ type RecitationFeedback = {
   wordReviewAvailable: boolean;
   reviewStatus: "available" | "unavailable";
   reviewMessage: string | null;
+  /** Stable reason code, rendered in the learner's language. */
+  reviewMessageCode: "transcription_failed" | "no_arabic_returned" | null;
   quranAwareReview: QuranAwareReview;
   verseFollowing: VerseFollowingResult;
   learningPlan: {
@@ -120,6 +125,21 @@ const masteryLabels: Record<MasteryState, StringKey> = {
   needs_review: "mastery.needs_review",
   strong: "mastery.strong",
   mastered: "mastery.mastered",
+};
+
+// The teaching sequence, as a fixed set of steps. Wording per step, no prose.
+// The server names why a review could not be produced; the words are ours.
+const reviewMessageKeys: Record<"transcription_failed" | "no_arabic_returned", StringKey> = {
+  transcription_failed: "feedback.transcriptionFailed",
+  no_arabic_returned: "feedback.noArabicReturned",
+};
+
+const teachingStepLabels: Record<TeachingStep, StringKey> = {
+  "show-word": "step.showWord",
+  listen: "step.listen",
+  "repeat-word": "step.repeatWord",
+  "recite-ayah": "step.reciteAyah",
+  "record-again": "step.recordAgain",
 };
 
 type BrowserRecognition = {
@@ -257,7 +277,9 @@ export default function Home() {
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [liveMatched, setLiveMatched] = useState<number[]>([]);
-  const [recorderMessage, setRecorderMessage] = useState("Listen to the reciter, then record your own repetition.");
+  // Null until the first status arrives, so the opening line comes from the
+  // locale pack rather than being baked into the component in English.
+  const [recorderMessage, setRecorderMessage] = useState<string | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<RecitationFeedback | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -381,7 +403,18 @@ export default function Home() {
   }, [juzs, surahNumber, selectedVerse]);
   const expectedWords = useMemo(() => (activeVerse?.arabic ?? "").split(/\s+/).filter(Boolean), [activeVerse]);
   const activeLevel = useMemo(() => learningLevels.find((level) => level.id === learningLevel) ?? learningLevels[0], [learningLevel]);
-  const activeCoachPlan = useMemo(() => getLearningCoachPlan(learningLevel), [learningLevel]);
+  // The plan's own words come from the learner's pack, keyed by level, so the
+  // coaching panel is never a pocket of English inside a translated screen.
+  const coachPlanKeys = useMemo(() => {
+    const keys = learningPlanTextKeys(learningLevel);
+    return {
+      title: keys.title as StringKey,
+      focus: keys.focus as StringKey,
+      lessonGoal: keys.lessonGoal as StringKey,
+      boundary: keys.boundary as StringKey,
+      practiceLoop: keys.practiceLoop as readonly StringKey[],
+    };
+  }, [learningLevel]);
   const activeLetter = alphabet[selectedLetter] ?? alphabet[0];
   const soloAudioSrc = letterAudioPath(activeLetter.slug);
   /**
@@ -472,17 +505,9 @@ export default function Home() {
     if (!me.data) return;
     let cancelled = false;
     const synchronize = async () => {
-      const pending = historyRepository.pending();
-      const attempts = Array.from(new Map([...historyRepository.list(), ...pending].map(item => [item.id, item])).values());
       try {
-        const snapshot = await syncProgress.mutateAsync({
-          qaida: readQaidaProgress(),
-          memorizationAttempts: attempts.map(attempt => ({ ...attempt, stability: "final" as const })),
-        });
+        const snapshot = await synchronizeLearnerPersistence(historyRepository, input => syncProgress.mutateAsync(input));
         if (cancelled) return;
-        historyRepository.replace(snapshot.memorizationAttempts);
-        pending.forEach(attempt => historyRepository.acknowledge(attempt.id));
-        writeQaidaProgress(snapshot.qaida);
         setMemorizationAttempts(snapshot.memorizationAttempts);
         const merged = { completedLessons: snapshot.qaida.completedLessons, currentLessonId: snapshot.qaida.currentLessonId };
         setQaidaProgress(current => JSON.stringify(current) === JSON.stringify(merged)
@@ -739,6 +764,10 @@ export default function Home() {
         surah: surahNumber,
         ayah: activeVerse.number,
         learningLevel,
+        // The coach's encouragement follows the interface language. It is
+        // wording only — the instruction and the advancement decision are
+        // already made, deterministically, before this call returns.
+        uiLanguage: locale as SupportedLanguageCode,
         // Position tracking. The neighbouring ayahs let the server tell a
         // repeated previous ayah or an early next ayah apart from a real
         // attempt at this one, using the same alignment it already runs.
@@ -876,19 +905,29 @@ export default function Home() {
   // One instruction, chosen from every signal Study holds. The rules live in
   // client/src/lib/teacherAction.ts so they can be tested without a browser.
   const reviewDue = Boolean(activeMemory.nextReviewAt && new Date(activeMemory.nextReviewAt) <= new Date());
+  // Everything the teacher knows about this attempt, gathered once. The rules
+  // that turn it into one instruction live in shared/teacherDecision.ts.
   const teacherAction: TeacherAction = resolveTeacherAction({
-    isRecording,
-    isReviewing: evaluateRecitation.isPending,
-    recordingError: Boolean(reviewError),
-    review: feedback
+    recording: {
+      isRecording,
+      isReviewing: evaluateRecitation.isPending,
+      failed: Boolean(reviewError),
+    },
+    attempt: feedback
       ? {
-          wordReviewAvailable: feedback.wordReviewAvailable,
+          reviewable: feedback.wordReviewAvailable,
           corrections: feedback.corrections,
           verseFollowing: feedback.verseFollowing,
         }
       : null,
-    position: { currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
-    reviewDue,
+    acoustic: feedback?.quranAwareReview ?? null,
+    memory: {
+      reviewDue,
+      // Word positions this learner keeps missing in this ayah, from the
+      // existing deterministic memory layer — no new mastery model.
+      recurringWordIndexes: activeRecommendation?.focusWordIndexes ?? [],
+    },
+    livePosition: { currentSurah: position.currentSurah, currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
     hasNextAyah: Boolean(nextVerse),
   });
   const runTeacherAction = () => {
@@ -914,6 +953,17 @@ export default function Home() {
     if (quranIndex.error) void quranIndex.refetch();
     else void surahQuery.refetch();
   };
+
+  // Which block belongs to which tier. The page renders this; the rules for it
+  // are in client/src/lib/studyView.ts so the layout contract can be tested.
+  const studyTiers = describeStudyTiers({
+    action: teacherAction,
+    hasFeedback: feedback !== null,
+    wordReviewAvailable: Boolean(feedback?.wordReviewAvailable),
+    hasAcousticReview: feedback?.quranAwareReview.status !== undefined && feedback?.quranAwareReview.status !== "not_configured",
+    audioUnavailable,
+    reviewFailed: Boolean(reviewError),
+  });
 
   const contentFallback = contentError ? (
     <div className="content-state is-error" role="alert">
@@ -982,7 +1032,11 @@ export default function Home() {
               <Globe size={15} aria-hidden="true" />
               <span className="sr-only">{t("language.label")}</span>
               <select value={locale} onChange={(event) => setLocale(event.target.value)}>
-                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}</option>)}
+                {/* The pack's own name, with an honest note about what it is:
+                    "interface only" while long-form lesson text still falls
+                    back to English, and "AI-drafted" once every string is
+                    carried but no speaker of the language has read them. */}
+                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}{languageNoteKey(option.code as SupportedLanguageCode) ? ` — ${t(languageNoteKey(option.code as SupportedLanguageCode)!)}` : ""}</option>)}
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
@@ -1065,39 +1119,44 @@ export default function Home() {
           </div>}
 
           {view === "study" && (!activeVerse ? contentFallback : <div className="study-layout">
-            <div className="study-index"><span>{t("study.ayah")}</span><strong>{String(activeVerse.number).padStart(2, "0")}</strong><span>{t("study.ayahOf", { total: String(ayahs.length).padStart(2, "0") })}</span></div>
-            <div className="study-card"><img src="/manus-storage/quran-audio-study-abstract_0f1c8a87.png" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
+            <div className="study-index" aria-hidden="true"><strong>{String(activeVerse.number).padStart(2, "0")}</strong></div>
+            <div className="study-card"><img src="/assets/quran-audio-study-abstract.svg" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
             <div className="teacher-loop" aria-label={t("study.lessonLabel")}>
-              <div className="loop-header"><div><span className="eyebrow">{t("study.eyebrow")}</span><h2>{t("study.heading")}</h2></div><span className="teacher-badge">{t("study.badge")}</span></div>
-
               {/* Priority one: what to do now, where you are, and the mic. One
                   instruction and at most one contextual button — the listen and
                   record controls below are the other half of the same block. */}
               <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
-                <p className="now-place">{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
-                <h3 className="now-instruction" aria-live="polite">{t(teacherAction.titleKey, teacherAction.titleParams)}</h3>
-                {teacherAction.focusArabic && <p className="now-word" lang="ar" dir="rtl">{teacherAction.focusArabic}</p>}
+                <p className="now-place"><span className="now-surah">{surahLabel}</span><span>{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}</span>{studyTiers.now.showWordPosition && teacherAction.focusWordIndex !== null && <span>{t("now.placeWord", { number: teacherAction.focusWordIndex })}</span>}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
+                <h2 className="now-instruction" aria-live="polite">{t(studyTiers.now.instructionKey, studyTiers.now.instructionParams)}</h2>
+                {teacherAction.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{teacherAction.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step])}</li>)}</ol>}
                 <div className="loop-actions">
                   <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
                   <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
                 </div>
                 {teacherAction.button && <button type="button" className="now-action" onClick={runTeacherAction}>{teacherAction.button.command === "next-ayah" ? <>{t(teacherAction.button.labelKey, teacherAction.button.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(teacherAction.button.labelKey, teacherAction.button.params)}</>}</button>}
-                <p className="loop-message" role="status">{recorderMessage}</p>
+                <p className="loop-message" role="status">{recorderMessage ?? t("recorder.intro")}</p>
                 {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
               </section>
+
+              {/* Tier two: the word to fix. Arabic first, one line of
+                  explanation, and the reference to listen to — before any
+                  score. An unconfirmed result is styled neutrally: the app
+                  says what it could not hear, it does not mark it wrong. */}
+              {studyTiers.correction && <section className={`active-correction ${studyTiers.correction.confirmed ? "" : "is-unsure"}`} aria-label={t("correction.label")}>
+                <p className="correction-target" lang="ar" dir="rtl">{studyTiers.correction.arabic}</p>
+                <p className="correction-explain">{t(studyTiers.correction.explanationKey)}</p>
+                {studyTiers.correction.offerReference && <button type="button" className="correction-listen" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={16} /> {t("correction.listen")}</button>}
+                <small className="correction-retry">{t("correction.retry")}</small>
+              </section>}
 
               {/* The live guide is the mic's own feedback, so it sits with it. */}
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : index === position.expectedWordIndex - 1 ? "is-expected" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
 
               {/* A failure the learner has to get past is never collapsed. */}
-              {reviewError && <div className="review-unavailable review-recovery" role="alert"><AlertCircle size={16} /><div><strong>{t("feedback.unavailable")}</strong><span>{reviewError}</span></div><button type="button" className="retry-button" onClick={retryLesson}><RotateCcw size={16} /> {t("recorder.retryNow")}</button></div>}
-              {feedback && !feedback.wordReviewAvailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback.reviewMessage ?? t("feedback.reviewUnavailable")}</span></div>}
-
-              {/* Priority two: the words to go back to, when there are any. */}
-              {feedback?.wordReviewAvailable && feedback.corrections.length > 0 && <section className="correction-list" aria-label={t("feedback.available")}>
-                {feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}
-              </section>}
-              {feedback?.wordReviewAvailable && feedback.corrections.length === 0 && <p className="all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
+              {/* The instruction above already offers "Try again", so this
+                  states the reason without competing for the same tap. */}
+              {studyTiers.alerts.reviewFailed && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{reviewError}</span></div>}
+              {studyTiers.alerts.reviewUnavailable && <div className="review-unavailable" role="alert"><AlertCircle size={16} /><span>{feedback?.reviewMessageCode ? t(reviewMessageKeys[feedback.reviewMessageCode]) : t("feedback.reviewUnavailable")}</span></div>}
 
               {recordingUrl && <audio className="learner-playback" src={recordingUrl} controls />}
 
@@ -1105,6 +1164,24 @@ export default function Home() {
                   Collapsed by default, and never carrying a warning of its own. */}
               <details className="teacher-notes">
                 <summary><span>{t("notes.summary")}</span><small>{t("notes.hint")}</small></summary>
+
+                {teacherAction.secondaryNotes.length > 0 && <div className="notes-block notes-observed">
+                  <div><span className="eyebrow">{t("notes.observedLabel")}</span></div>
+                  <ul>{teacherAction.secondaryNotes.map((note, index) => <li key={`${note.kind}-${index}`}>{note.kind === "acoustic"
+                    ? t("notes.observedAcoustic", { number: note.wordIndex ?? 0 })
+                    : note.kind === "recurring"
+                      ? t("notes.observedRecurring", { number: note.wordIndex })
+                      : note.kind === "extra-words"
+                        ? t("notes.observedExtra", { count: note.count })
+                        : t(note.status === "missing" ? "notes.observedMissing" : "notes.observedReview", { number: note.wordIndex })}{note.kind === "acoustic" && <em> {note.guidance}</em>}</li>)}</ul>
+                  <small><AlertCircle size={13} /> {t("notes.observedBoundary")}</small>
+                </div>}
+
+                {feedback?.wordReviewAvailable && feedback.corrections.length > 0 && <div className="notes-block">
+                  <div><span className="eyebrow">{t("feedback.available")}</span></div>
+                  <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div>
+                </div>}
+                {feedback?.wordReviewAvailable && feedback.corrections.length === 0 && <p className="notes-block all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
 
                 {feedback && <div className="notes-block">
                   <div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div>
@@ -1142,10 +1219,14 @@ export default function Home() {
                 </div>}
 
                 <div className="notes-block coach-context" aria-label={t("coach.contextLabel")}>
-                  <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{(feedback?.learningPlan ?? activeCoachPlan).title}</strong></div>
-                  <p>{feedback ? feedback.learningPlan.focus : activeCoachPlan.lessonGoal}</p>
-                  <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{(feedback?.learningPlan.practiceLoop ?? activeCoachPlan.practiceLoop).map((step) => <span key={step}>{step}</span>)}</div>
-                  <small><AlertCircle size={13} /> {(feedback?.learningPlan ?? activeCoachPlan).boundary}</small>
+                  {/* The plan is chosen by level, not by wording: the review
+                      response echoes the plan's English text, but what the
+                      learner reads comes from their own pack, keyed by that
+                      level. */}
+                  <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{t(coachPlanKeys.title)}</strong></div>
+                  <p>{t(feedback ? coachPlanKeys.focus : coachPlanKeys.lessonGoal)}</p>
+                  <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{coachPlanKeys.practiceLoop.map((step) => <span key={step}>{t(step)}</span>)}</div>
+                  <small><AlertCircle size={13} /> {t(coachPlanKeys.boundary)}</small>
                 </div>
 
                 <div className="loop-steps" aria-label={t("study.stageLabel", { stage: lessonStage })}><span className={lessonStage === "listen" ? "is-current" : "is-complete"}><b>01</b> {t("study.stageListen")}</span><span className={lessonStage === "repeat" ? "is-current" : lessonStage === "review" ? "is-complete" : ""}><b>02</b> {t("study.stageRepeat")}</span><span className={lessonStage === "review" ? "is-current" : ""}><b>03</b> {t("study.stageReview")}</span></div>
@@ -1166,7 +1247,7 @@ export default function Home() {
         <div className="panel-topbar"><p className="eyebrow">{t("panel.keepPlace")}</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={() => setSaved((current) => !current)} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {t(saved ? "panel.saved" : "panel.save")}</button></div>
         {activeVerse && <div className="selected-ayah"><div className="ayah-reference"><span>{surahLabel}</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <>{activeVerse.transliteration && <p className="panel-transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="panel-translation">{activeVerse.translation}</p>}</>}</div>}
         <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{t(isPlaying ? "panel.audioPlaying" : "panel.listenRepeat")}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{activeReciterName}</span><span>{t("panel.ayahNumber", { number: activeVerse?.number ?? "—" })}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {t(isPlaying ? "panel.playingReciter" : "panel.listenSelected")}</button><p className="audio-note"><Headphones size={14} /> {t("panel.audioNote")}</p></div>
-        <div className="practice-note"><img src="/manus-storage/quran-study-lantern-illustration_3d7eaf67.png" alt="" /><div><span className="eyebrow">{t("panel.sequenceEyebrow")}</span><p>{t("panel.sequenceCopy")}</p></div></div>
+        <div className="practice-note"><img src="/assets/quran-study-lantern-illustration.svg" alt="" /><div><span className="eyebrow">{t("panel.sequenceEyebrow")}</span><p>{t("panel.sequenceCopy")}</p></div></div>
         <div className="completion-card"><div><span className="eyebrow">{t("panel.thisReading")}</span><strong>{readingPercent}%</strong></div><div className="completion-track"><span style={{ width: `${readingPercent}%` }} /></div><p>{t("panel.progressNote")}</p></div>
       </aside>
       <div className="mobile-dock" aria-label={t("dock.label")}><button type="button" onClick={() => setView("read")} className={view === "read" ? "is-active" : ""}><BookOpen size={18} /><span>{t("dock.read")}</span></button><button type="button" onClick={() => setView("study")} className="dock-listen"><Mic size={19} /><span>{t("dock.practise")}</span></button><button type="button" onClick={() => setView("memorise")} className={view === "memorise" ? "is-active" : ""}><Sparkles size={18} /><span>{t("dock.recall")}</span></button></div>

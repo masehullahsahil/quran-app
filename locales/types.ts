@@ -1,3 +1,5 @@
+import type { QaidaTextPack } from "../shared/qaidaText";
+
 /**
  * The shape of an instruction-language pack.
  *
@@ -66,4 +68,11 @@ export type LocalePack<TStrings extends Record<string, string> = Record<string, 
   manifest: LocaleManifest;
   strings: TStrings;
   lessons: LocaleLessons;
+  /**
+   * Qaida course prose in this language, keyed by the curriculum's own lesson
+   * and exercise ids. Optional and partial: a pack translates the lessons it
+   * has reached and the rest stay in English. See shared/qaidaText.ts — the
+   * course structure, the Arabic and the answers are never duplicated here.
+   */
+  qaida?: QaidaTextPack;
 };

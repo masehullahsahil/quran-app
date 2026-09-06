@@ -104,6 +104,49 @@ describe("the instruction stays the largest thing in Study", () => {
   });
 });
 
+describe("the phone puts teaching before content", () => {
+  it("orders the instruction block above the ayah card", () => {
+    const block = mobileBlock();
+    const orderOf = (selector: string) => {
+      const match = block.match(new RegExp(`${selector}\\s*\\{[^}]*order:\\s*(\\d+)`));
+      return match ? Number(match[1]) : NaN;
+    };
+
+    expect(block).toMatch(/\.study-layout\s*\{[^}]*flex-direction:\s*column/);
+    expect(orderOf("\\.teacher-loop")).toBeLessThan(orderOf("\\.study-card"));
+    expect(orderOf("\\.study-index")).toBeLessThan(orderOf("\\.teacher-loop"));
+    expect(orderOf("\\.study-pagination")).toBeGreaterThan(orderOf("\\.study-card"));
+  });
+
+  it("drops the decorative wash rather than scrolling past it", () => {
+    expect(mobileBlock()).toMatch(/\.study-visual\s*\{[^}]*display:\s*none/);
+  });
+
+  it("keeps the correction word large and unbroken on a narrow screen", () => {
+    const block = mobileBlock();
+    expect(block).toMatch(/\.correction-target\s*\{[^}]*font-size:\s*clamp\(/);
+    expect(block).toMatch(/\.correction-target\s*\{[^}]*word-break:\s*break-word/);
+    expect(block).toMatch(/\.correction-listen\s*\{[^}]*width:\s*100%/);
+  });
+});
+
+describe("an unconfirmed result is not styled as an error", () => {
+  it("gives the unsure tone its own neutral palette", () => {
+    const unsure = css.match(/\.teacher-now\.is-unsure\s*\{([^}]*)\}/)?.[1] ?? "";
+    const attention = css.match(/\.teacher-now\.is-attention\s*\{([^}]*)\}/)?.[1] ?? "";
+
+    expect(unsure).toBeTruthy();
+    expect(attention).toBeTruthy();
+    expect(unsure).not.toBe(attention);
+    // The amber left rule is what reads as "you made a mistake".
+    expect(unsure).not.toContain("#b38748");
+  });
+
+  it("carries the neutral palette into the correction panel", () => {
+    expect(css).toMatch(/\.active-correction\.is-unsure\s*\{[^}]*border-left-color:/);
+  });
+});
+
 describe("collapsible sections stay usable", () => {
   it("gives every disclosure summary a focus ring and a pointer", () => {
     for (const selector of ["\\.teacher-notes", "\\.letter-reference"]) {

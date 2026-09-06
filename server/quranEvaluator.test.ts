@@ -41,7 +41,6 @@ describe("Quran-aware evaluator adapter", () => {
       summary: "Pause briefly before the next phrase, then repeat it slowly.",
       findings: [
         { kind: "pause", wordIndex: 2, expectedArabic: "الله", guidance: "Practise the pause before continuing." },
-        { kind: "not-allowed", wordIndex: 3, expectedArabic: "ignored", guidance: "This must not reach the learner." },
       ],
     }), { status: 200 }));
     global.fetch = fetchMock as unknown as typeof fetch;
@@ -82,5 +81,42 @@ describe("Quran-aware evaluator adapter", () => {
       summary: null,
       findings: [],
     });
+  });
+
+  it.each([
+    ["non-object payload", "not-an-object"],
+    ["missing findings", { status: "available", confidence: 0.9, summary: "A summary" }],
+    ["unknown status", { status: "maybe", confidence: 0.9, summary: "A summary", findings: [] }],
+    ["unknown finding kind", { status: "available", confidence: 0.9, summary: "A summary", findings: [{ kind: "guess", wordIndex: 1, guidance: "No." }] }],
+    ["out-of-range word index", { status: "available", confidence: 0.9, summary: "A summary", findings: [{ kind: "phoneme", wordIndex: 99, guidance: "No." }] }],
+  ])("rejects %s", async (_name, payload) => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+    global.fetch = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 })) as unknown as typeof fetch;
+    const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+    await expect(evaluateQuranAwareAudio(evaluatorInput)).resolves.toMatchObject({ status: "unavailable", findings: [] });
+  });
+
+  it("bounds excessive valid findings", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+    const findings = Array.from({ length: 8 }, () => ({ kind: "phoneme", wordIndex: 1, guidance: "Review this sound." }));
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({ status: "available", confidence: 0.9, summary: "Review.", findings }), { status: 200 })) as unknown as typeof fetch;
+    const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+    const result = await evaluateQuranAwareAudio(evaluatorInput);
+    expect(result.status).toBe("available");
+    expect(result.findings).toHaveLength(3);
+  });
+
+  it.each(["timeout", "service unavailable"])("uses unavailable fallback on %s", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+    global.fetch = vi.fn(async () => { throw new DOMException("request failed", "TimeoutError"); }) as unknown as typeof fetch;
+    const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+    await expect(evaluateQuranAwareAudio(evaluatorInput)).resolves.toMatchObject({ status: "unavailable", findings: [] });
+  });
+
+  it("uses unavailable fallback for a non-success service response", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+    global.fetch = vi.fn(async () => new Response("down", { status: 503 })) as unknown as typeof fetch;
+    const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+    await expect(evaluateQuranAwareAudio(evaluatorInput)).resolves.toMatchObject({ status: "unavailable", findings: [] });
   });
 });

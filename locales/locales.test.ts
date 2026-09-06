@@ -112,7 +112,7 @@ describe("placeholders", () => {
   });
 });
 
-describe("the scaffolded pack", () => {
+describe("the Urdu pack", () => {
   it("is registered and loadable", async () => {
     expect(isKnownLocale("ur")).toBe(true);
     const resolved = await loadLocale("ur");
@@ -120,12 +120,26 @@ describe("the scaffolded pack", () => {
     expect(resolved.manifest.direction).toBe("rtl");
   });
 
-  // It is a scaffold on purpose: no machine-translated placeholder text, so the
-  // English fallback is what a learner sees until a translator fills it in.
-  it("starts empty, so every string falls back to English", async () => {
+  // This pack was an empty scaffold, then an interface-only pack; it now
+  // carries every reference key in Urdu, so nothing a learner reads falls back
+  // to English. The per-key fallback itself is asserted just below, on a
+  // deliberately partial pack, so completing a language cannot delete the proof
+  // that an incomplete one degrades safely.
+  it("carries the whole reference key set in its own words", async () => {
     const resolved = await loadLocale("ur");
-    expect(resolved.missingKeys).toHaveLength(Object.keys(en.strings).length);
-    expect(resolved.t("mode.read")).toBe(en.strings["mode.read"]);
+
+    expect(resolved.t("mode.read")).not.toBe(en.strings["mode.read"]);
+    expect(resolved.missingKeys).toEqual([]);
+    expect(resolved.coverage.criticalComplete).toBe(true);
+    expect(resolved.coverage.strings).toBe(1);
+  });
+
+  it("still falls back per key for a pack that is missing one", () => {
+    const partial = resolvePack(asPack({ manifest: ur.manifest, strings: { "mode.read": "پڑھیں" }, lessons: { letters: {} } }));
+
+    expect(partial.t("mode.read")).toBe("پڑھیں");
+    expect(partial.t("mode.learn")).toBe(en.strings["mode.learn"]);
+    expect(partial.coverage.strings).toBeLessThan(1);
   });
 
   it("declares its own instruction audio directory, separate from English", () => {

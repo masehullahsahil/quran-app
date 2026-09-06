@@ -9,7 +9,7 @@ locales/
   types.ts          the pack shape
   index.ts          registry, loader, fallback
   en/index.ts       reference pack — every key is defined here
-  ur/index.ts       scaffold — empty, falls back to English
+  ur/index.ts       one of four complete packs (ps, fa-AF, ur, ar)
 ```
 
 ## What is in a pack, and what is not
@@ -47,8 +47,9 @@ dynamic `import()`, so languages cost nothing until selected.
 
 ## Adding a language
 
-1. Create `locales/<code>/index.ts`. Copy `locales/ur/index.ts` as the starting
-   point — it is already an empty pack with the right shape.
+1. Create `locales/<code>/index.ts`. Copy the shape of `locales/ur/index.ts` —
+   manifest, `strings`, `lessons.letters`, `qaida` — and start from an empty
+   object for each; a pack is usable from its first translated line.
 2. Add a row to `LOCALES` in `locales/index.ts` with the manifest and a
    `load: () => import("./<code>")`.
 3. Get the key list to work from:
@@ -74,12 +75,19 @@ dynamic `import()`, so languages cost nothing until selected.
 Translate as much or as little as you like — the app runs at every point in
 between.
 
-## A note on placeholder translations
+## A note on machine-drafted translations
 
-The Urdu pack ships empty on purpose. Machine-translated filler is worse than
-the English fallback: it looks finished, so nobody checks it, and a learner is
-taught from text no speaker of the language has read. An untranslated key
-falls back visibly; a wrong translation does not.
+Machine-translated filler is worse than an English fallback when nobody checks
+it: it looks finished, so it is never read, and a learner is taught from text no
+speaker of the language has seen. Two things keep that from happening here. The
+packs are marked `translationStatus: "ai-drafted"` and `nativeReviewed: false`
+in `shared/languages.ts`, and the picker prints that beside the language's name,
+so a learner is told what they are reading. And the fallback stays per key, so a
+pack that loses a string shows English there rather than a blank — the coverage
+test reports it the same day.
+
+Those two fields may only change when a speaker of the language has actually
+read the pack. A complete pack is not a reviewed one.
 
 ## Placeholders
 

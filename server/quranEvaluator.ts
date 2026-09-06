@@ -53,12 +53,15 @@ function parseFinding(value: unknown): QuranEvaluationFinding | null {
   return { kind: kind as QuranEvaluationFindingKind, wordIndex, expectedArabic, guidance };
 }
 
-function parseResponse(value: unknown): QuranAwareReview {
+function parseResponse(value: unknown, maximumWordIndex: number): QuranAwareReview {
   if (!isRecord(value)) return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
 
   const provider = boundedString(value.provider, 80);
   const confidence = boundedConfidence(value.confidence);
-  const status = value.status === "available" || value.status === "abstained" ? value.status : "abstained";
+  if (value.status !== "available" && value.status !== "abstained") {
+    return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
+  }
+  const status = value.status;
   const summary = boundedString(value.summary, MAX_SUMMARY_LENGTH);
 
   // A specialised evaluator must decline to diagnose when its own confidence is
@@ -68,8 +71,13 @@ function parseResponse(value: unknown): QuranAwareReview {
     return { status: "abstained", provider, confidence, summary: null, findings: [] };
   }
 
-  const rawFindings = Array.isArray(value.findings) ? value.findings : [];
-  const findings = rawFindings.map(parseFinding).filter((finding): finding is QuranEvaluationFinding => Boolean(finding)).slice(0, MAX_FINDINGS);
+  if (!Array.isArray(value.findings)) return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
+  const parsedFindings = value.findings.map(parseFinding);
+  if (parsedFindings.some(finding => !finding)) return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
+  if ((parsedFindings as QuranEvaluationFinding[]).some(finding => finding.wordIndex !== null && finding.wordIndex > maximumWordIndex)) {
+    return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
+  }
+  const findings = (parsedFindings as QuranEvaluationFinding[]).slice(0, MAX_FINDINGS);
 
   // A high confidence score alone is not a learner-facing observation. Require
   // a bounded summary or a structured finding before rendering this review.
@@ -117,7 +125,8 @@ export async function evaluateQuranAwareAudio(input: QuranEvaluatorRequest): Pro
       return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
     }
 
-    return parseResponse(await response.json());
+    const maximumWordIndex = input.expectedArabic.trim().split(/\s+/).filter(Boolean).length;
+    return parseResponse(await response.json(), maximumWordIndex);
   } catch (error) {
     console.warn("[quran-evaluator] Service unavailable; using word-alignment fallback", error instanceof Error ? error.name : "unknown error");
     return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
