@@ -117,3 +117,12 @@ client/public/__manus__/version.json
 
 .vercel
 .env*
+
+# Pronunciation dataset staging: private manifests and audio must never be
+# committed. Only the *.example.json schema samples in these directories are
+# tracked. See docs/pronunciation-dataset-spec.md.
+datasets/quran-pronunciation/manifest.json
+datasets/quran-pronunciation/audio/
+datasets/quran-pronunciation/labels/
+datasets/quran-acoustic/manifest.json
+datasets/quran-acoustic/audio/

@@ -1,5 +1,7 @@
 # Quran acoustic teacher-labeling guide
 
+> **Scope.** This guide is the narrow vocabulary used by the confidence-gated evaluator prototype and `pnpm benchmark:acoustic`. The fuller dataset design — 21 label categories, location granularity down to letter and millisecond, separated machine/teacher/adjudicated layers, split and leakage rules, and benchmark metrics — is in [pronunciation-dataset-spec.md](./pronunciation-dataset-spec.md). This document stays in force until a teacher-labeled dataset exists.
+
 ## Purpose and boundary
 
 A qualified Qari/Quran teacher supplies the religious and phonetic judgment. Software records structured observations; generic transcription is not evidence of correct makhraj or tajweed. When the recording or rule is ambiguous, choose **uncertain** rather than forcing a diagnosis.

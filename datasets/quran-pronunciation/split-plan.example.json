@@ -1,0 +1,10 @@
+{
+  "version": "example-1",
+  "note": "Speakers are assigned, not recordings. Every recording of a speaker follows this assignment.",
+  "assignments": [
+    { "speakerAnonymizedId": "speaker-0001", "split": "training", "assignedAt": "2026-01-03", "reason": "Sampling plan: 70% of speakers to training." },
+    { "speakerAnonymizedId": "speaker-0002", "split": "validation", "assignedAt": "2026-01-03" },
+    { "speakerAnonymizedId": "speaker-0003", "split": "test", "assignedAt": "2026-01-03" },
+    { "speakerAnonymizedId": "speaker-0004", "split": "production-benchmark", "assignedAt": "2026-01-03", "reason": "Frozen release-comparison set." }
+  ]
+}
