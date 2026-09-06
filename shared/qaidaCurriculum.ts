@@ -246,6 +246,16 @@ const LETTER_GROUPS: Array<{ id: string; title: string; teaching: string; letter
 const ALL_LETTERS: CurriculumLetter[] = LETTER_GROUPS.flatMap((group) => group.letters);
 
 /**
+ * The 28 letters in teaching order, as the course itself declares them.
+ *
+ * Exported so tooling — the teacher audit inventory, the review report — can
+ * name a letter without restating its glyph or its name anywhere else. This is
+ * a view of the data above, not a second copy of it.
+ */
+export type QaidaLetter = CurriculumLetter;
+export const QAIDA_LETTERS: readonly CurriculumLetter[] = ALL_LETTERS;
+
+/**
  * Two wrong answers for a letter, taken from the letters after it in teaching
  * order. Names are filtered, not glyphs: ت and ط are both written "Taa", and ح
  * and ه are both "Haa", so a name-based question must never offer the same word

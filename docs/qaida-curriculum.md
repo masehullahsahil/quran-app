@@ -79,6 +79,8 @@ Quoted words use a simplified vowelled spelling (الصِّرَاطَ) rather th
 
 ## Teacher review checklist
 
+The structured version of this checklist is the **[teacher audit](./qaida-teacher-audit.md)**: a review workspace at `/curriculum-audit` and a printable report (`pnpm audit:qaida`) that break the course into 608 reviewable items — every level, lesson, objective, example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each carrying its own review state and provenance. Use it to record decisions; the table below stays as the shape of the job.
+
 Nothing in this list is verified by code. Each item needs a qualified Qari or Qaida teacher to sign off before this course is presented as finished teaching material.
 
 | Area | What to check | Where |

@@ -153,6 +153,7 @@ bound to.
 | `pnpm check`   | TypeScript type check, no emit.                                               |
 | `pnpm test`    | Runs the Vitest suite once.                                                   |
 | `pnpm format`  | Formats the repo with Prettier.                                               |
+| `pnpm audit:qaida` | Prints the Qaida curriculum review report for a qualified teacher.        |
 | `pnpm db:push` | Generates and applies Drizzle migrations.                                     |
 
 `dev` and `start` prefix their command with `cross-env` to set `NODE_ENV`
@@ -336,6 +337,14 @@ The Arabic text is the point of the app, so it is the last thing to be given up:
   to the default English translation; the Quran still loads.
 - Quran.com unreachable → the reading area shows the reason and a retry
   control rather than an empty page.
+
+---
+
+## Qaida curriculum teacher audit
+
+The twelve-level Qaida course was written by a software team and **has not been reviewed by a qualified Qari or Qaida teacher**. The review workspace at `/curriculum-audit` breaks it into 608 items — every level, lesson, objective, Arabic example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each starting as *AI-drafted, pending review*, and lets a named reviewer record corrections, clarifications and approvals, then export the result as a file.
+
+Nothing in this repository can approve that content: a passing test suite says the curriculum data is well formed, not that the teaching is right. See [docs/qaida-teacher-audit.md](./docs/qaida-teacher-audit.md) for how a teacher performs and records the audit, and `pnpm audit:qaida` for the same inventory on paper.
 
 ---
 
