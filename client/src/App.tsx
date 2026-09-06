@@ -6,12 +6,16 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { LocaleProvider } from "./contexts/LocaleContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import CurriculumAudit from "./pages/CurriculumAudit";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
   return (
     <Switch>
       <Route path={"/"} component={Home} />
+      {/* The qualified-teacher review workspace for the Qaida curriculum.
+          Reviewer tooling, not part of the learner's app. */}
+      <Route path={"/curriculum-audit"} component={CurriculumAudit} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
