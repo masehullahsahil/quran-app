@@ -31,6 +31,9 @@ import { MAX_AUDIO_BYTES } from "@shared/recording";
 // before Whisper sees it — see shared/recording.ts.
 export { MAX_AUDIO_BYTES };
 
+const transcriptionTimeoutMs = () =>
+  Math.min(Math.max(ENV.openaiTranscriptionTimeoutMs, 1000), 30_000);
+
 export type TranscribeOptions = {
   audio: Buffer | Uint8Array; // Raw audio bytes
   mimeType: string; // MIME type of those bytes, e.g. "audio/webm" — decides the filename extension sent to Whisper
@@ -143,6 +146,7 @@ export async function transcribeAudio(
         authorization: `Bearer ${ENV.openaiApiKey}`,
         "Accept-Encoding": "identity",
       },
+      signal: AbortSignal.timeout(transcriptionTimeoutMs()),
       body: formData,
     });
 

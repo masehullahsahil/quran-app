@@ -5,6 +5,7 @@ const checks = [
     "test",
     "--",
     "server/recitation.benchmark.test.ts",
+    "server/recitation.router.test.ts",
     "server/learner.router.test.ts",
     "client/src/lib/learnerPersistence.test.ts",
     "client/src/lib/memorizationHistory.test.ts",
@@ -20,6 +21,14 @@ if (process.env.VERIFY_DATABASE === "1") {
 } else {
   console.log(
     "database verification not run (set VERIFY_DATABASE=1 with DATABASE_URL to enable it)",
+  );
+}
+
+if (process.env.RECITATION_RATE_LIMIT_REDIS_REST_URL && process.env.RECITATION_RATE_LIMIT_REDIS_REST_TOKEN) {
+  console.log("recitation distributed rate-limit store configured (endpoint not contacted by this deterministic check)");
+} else {
+  console.log(
+    "recitation distributed rate-limit store not configured; serverless production requires RECITATION_RATE_LIMIT_REDIS_REST_URL and RECITATION_RATE_LIMIT_REDIS_REST_TOKEN",
   );
 }
 

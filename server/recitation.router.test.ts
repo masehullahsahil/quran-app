@@ -1,10 +1,13 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
+import { resetRecitationRateLimitForTests } from "./recitationRateLimit";
+import { MAX_AUDIO_BYTES } from "@shared/recording";
 
 const originalFetch = global.fetch;
 
 afterEach(() => {
   global.fetch = originalFetch;
+  resetRecitationRateLimitForTests();
   vi.unstubAllEnvs();
   vi.resetModules();
 });
@@ -18,6 +21,13 @@ const evaluateInput = {
   surah: 1,
   ayah: 1,
 };
+
+beforeEach(() => {
+  vi.stubEnv("QURAN_EVALUATOR_URL", "");
+  vi.stubEnv("QURAN_EVALUATOR_API_KEY", "");
+  vi.stubEnv("RECITATION_RATE_LIMIT_REDIS_REST_URL", "");
+  vi.stubEnv("RECITATION_RATE_LIMIT_REDIS_REST_TOKEN", "");
+});
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
@@ -89,6 +99,29 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
 }
 
 const callerContext = {} as TrpcContext;
+
+function contextForClient(ip: string, userId?: number): TrpcContext {
+  return {
+    req: {
+      headers: {},
+      socket: { remoteAddress: ip },
+    },
+    res: {},
+    user: userId
+      ? {
+          id: userId,
+          openId: `test-user-${userId}`,
+          name: null,
+          email: null,
+          loginMethod: null,
+          role: "user",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          lastSignedIn: new Date(),
+        }
+      : null,
+  } as TrpcContext;
+}
 
 describe("recitation.evaluate", () => {
   // The point of the refactor: transcription takes the buffer the procedure
@@ -307,6 +340,165 @@ describe("recitation.evaluate", () => {
     expect(result.wordReviewAvailable).toBe(true);
     expect(calls).toContain("https://api.openai.com/v1/audio/transcriptions");
     expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("allows normal anonymous reviews within the expensive-path limit", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.10"));
+
+    await expect(caller.recitation.evaluate(evaluateInput)).resolves.toMatchObject({
+      wordReviewAvailable: true,
+    });
+
+    expect(calls).toEqual([
+      "https://api.openai.com/v1/audio/transcriptions",
+      "https://api.openai.com/v1/chat/completions",
+    ]);
+  });
+
+  it("rejects reviews above the burst limit before transcription, coaching, or archiving", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "forge-key");
+
+    const calls = stubServices();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.20"));
+
+    for (let i = 0; i < 4; i++) {
+      await expect(caller.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
+    }
+    await expect(caller.recitation.evaluate(evaluateInput)).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+    });
+
+    expect(calls.filter(url => url.includes("/audio/transcriptions"))).toHaveLength(4);
+    expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(4);
+    expect(calls.filter(url => url.includes("/storage/"))).toHaveLength(4);
+    expect(warn).toHaveBeenCalledWith("[recitation] evaluate rate limited", expect.objectContaining({
+      identityType: "ip",
+      window: "burst",
+    }));
+    warn.mockRestore();
+  });
+
+  it("keeps separate client identities on separate counters", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices();
+    const { appRouter } = await import("./routers");
+    const firstClient = appRouter.createCaller(contextForClient("203.0.113.30"));
+    const secondClient = appRouter.createCaller(contextForClient("203.0.113.31"));
+
+    for (let i = 0; i < 4; i++) {
+      await expect(firstClient.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
+    }
+
+    await expect(secondClient.recitation.evaluate(evaluateInput)).resolves.toMatchObject({
+      wordReviewAvailable: true,
+    });
+  });
+
+  it("uses authenticated user identity when present", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices();
+    const { appRouter } = await import("./routers");
+    const signedIn = appRouter.createCaller(contextForClient("203.0.113.40", 42));
+
+    for (let i = 0; i < 8; i++) {
+      await expect(signedIn.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
+    }
+    await expect(signedIn.recitation.evaluate(evaluateInput)).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+    });
+  });
+
+  it("does not trust fake client IP headers outside Vercel", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices();
+    const { appRouter } = await import("./routers");
+    const context = contextForClient("203.0.113.50");
+    context.req.headers["x-forwarded-for"] = "198.51.100.1";
+    const caller = appRouter.createCaller(context);
+
+    for (let i = 0; i < 4; i++) {
+      context.req.headers["x-forwarded-for"] = `198.51.100.${i + 1}`;
+      await expect(caller.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
+    }
+
+    context.req.headers["x-forwarded-for"] = "198.51.100.99";
+    await expect(caller.recitation.evaluate(evaluateInput)).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+    });
+  });
+
+  it("rejects malformed audio before expensive work", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+
+    await expect(
+      appRouter.createCaller(contextForClient("203.0.113.60")).recitation.evaluate({
+        ...evaluateInput,
+        audioBase64: "!!!!!!!!!!!!!!!!!!!!",
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects oversized audio before expensive work", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+
+    await expect(
+      appRouter.createCaller(contextForClient("203.0.113.61")).recitation.evaluate({
+        ...evaluateInput,
+        audioBase64: Buffer.alloc(MAX_AUDIO_BYTES + 1, 7).toString("base64"),
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    expect(calls).toEqual([]);
+  });
+
+  it("does not emit sensitive recording or transcript content in rate-limit logs", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices({ transcript: AYAH });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.70"));
+
+    for (let i = 0; i < 4; i++) {
+      await caller.recitation.evaluate(evaluateInput);
+    }
+    await expect(caller.recitation.evaluate(evaluateInput)).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+    });
+
+    const serializedLogs = JSON.stringify(warn.mock.calls);
+    expect(serializedLogs).not.toContain(evaluateInput.audioBase64);
+    expect(serializedLogs).not.toContain(AYAH);
     warn.mockRestore();
   });
 });

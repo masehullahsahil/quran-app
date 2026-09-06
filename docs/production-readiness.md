@@ -64,9 +64,25 @@ Required for the durable signed-in production flow:
 
 Optional integrations:
 
-- `OPENAI_API_KEY` (and optional `OPENAI_BASE_URL`) — live transcription/coach wording; deterministic tests do not need it.
+- `OPENAI_API_KEY` (and optional `OPENAI_BASE_URL`, `OPENAI_TRANSCRIPTION_TIMEOUT_MS`, and `OPENAI_CHAT_TIMEOUT_MS`) — live transcription/coach wording; deterministic tests do not need it. The timeout variables are bounded in code between 1s and 30s.
+- `RECITATION_RATE_LIMIT_REDIS_REST_URL` and `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` — strongly recommended for production distributed rate limiting of the expensive `recitation.evaluate` path. These settings are compatible with a Redis/Upstash-style REST command endpoint. Without them, the app falls back to per-instance memory counters; that still protects one warm function instance but does **not** provide a distributed limit across Vercel instances or cold starts.
 - `QURAN_EVALUATOR_URL`, optional `QURAN_EVALUATOR_API_KEY`, and `QURAN_EVALUATOR_TIMEOUT_MS` — specialist acoustic service.
 - `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID` — optional analytics script. If either value is absent or blank, the production HTML emits no analytics script and the browser makes no analytics request.
+
+## Recitation spend and abuse controls
+
+`recitation.evaluate` remains public so the current Vercel path does not depend on the unfinished Manus auth replacement. It is nevertheless guarded before storage, transcription, the optional Quran-aware evaluator, and the coach LLM call. The server validates the request shape, supported audio MIME type, base64 encoding, and the shared recording byte ceiling before invoking any expensive provider. OpenAI transcription and coach calls use bounded request timeouts; the optional Quran-aware evaluator already has its own bounded timeout.
+
+The limiter keys by authenticated `user.id` when authentication succeeds and by client IP for anonymous traffic. In Vercel, the app trusts `x-forwarded-for` only when the deployment exposes `VERCEL`; outside Vercel it uses the direct socket address so a caller cannot bypass the anonymous counter by sending a fake forwarded-for header. Rate-limit logs include only structured metadata such as identity type, window, retry delay, and store type; they must not include audio, base64 recording payloads, transcripts, cookies, tokens, API keys, or learner-private content.
+
+The built-in limits are intentionally conservative for the costly path:
+
+- anonymous: 4 reviews per minute and 20 reviews per hour per IP;
+- authenticated: 8 reviews per minute and 60 reviews per hour per user.
+
+Production must configure `RECITATION_RATE_LIMIT_REDIS_REST_URL` and `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` for distributed enforcement across serverless instances. If those variables are absent, the repository-controlled fallback is in-memory and must be treated as development/limited-instance protection only. If the configured external limiter is unavailable, `recitation.evaluate` fails closed with `TOO_MANY_REQUESTS` instead of calling transcription or LLM providers.
+
+Application rate limiting is not a substitute for provider-level spend controls. Before wider testing, the deployment owner should configure OpenAI project budgets and alerts, review model-level usage limits, and monitor transcription/chat-completion spend. This repository cannot verify those dashboard settings without production credentials, so they are required operator checks rather than code-verified guarantees.
 
 ## Verified scope and remaining blockers
 
@@ -79,4 +95,6 @@ Not production-verified / launch blockers:
 3. A database backup/restore drill and operational monitoring for failed syncs have not been demonstrated here.
 4. Attempt-history reads currently return complete account history. This preserves the auditable source of truth, but pagination/retention must be designed before history volume becomes large; silently truncating history would change mastery.
 5. Locale follows a device, not an account; cross-device locale sync remains future work.
+6. Distributed `recitation.evaluate` rate limiting requires the production Redis/REST rate-limit store variables above; automated tests verify the abstraction and fallback behavior, not an externally provisioned store.
+7. OpenAI project budgets, usage alerts, and any hard provider spending caps must be configured and verified in the OpenAI dashboard by the deployment owner.
 

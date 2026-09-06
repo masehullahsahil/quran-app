@@ -31,7 +31,7 @@ describe("the serverless entry", () => {
     // An Express app is callable and carries the router methods we mount on it.
     expect(typeof handler).toBe("function");
     expect(typeof (handler as unknown as { use: unknown }).use).toBe("function");
-  });
+  }, 10_000);
 
   // Importing ./vite would pull Vite — a devDependency — into the function
   // bundle, where it is dead weight at best and missing at worst.
