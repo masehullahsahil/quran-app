@@ -258,7 +258,7 @@ importers:
         specifier: ^3.6.2
         version: 3.6.2
       recharts:
-        specifier: ^2.15.4
+        specifier: ^2.15.2
         version: 2.15.4(react-dom@19.2.1(react@19.2.1))(react@19.2.1)
       streamdown:
         specifier: ^2.6.0
