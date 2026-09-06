@@ -180,27 +180,6 @@ function vitePluginOptionalAnalytics(env: AnalyticsEnv): Plugin {
   };
 }
 
-function manualChunks(id: string) {
-  if (!id.includes("node_modules")) {
-    return undefined;
-  }
-
-  if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) {
-    return "vendor-react";
-  }
-  if (/[\\/]node_modules[\\/](@tanstack|@trpc|superjson)[\\/]/.test(id)) {
-    return "vendor-data";
-  }
-  if (/[\\/]node_modules[\\/](@radix-ui|cmdk|vaul|input-otp|embla-carousel-react)[\\/]/.test(id)) {
-    return "vendor-ui";
-  }
-  if (/[\\/]node_modules[\\/](lucide-react|date-fns|clsx|class-variance-authority|tailwind-merge)[\\/]/.test(id)) {
-    return "vendor-design";
-  }
-
-  return "vendor";
-}
-
 export default defineConfig(({ command, mode }) => {
   const projectRoot = import.meta.dirname;
   const env = { ...process.env, ...loadEnv(mode, projectRoot, "") };
@@ -228,11 +207,6 @@ export default defineConfig(({ command, mode }) => {
     build: {
       outDir: path.resolve(projectRoot, "dist/public"),
       emptyOutDir: true,
-      rollupOptions: {
-        output: {
-          manualChunks,
-        },
-      },
     },
     server: {
       host: true,
