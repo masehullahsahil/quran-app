@@ -18,6 +18,7 @@ import {
   type VerseFollowingPosition,
 } from "@shared/verseFollowing";
 import { evaluateQuranAwareAudio } from "./quranEvaluator";
+import { checkRecitationEvaluateRateLimit, logRecitationRateLimit } from "./recitationRateLimit";
 import { isStorageConfigured, storagePut } from "./storage";
 import { ingestRecitationChunk } from "./recitationSession";
 import { buildReviewQueue, deriveAyahMemory, findRecurringErrors } from "@shared/memorization";
@@ -29,6 +30,7 @@ import { getLearnerSnapshot, insertMemorizationAttempt, mergeQaidaProgress } fro
 // al-Fatiha and would have rejected the review request for a handful of ayahs
 // now that any surah can be selected.
 const MAX_AYAH_CHARS = 4000;
+const BASE64_AUDIO = /^[A-Za-z0-9+/]*={0,2}$/;
 
 // Everything the verse-following tracker needs is optional: a client that only
 // wants a word review keeps working, and the tracker then reports on this ayah
@@ -290,7 +292,7 @@ export const appRouter = router({
     // Stateless, typed chunk orchestration. Clients carry the returned session
     // into the next request; only finalized chunks can change its durable place.
     ingestChunk: publicProcedure.input(recitationChunkInput).mutation(({ input }) => ingestRecitationChunk(input)),
-    evaluate: publicProcedure.input(recitationInput).mutation(async ({ input }) => {
+    evaluate: publicProcedure.input(recitationInput).mutation(async ({ ctx, input }) => {
       const learningPlan = getLearningCoachPlan(input.learningLevel);
       // The tracker never advances past the end of the surah. Without a
       // `totalAyahs` from the client there is no end to know, so assume one more
@@ -304,6 +306,9 @@ export const appRouter = router({
       const rawBase64 = input.audioBase64.includes(",")
         ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
         : input.audioBase64;
+      if (!BASE64_AUDIO.test(rawBase64) || rawBase64.length % 4 !== 0) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "The recording could not be read. Please record again." });
+      }
       const audioBuffer = Buffer.from(rawBase64, "base64");
       if (!audioBuffer.length) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "The recording was empty. Please record again." });
@@ -315,6 +320,28 @@ export const appRouter = router({
         throw new TRPCError({
           code: "PAYLOAD_TOO_LARGE",
           message: `That recording is ${formatMegabytes(audioBuffer.length)} MB. Please record a clip under ${formatMegabytes(MAX_AUDIO_BYTES)} MB — one ayah at a calm pace is well within it.`,
+        });
+      }
+
+      let rateLimit;
+      try {
+        rateLimit = await checkRecitationEvaluateRateLimit(ctx);
+      } catch (error) {
+        console.warn("[recitation] evaluate rate-limit store unavailable", {
+          store: "redis",
+          message: error instanceof Error ? error.message : "unknown error",
+        });
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: "Recitation review is temporarily busy. Please try again in a minute.",
+          cause: error,
+        });
+      }
+      if (!rateLimit.allowed) {
+        logRecitationRateLimit(rateLimit);
+        throw new TRPCError({
+          code: "TOO_MANY_REQUESTS",
+          message: `Too many recitation reviews. Please wait ${rateLimit.retryAfterSeconds} seconds and try again.`,
         });
       }
 

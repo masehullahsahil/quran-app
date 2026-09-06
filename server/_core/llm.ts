@@ -297,6 +297,8 @@ const normalizeResponseFormat = ({
 const RETRY_MAX_RETRIES = 4;
 const RETRY_BASE_DELAY_MS = 500;
 const RETRY_MAX_DELAY_MS = 30_000;
+const chatTimeoutMs = () =>
+  Math.min(Math.max(ENV.openaiChatTimeoutMs, 1000), 30_000);
 
 type FetchInit = NonNullable<Parameters<typeof fetch>[1]>;
 
@@ -430,6 +432,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
       "content-type": "application/json",
       authorization: `Bearer ${ENV.openaiApiKey}`,
     },
+    signal: AbortSignal.timeout(chatTimeoutMs()),
     body: JSON.stringify(payload),
   });
 
