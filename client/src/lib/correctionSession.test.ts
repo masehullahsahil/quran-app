@@ -55,6 +55,8 @@ const idleAction: TeacherAction = resolveTeacherAction(evidence({ attempt: null 
 function lessonFor(patch: Partial<CorrectionLessonInput> = {}) {
   return deriveCorrectionLesson({
     action: correctingAction,
+    surah: 1,
+    ayah: 2,
     observationKey: "correction.notHeard",
     ayahWords: AYAH_WORDS,
     corrections: [MISSING],
@@ -200,13 +202,13 @@ describe("the recorder is the page's own", () => {
 });
 
 describe("the word is kept across one attempt, and only that", () => {
-  const retained = { wordIndex: 3, arabic: TARGET, observationKey: "correction.notHeard" as const };
+  const retained = { surah: 1, ayah: 2, wordIndex: 3, arabic: TARGET, observationKey: "correction.notHeard" as const };
 
   it("keeps the lesson on screen while the learner is recording", () => {
     // The decision names no word during a recording — the previous review was
     // cleared when the microphone opened — and the lesson must not vanish.
     const lesson = deriveCorrectionLesson({
-      action: idleAction, observationKey: null, ayahWords: AYAH_WORDS, corrections: null,
+      action: idleAction, surah: 1, ayah: 2, observationKey: null, ayahWords: AYAH_WORDS, corrections: null,
       wordReviewAvailable: false, lastAttemptScope: "word", isRecording: true, isChecking: false,
       retainedTarget: retained,
     });
@@ -216,7 +218,7 @@ describe("the word is kept across one attempt, and only that", () => {
 
   it("does not resurrect a word once a whole-ayah attempt has moved on", () => {
     const lesson = deriveCorrectionLesson({
-      action: idleAction, observationKey: null, ayahWords: AYAH_WORDS, corrections: [],
+      action: idleAction, surah: 1, ayah: 2, observationKey: null, ayahWords: AYAH_WORDS, corrections: [],
       wordReviewAvailable: true, lastAttemptScope: "ayah", isRecording: false, isChecking: false,
       retainedTarget: retained,
     });
@@ -262,5 +264,99 @@ describe("an attempt still in flight has no answer yet", () => {
   it("keeps the learner on the same step either way", () => {
     expect(lessonFor({ lastAttemptScope: "word", isRecording: true })!.stage).toBe("say-word");
     expect(lessonFor({ lastAttemptScope: "word", isChecking: true })!.stage).toBe("say-word");
+  });
+});
+
+describe("a correction belongs to the ayah it was made about", () => {
+  /**
+   * The production bug this covers. A learner corrected `رَبِّ` in Al-Fatiha 1:2
+   * — word 3 of four — and Study then advanced to 1:3, which is two words long
+   * and does not contain that word. The lesson kept rendering the old target
+   * against the new ayah: "رَبِّ · Word 3 of 2".
+   */
+  const AYAH_3 = ["ٱلرَّحْمَـٰنِ", "ٱلرَّحِيمِ"];
+  const retained = { surah: 1, ayah: 2, wordIndex: 3, arabic: TARGET, observationKey: "correction.notHeard" as const };
+
+  const afterAdvancing = (patch: Partial<CorrectionLessonInput> = {}) =>
+    deriveCorrectionLesson({
+      action: idleAction,
+      surah: 1,
+      ayah: 3,
+      observationKey: null,
+      ayahWords: AYAH_3,
+      corrections: null,
+      wordReviewAvailable: false,
+      lastAttemptScope: "word",
+      isRecording: false,
+      isChecking: false,
+      retainedTarget: retained,
+      ...patch,
+    });
+
+  it("drops a target held from the previous ayah", () => {
+    expect(afterAdvancing()).toBeNull();
+  });
+
+  it("drops it even mid-recording, when the lesson would otherwise be held open", () => {
+    expect(afterAdvancing({ isRecording: true })).toBeNull();
+    expect(afterAdvancing({ isChecking: true })).toBeNull();
+  });
+
+  it("drops a target from a different surah at the same ayah number", () => {
+    expect(afterAdvancing({ surah: 2, ayah: 2, ayahWords: AYAH_WORDS })).toBeNull();
+  });
+
+  it("keeps it while the learner is still on the ayah it was made about", () => {
+    expect(afterAdvancing({ ayah: 2, ayahWords: AYAH_WORDS, isRecording: true })?.targetArabic).toBe(TARGET);
+  });
+});
+
+describe("a target the ayah on screen cannot support is never rendered", () => {
+  const AYAH_3 = ["ٱلرَّحْمَـٰنِ", "ٱلرَّحِيمِ"];
+
+  it("refuses a word index past the end of the ayah", () => {
+    // The shape of the reported bug: word 3 of a two-word ayah.
+    expect(lessonFor({ ayahWords: AYAH_3 })).toBeNull();
+  });
+
+  it("refuses index zero and a negative index", () => {
+    for (const wordIndex of [0, -1]) {
+      expect(lessonFor({ session: { targetWordIndex: wordIndex, targetArabic: TARGET, stage: "hear", recognition: "unknown" } }), String(wordIndex)).toBeNull();
+    }
+  });
+
+  it("refuses a word that is not the one standing at that position", () => {
+    expect(lessonFor({ session: { targetWordIndex: 1, targetArabic: TARGET, stage: "hear", recognition: "unknown" } })).toBeNull();
+  });
+
+  it("refuses everything while the ayah text has not arrived", () => {
+    expect(lessonFor({ ayahWords: [] })).toBeNull();
+  });
+
+  it("applies the check to the service's own session too", () => {
+    const session = { targetWordIndex: 3, targetArabic: TARGET, stage: "say-word" as const, recognition: "recognised" as const };
+    expect(lessonFor({ session })).not.toBeNull();
+    // The session says word 3; this ayah has two. The session does not get to
+    // put a word on screen that the ayah does not have.
+    expect(lessonFor({ session, ayahWords: AYAH_3 })).toBeNull();
+  });
+
+  it("still renders when the spellings differ only in harakat or which alif is written", () => {
+    // The reviewer's expected text and the ayah on screen legitimately differ
+    // this way, and treating them as different words would hide a real
+    // correction. The comparison folds them; neither string is rewritten.
+    const lesson = lessonFor({
+      ayahWords: ["قُلْ", "هُوَ", "ٱللَّهُ", "أَحَدٌ"],
+      session: { targetWordIndex: 3, targetArabic: "اللَّهُ", stage: "hear", recognition: "unknown" },
+    })!;
+    expect(lesson.targetArabic).toBe("اللَّهُ");
+    // The ayah keeps its own spelling, untouched.
+    expect(lesson.context.words[2]).toBe("ٱللَّهُ");
+  });
+
+  it("reports a position the ayah actually has", () => {
+    const lesson = lessonFor()!;
+    expect(lesson.targetWordIndex).toBeLessThanOrEqual(lesson.totalWords);
+    expect(lesson.totalWords).toBe(AYAH_WORDS.length);
   });
 });

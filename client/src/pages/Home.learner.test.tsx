@@ -729,6 +729,187 @@ describe("Study recitation correction", () => {
   });
 });
 
+describe("a correction never survives the ayah it was made about", () => {
+  /**
+   * The production bug. A learner corrected word 3 of Al-Fatiha 1:2, Study
+   * advanced to 1:3 — two words long, and without that word in it — and the
+   * lesson kept rendering the old target against the new ayah: the word, and
+   * "Word 3 of 2". The fixture here has the same shape: ayah 1 is four words,
+   * ayah 2 is two.
+   */
+  const firstAyahWords = FAKE_AYAHS[0].arabic.split(" ");
+  const secondAyahWords = FAKE_AYAHS[1].arabic.split(" ");
+
+  /** A correction on a word of ayah 1 that ayah 2 has no position for. */
+  const correctionOnAyahOne = (wordIndex: number) =>
+    wordCorrectionReview({
+      corrections: [{ expected: firstAyahWords[wordIndex - 1], heard: null, status: "missing", wordIndex }],
+      verseFollowing: {
+        currentSurah: 112, currentAyah: 1, expectedWordIndex: wordIndex, lastCompletedAyah: null,
+        state: "correcting", attemptsOnCurrentAyah: 1, evidence: "partial", shouldAdvance: false,
+        nextAyah: 2, correctionFocus: { wordIndex, expectedArabic: firstAyahWords[wordIndex - 1], kind: "missing" },
+        reason: "mistake_to_correct",
+      },
+    });
+
+  /** The attempt that resolves it and lets Study move on. */
+  const resolvedAndAdvancing = () =>
+    wordCorrectionReview({
+      corrections: [], matchedCount: 4, score: 100,
+      verseFollowing: {
+        currentSurah: 112, currentAyah: 2, expectedWordIndex: 1, lastCompletedAyah: 1,
+        state: "following", attemptsOnCurrentAyah: 1, evidence: "strong", shouldAdvance: true,
+        nextAyah: 2, correctionFocus: null, reason: "ayah_completed",
+      },
+    });
+
+  it("disappears when the resolved correction advances Study to the next ayah", async () => {
+    expect(secondAyahWords).toHaveLength(2);
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnAyahOne(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(container.querySelector(".word-lesson")).toBeTruthy();
+    expect(text()).toContain("Word 3 of 4");
+
+    // The learner recites the whole ayah, it goes through, and Study offers the
+    // next ayah.
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(resolvedAndAdvancing());
+    await recordOnce();
+    const advance = container.querySelector<HTMLButtonElement>(".fix-cta");
+    expect(advance?.textContent).toContain("Go to ayah 2");
+    await act(async () => {
+      advance!.click();
+    });
+    await settle();
+
+    // Ayah 2 is on screen, and nothing of the previous correction is.
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FAKE_AYAHS[1].arabic);
+    expect(container.querySelector(".word-lesson")).toBeNull();
+    expect(container.querySelector(".lesson-word")).toBeNull();
+    // The exact rendering the bug produced.
+    expect(text()).not.toContain("Word 3 of 2");
+    expect(text()).not.toContain("Word 3 of");
+  });
+
+  it("shows no target from another ayah, whatever the word count", async () => {
+    // Word 4 of ayah 1 is not in ayah 2 at all, so its absence is checkable as
+    // text rather than only as a missing element.
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnAyahOne(4));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    const target = firstAyahWords[3];
+    expect(container.querySelector(".lesson-word")?.textContent).toBe(target);
+
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(resolvedAndAdvancing());
+    await recordOnce();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".fix-cta")!.click();
+    });
+    await settle();
+
+    expect(text()).not.toContain(target);
+    expect(container.querySelector(".word-lesson")).toBeNull();
+  });
+
+  it("disappears when the learner walks to the next ayah by hand", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnAyahOne(4));
+    await mount();
+    await openStudy();
+    await recordOnce();
+    expect(container.querySelector(".word-lesson")).toBeTruthy();
+
+    // The pagination's own Next, with the correction still open.
+    const next = Array.from(container.querySelectorAll<HTMLButtonElement>(".study-pagination button")).find((button) =>
+      (button.textContent ?? "").includes(en.strings["study.next"]),
+    );
+    await act(async () => {
+      next!.click();
+    });
+    await settle();
+
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FAKE_AYAHS[1].arabic);
+    expect(container.querySelector(".word-lesson")).toBeNull();
+    expect(text()).not.toContain(firstAyahWords[3]);
+  });
+
+  it("renders nothing at all when a review names a word this ayah cannot have", async () => {
+    /**
+     * The reported rendering, reproduced directly: a review naming word 3 while
+     * a two-word ayah is on screen. This is the state the page passes through
+     * whenever the ayah changes before the review that named the word has been
+     * cleared, and it is the render that produced "رَبِّ · Word 3 of 2". The
+     * guard is in the derivation rather than in an effect precisely so this
+     * render cannot exist, whatever order the effects run in.
+     */
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnAyahOne(3));
+    await mount();
+    await openStudy();
+    // Ayah 2 — two words — is on screen when the review comes back.
+    await act(async () => {
+      container.querySelectorAll<HTMLButtonElement>(".study-pagination .dot")[1].click();
+    });
+    await settle();
+    await recordOnce();
+
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FAKE_AYAHS[1].arabic);
+    expect(container.querySelector(".word-lesson")).toBeNull();
+    expect(container.querySelector(".lesson-word")).toBeNull();
+    expect(text()).not.toContain("Word 3 of 2");
+    // Not the marker card either: a review naming a position this ayah does not
+    // have is dropped whole, so nothing downstream of it can render the word.
+    expect(container.querySelector(".study-fix.is-word")).toBeNull();
+    expect(container.querySelectorAll(".correction-row")).toHaveLength(0);
+    // Study falls back to its ordinary states rather than showing nothing.
+    expect(container.querySelector(".teacher-now")).toBeTruthy();
+  });
+
+  it("disappears when the learner walks back to the previous ayah", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnAyahOne(4));
+    await mount();
+    await openStudy();
+    await recordOnce();
+    expect(container.querySelector(".word-lesson")).toBeTruthy();
+
+    const previous = Array.from(container.querySelectorAll<HTMLButtonElement>(".study-pagination button")).find((button) =>
+      (button.textContent ?? "").includes(en.strings["study.previous"]),
+    );
+    // On the first ayah there is nowhere back to go, so the walk is forward and
+    // then back again — both directions with the correction open.
+    await act(async () => {
+      container.querySelectorAll<HTMLButtonElement>(".study-pagination .dot")[1].click();
+    });
+    await settle();
+    expect(container.querySelector(".word-lesson")).toBeNull();
+
+    expect(previous!.disabled).toBe(false);
+    await act(async () => {
+      previous!.click();
+    });
+    await settle();
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FAKE_AYAHS[0].arabic);
+    // Back on the ayah the word belongs to, and still no correction: the review
+    // that named it was cleared with the navigation, so there is nothing to
+    // teach. The word is on screen only as part of the ayah itself.
+    expect(container.querySelector(".word-lesson")).toBeNull();
+    expect(container.querySelector(".lesson-word")).toBeNull();
+  });
+
+  it("keeps the lesson while the learner stays on the ayah", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnAyahOne(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    // The guard must not be so eager that it hides a correction that is right.
+    expect(container.querySelector(".lesson-word")?.textContent).toBe(firstAyahWords[2]);
+    expect(text()).toContain("Word 3 of 4");
+  });
+});
+
 describe("an attempt the app could not review", () => {
   /** A recording of a different ayah entirely: nothing here fits this one. */
   const unrelatedReview = () =>
