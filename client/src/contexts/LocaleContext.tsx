@@ -7,6 +7,7 @@
  * pack in once its dynamic import resolves.
  */
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { directionFor } from "@shared/languages";
 import {
   availableLocales,
   isKnownLocale,
@@ -60,10 +61,17 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
 
   // Instruction text direction. Quranic Arabic sets `dir="rtl"` on its own
   // elements regardless, so those are unaffected by this.
+  //
+  // Taken from the *selected* code rather than from the loaded pack: a pack is
+  // a dynamic import, and reading direction from it left the page in the old
+  // direction for as long as that chunk took to arrive — on a slow phone, long
+  // enough for a learner choosing Urdu to watch the layout sit in English
+  // order. The language model in shared/languages.ts knows the direction
+  // without loading anything.
   useEffect(() => {
-    document.documentElement.lang = resolved.manifest.code;
-    document.documentElement.dir = resolved.manifest.direction;
-  }, [resolved]);
+    document.documentElement.lang = locale;
+    document.documentElement.dir = directionFor(locale);
+  }, [locale]);
 
   const setLocale = useCallback((code: LocaleCode) => {
     setLocaleState(isKnownLocale(code) ? code : REFERENCE_LOCALE);

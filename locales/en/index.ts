@@ -37,6 +37,9 @@ export const strings = {
 
   // -- Language picker -----------------------------------------------------
   "language.partial": "interface only",
+  // The trigger label on the language control. Short on purpose: it sits beside
+  // the language's own name and has to fit a phone's bottom bar.
+  "language.short": "Language",
   "language.aiDrafted": "AI draft, not reviewed by a speaker",
   "language.label": "Instruction language",
   "language.hint": "Arabic text and recitation stay the same in every language.",
@@ -125,6 +128,9 @@ export const strings = {
   "qaida.markPractised": "Mark practised",
   "qaida.practised": "Practised",
   "qaida.nextLetter": "Next letter",
+  "qaida.listenLetter": "Hear this letter",
+  "qaida.audioLoading": "Loading the recording…",
+  "qaida.audioRetry": "Play it again",
   "qaida.audioIdle": "Choose the letter alone or with a harakat to hear the reciter.",
   "qaida.audioPlaying": "Playing the reciter’s recording.",
   "qaida.audioUnavailable":

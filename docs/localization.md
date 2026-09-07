@@ -89,7 +89,7 @@ A second test checks that the critical strings are actually written in the pack'
 
 ## Right-to-left
 
-Four of the five languages are RTL. `LocaleProvider` sets `document.documentElement.lang` and `dir` from the resolved pack, so layout, alignment and logical flow follow the interface language.
+Four of the five languages are RTL. `LocaleProvider` sets `document.documentElement.lang` and `dir` from the **selected language code** rather than from the loaded pack, so the layout flips the moment the learner chooses — a pack is a dynamic import, and waiting for it left the page in the previous direction for as long as the chunk took to arrive.
 
 What is mirrored: directional chrome only — the arrows on Previous/Next, the teacher's contextual action, course navigation — plus numbered strips and progress fills, which start from the reading edge.
 
@@ -150,7 +150,9 @@ Repeated prompts are handled by `promptsFromPhrasebook`: Level 1 generates fifty
 
 ## Language selection and persistence
 
-The picker sits in the reader's header toolbar beside the reciter and translation pickers — the place where the other "how do I want this presented" choices already live, and deliberately not in the Study instruction block.
+The picker is a **labelled menu**, not a bare icon: `client/src/components/LanguagePicker.tsx` renders the word "Language" — in the language currently selected — beside that language's own name (پښتو, دری, اردو, العربية), and opens a list showing each language's own name, its English name and its provenance note. It appears twice: in the reading desk header on a wide screen, and as the fourth item of the phone dock, which is the only chrome always in reach on a narrow screen. Both are the same component reading the same state.
+
+That it is labelled is the point. While the control was an icon-only `<select>` in a row of four pickers, a learner could open the app and reasonably conclude it had no other languages.
 
 The choice persists in `localStorage` under `miqra-locale`. For a signed-in learner it is not yet synced to the account: `LocaleProvider` reads and writes through one pair of functions, so an account-backed store can replace them without touching any component. No schema change was made for this.
 

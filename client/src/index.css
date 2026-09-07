@@ -550,7 +550,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .memory-layout { min-height: 520px; padding: 35px 23px; }
   .memory-verse { min-height: 133px; font-size: 40px; }
   .quiet-action { padding: 10px; }
-  .mobile-dock { position: fixed; z-index: 5; right: 10px; bottom: 10px; left: 10px; display: grid; grid-template-columns: 1fr 1.05fr 1fr; padding: 6px; background: rgba(31,51,43,.96); border: 1px solid rgba(255,255,255,.13); border-radius: 15px; box-shadow: 0 14px 35px rgba(28,42,36,.23); backdrop-filter: blur(11px); }
+  .mobile-dock { position: fixed; z-index: 5; right: 10px; bottom: 10px; left: 10px; display: grid; grid-template-columns: 1fr 1.05fr 1fr 1fr; padding: 6px; background: rgba(31,51,43,.96); border: 1px solid rgba(255,255,255,.13); border-radius: 15px; box-shadow: 0 14px 35px rgba(28,42,36,.23); backdrop-filter: blur(11px); }
   .mobile-dock button { display: grid; place-items: center; gap: 2px; min-height: 47px; color: #cfdbd4; border: 0; background: transparent; border-radius: 10px; cursor: pointer; font-size: 9px; font-weight: 700; }
   .mobile-dock button.is-active { color: #fffdf8; background: rgba(255,255,255,.13); }
   .mobile-dock .dock-listen { color: #173c32; background: #dfece4; }
@@ -729,4 +729,87 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .label-actions button { flex: 1 1 auto; justify-content: center; }
   .label-meta div { justify-content: flex-start; }
   .label-meta dd { text-align: left; }
+}
+
+/* ---------------------------------------------------------------------------
+   The language menu.
+
+   Deliberately louder than the pickers beside it: this is the control a learner
+   has to find without being told it exists, so it carries the word "Language"
+   in the language currently selected and that language's own name beside it.
+   The sheet drops down on the desk header and up from the phone dock.
+--------------------------------------------------------------------------- */
+.language-menu { position: relative; }
+.language-trigger {
+  display: inline-flex; gap: 8px; align-items: center; min-height: 40px; padding: 6px 12px;
+  color: #23483b; background: #fffdf8; border: 1px solid #b9cbbf; border-radius: 999px; cursor: pointer;
+  font-family: "DM Sans", sans-serif; transition: background .18s cubic-bezier(.23,1,.32,1), border-color .18s cubic-bezier(.23,1,.32,1);
+}
+.language-trigger:hover { background: #eef4f0; border-color: #8fae9c; }
+.language-trigger:focus-visible { outline: 2px solid #174d42; outline-offset: 2px; }
+.language-trigger-text { display: grid; gap: 1px; text-align: left; }
+.language-trigger-text small { color: #6f8579; font-size: 9px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.language-trigger-text strong { font-size: 13px; font-weight: 700; line-height: 1.4; }
+.language-caret { color: #6f8579; flex: none; }
+.language-sheet {
+  position: absolute; z-index: 40; top: calc(100% + 8px); right: 0; width: min(310px, calc(100vw - 32px));
+  padding: 10px; background: #fffdf8; border: 1px solid #d8d2c6; border-radius: 14px; box-shadow: 0 18px 40px rgba(28,42,36,.18);
+}
+.language-menu.is-dock .language-sheet { top: auto; bottom: calc(100% + 10px); right: 0; }
+.language-sheet-title { margin: 2px 4px 8px; color: #6f8579; font-family: "DM Sans", sans-serif; font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+.language-sheet ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.language-sheet li button {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 10px; width: 100%; min-height: 52px; padding: 9px 11px;
+  color: #23483b; background: transparent; border: 1px solid transparent; border-radius: 10px; cursor: pointer; text-align: left;
+}
+.language-sheet li button:hover { background: #f1f6f2; }
+.language-sheet li button:focus-visible { outline: 2px solid #174d42; outline-offset: -2px; }
+.language-sheet li button.is-selected { background: #e7f0ea; border-color: #a9c6b4; }
+.language-native { font-size: 17px; font-weight: 700; line-height: 1.6; }
+.language-english { grid-column: 1; color: #6f8579; font-family: "DM Sans", sans-serif; font-size: 11px; }
+.language-note { grid-column: 1; color: #8a6a3c; font-family: "DM Sans", sans-serif; font-size: 9px; }
+.language-tick { grid-row: 1 / span 3; grid-column: 2; color: #2f7a52; }
+.language-sheet-foot { margin: 9px 4px 2px; color: #7d887f; font-family: "DM Sans", sans-serif; font-size: 10px; line-height: 1.5; }
+
+/* A speaker mark on every letter tile: the audio has to be visible before it is
+   pressed, not discovered by accident. */
+.alphabet-grid button { position: relative; }
+.tile-speaker { color: #9a7742; opacity: .8; }
+.alphabet-grid .tile-speaker { position: absolute; top: 3px; inset-inline-end: 3px; }
+.alphabet-grid button.is-playing { color: #174d42; background: #dcefe2; border-color: #6fa585; }
+.harakat-play .tile-speaker { color: #7d887f; }
+.letter-play.is-loading, .harakat-play.is-loading, .course-audio.is-loading { border-color: #c6b487; background: #fbf6ea; }
+.course-audio.is-unavailable { color: #8a6a3c; border-color: #e0cba4; background: #fbf4e6; }
+.playback-retry {
+  display: inline-flex; gap: 5px; align-items: center; min-height: 36px; margin-inline-start: 8px; padding: 6px 11px;
+  color: #23483b; background: #fffdf8; border: 1px solid #c9bfa8; border-radius: 999px; cursor: pointer;
+  font-family: "DM Sans", sans-serif; font-size: 11px; font-weight: 700;
+}
+.playback-retry:hover { background: #f5efe1; }
+
+/* RTL: the menu opens from the reading edge, and the caret follows the text. */
+[dir="rtl"] .language-sheet { right: auto; left: 0; }
+[dir="rtl"] .language-menu.is-dock .language-sheet { right: auto; left: 0; }
+[dir="rtl"] .language-trigger-text { text-align: right; }
+[dir="rtl"] .language-sheet li button { text-align: right; }
+
+@media (max-width: 700px) {
+  /* On a phone the header collapses to the essentials, and the language menu is
+     one of them — it stays visible rather than scrolling away with the pickers. */
+  .language-trigger { min-height: 44px; padding: 6px 10px; }
+  .language-trigger-text strong { font-size: 12px; }
+  .language-sheet { position: fixed; top: auto; right: 10px; bottom: 74px; left: 10px; width: auto; max-height: 62vh; overflow-y: auto; }
+  .language-menu.is-header .language-sheet { top: 64px; bottom: auto; }
+  .mobile-dock .language-menu { display: grid; }
+  .mobile-dock .language-trigger { justify-self: center; }
+  /* The sheet keeps the reading alignment of the interface, not the dock's centring. */
+  .mobile-dock .language-sheet, .mobile-dock .language-sheet li button { text-align: start; }
+  .mobile-dock .language-trigger { min-height: 47px; padding: 4px; color: #cfdbd4; background: transparent; border: 0; flex-direction: column; gap: 2px; }
+  .mobile-dock .language-trigger-text small { color: #cfdbd4; font-size: 9px; }
+  .mobile-dock .language-trigger-text strong { color: #fffdf8; font-size: 10px; }
+  .mobile-dock .language-caret { display: none; }
+  .alphabet-grid { grid-template-columns: repeat(5, 1fr); }
+  .alphabet-grid button { min-height: 56px; }
+  .harakat-play { min-width: 84px; min-height: 64px; }
+  .letter-play { min-height: 44px; }
 }
