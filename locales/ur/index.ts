@@ -50,13 +50,36 @@ export const strings: TranslatableStrings = {
   "now.stepsLabel": "اس کی مشق کیسے کریں",
 
   "correction.label": "وہ لفظ جو درست کرنا ہے",
-  "correction.notHeard": "یہ لفظ سنائی نہیں دیا۔",
-  "correction.different": "اس کی جگہ کچھ اور سنائی دیا۔",
-  "correction.sound": "الفاظ درست تھے۔ اس لفظ کی ادائیگی غور سے سنیں۔",
+  "correction.notHeard": "یہ لفظ مجھے واضح سنائی نہیں دیا۔",
+  "correction.different": "یہ لفظ متوقع لفظ سے مختلف سنائی دیا۔",
+  "correction.sound": "الفاظ درست تھے — یہ صرف اسی لفظ کی آواز کے بارے میں ایک مشاہدہ ہے۔",
   "correction.unsure": "یہ اتنا واضح نہیں تھا کہ یقین سے کہا جا سکے۔",
   "correction.listen": "آیت آہستہ سنیں",
   "correction.retry": "سنیں، لفظ دہرائیں، پھر پوری آیت پڑھیں۔",
   "correction.wordAt": "لفظ {number}",
+
+  // The exact-word card: the eyebrow above the Arabic, the steps beneath it,
+  // and the honest note that no word-level recording exists to play.
+  "correction.eyebrow": "توجہ درکار ہے",
+  "correction.stepsLabel": "کیا کرنا ہے",
+  "correction.recordAgain": "دوبارہ ریکارڈ کریں",
+  "correction.referenceNote": "کسی ایک لفظ کی الگ ریکارڈنگ موجود نہیں، اس لیے یہاں پوری آیت آہستہ سنائی جاتی ہے۔",
+  "correction.after": "جب آپ کی اگلی ریکارڈنگ اس لفظ پر نہ رکے گی تو یہ کارڈ ختم ہو جائے گا اور آپ آگے بڑھیں گے۔",
+  "correction.listenAgain": "دوبارہ سنیں",
+
+  // The tier-two card when the decision named no word at all. Kept apart from
+  // the wording above so an unreviewable attempt never reads as a mistake.
+  "outcome.label": "یہ کوشش کیسی رہی",
+  "outcome.ayahHeadline": "پوری آیت دوبارہ پڑھیں",
+  "outcome.ayahDetail": "کوئی ایک لفظ نشان زد نہیں ہوا۔ پوری کوشش کو دوبارہ پڑھنے کی ضرورت ہے۔",
+  "outcome.unclearHeadline": "میں اس کوشش کا یقین سے جائزہ نہ لے سکا",
+  "outcome.unclearDetail": "کچھ بھی غلط قرار نہیں دیا گیا۔ ایک بار سنیں، پھر دوبارہ ریکارڈ کریں۔",
+  "outcome.problemHeadline": "یہ ریکارڈنگ جانچی نہ جا سکی",
+  "outcome.problemDetail": "ریکارڈنگ جائزے تک نہ پہنچی، اس لیے آپ کی تلاوت کے بارے میں کوئی فیصلہ نہیں ہوا۔",
+  "outcome.acceptedHeadline": "اچھا — آگے بڑھیں۔",
+  "outcome.acceptedDetail": "یہ آیت قبول کر لی گئی۔ جب تیار ہوں آگے بڑھیں۔",
+  "outcome.surahHeadline": "اچھا — آپ اس سورت کے اختتام تک پہنچ گئے۔",
+  "outcome.surahDetail": "اس سورت کی تمام آیات پڑھی جا چکی ہیں۔",
 
   "step.showWord": "لفظ دیکھیں",
   "step.listen": "سنیں",

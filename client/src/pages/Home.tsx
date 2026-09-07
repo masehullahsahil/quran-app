@@ -52,6 +52,7 @@ import { synchronizeLearnerPersistence } from "@/lib/learnerPersistence";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
 import { resolveTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
 import { describeStudyTiers } from "@/lib/studyView";
+import { StudyCorrection } from "@/components/StudyCorrection";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -1150,12 +1151,12 @@ export default function Home() {
               <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
                 <p className="now-place"><span className="now-surah">{surahLabel}</span><span>{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}</span>{studyTiers.now.showWordPosition && teacherAction.focusWordIndex !== null && <span>{t("now.placeWord", { number: teacherAction.focusWordIndex })}</span>}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
                 <h2 className="now-instruction" aria-live="polite">{t(studyTiers.now.instructionKey, studyTiers.now.instructionParams)}</h2>
-                {teacherAction.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{teacherAction.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step])}</li>)}</ol>}
+                {studyTiers.now.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{studyTiers.now.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step as TeachingStep])}</li>)}</ol>}
                 <div className="loop-actions">
                   <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
                   <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording()} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
                 </div>
-                {teacherAction.button && <button type="button" className="now-action" onClick={runTeacherAction}>{teacherAction.button.command === "next-ayah" ? <>{t(teacherAction.button.labelKey, teacherAction.button.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(teacherAction.button.labelKey, teacherAction.button.params)}</>}</button>}
+                {studyTiers.now.cta && <button type="button" className="now-action" onClick={runTeacherAction}>{studyTiers.now.cta.command === "next-ayah" ? <>{t(studyTiers.now.cta.labelKey, studyTiers.now.cta.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(studyTiers.now.cta.labelKey, studyTiers.now.cta.params)}</>}</button>}
                 <p className="loop-message" role="status">{recorderMessage ?? t("recorder.intro")}</p>
                 {/* A failed source used to leave a dead play button. The message
                   names what happened in the learner's language and offers the
@@ -1163,16 +1164,22 @@ export default function Home() {
               {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}{audioLoadFailed && <button type="button" className="playback-retry" onClick={retryReciterAudio}><RotateCcw size={13} aria-hidden="true" /> {t("content.retry")}</button>}</p>}
               </section>
 
-              {/* Tier two: the word to fix. Arabic first, one line of
-                  explanation, and the reference to listen to — before any
-                  score. An unconfirmed result is styled neutrally: the app
-                  says what it could not hear, it does not mark it wrong. */}
-              {studyTiers.correction && <section className={`active-correction ${studyTiers.correction.confirmed ? "" : "is-unsure"}`} aria-label={t("correction.label")}>
-                <p className="correction-target" lang="ar" dir="rtl">{studyTiers.correction.arabic}</p>
-                <p className="correction-explain">{t(studyTiers.correction.explanationKey)}</p>
-                {studyTiers.correction.offerReference && <button type="button" className="correction-listen" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={16} /> {t("correction.listen")}</button>}
-                <small className="correction-retry">{t("correction.retry")}</small>
-              </section>}
+              {/* Tier two: how that attempt went — the exact word to fix, or,
+                  when the decision named none, what actually happened instead.
+                  Arabic first and before any score; an unconfirmed result never
+                  borrows the confirmed-mistake styling. The card carries the
+                  steps and the microphone so the learner never scrolls back up
+                  to find them. */}
+              <StudyCorrection
+                correction={studyTiers.correction}
+                outcome={studyTiers.outcome}
+                onListen={() => void playReciter(0.78)}
+                onRecord={isRecording ? stopRecording : () => void startRecording()}
+                onCta={runTeacherAction}
+                isRecording={isRecording}
+                isReviewing={evaluateRecitation.isPending}
+                audioUnavailable={audioUnavailable}
+              />
 
               {/* The live guide is the mic's own feedback, so it sits with it. */}
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : index === position.expectedWordIndex - 1 ? "is-expected" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}

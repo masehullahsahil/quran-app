@@ -272,14 +272,47 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .now-word { margin: 10px 0 0; padding: 10px 14px; color: #1f4d3d; background: #fffdf8; border: 1px solid #d9e3db; font-family: "Amiri Quran", serif; font-size: clamp(34px, 7vw, 46px); line-height: 1.65; text-align: center; }
 .teacher-now.is-unsure { background: #f4f4f2; border-color: #d9d7d1; border-left-color: #8d8f8a; }
 .teacher-now.is-unsure .now-instruction { color: #4c4f4a; }
-.active-correction { padding: 15px 16px 14px; margin-top: -1px; background: #fffdf8; border: 1px solid #e6d3ae; border-left: 3px solid #b38748; text-align: center; }
-.active-correction.is-unsure { border-color: #d9d7d1; border-left-color: #8d8f8a; }
-.correction-target { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(36px, 8vw, 52px); line-height: 1.75; }
-.correction-explain { margin: 6px 0 0; color: #6f5228; font-size: 12px; font-weight: 700; line-height: 1.5; }
-.active-correction.is-unsure .correction-explain { color: #5b5e58; }
-.correction-listen { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 10px 14px; margin-top: 11px; color: #174d42; border: 1px solid #aac5b2; background: #f6faf7; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 800; }
-.correction-listen:hover { background: #e8f2eb; }
-.correction-retry { display: block; margin-top: 9px; color: #7c867e; font-size: 10px; line-height: 1.45; }
+/* Tier two: how the attempt went. One card, four states, and the Arabic word
+   larger than anything else in it — a learner who reads nothing else on the
+   screen should still see which word they are being sent back to. Each state
+   has its own palette so "I could not tell" can never be mistaken for
+   "you got this wrong". */
+.study-fix { padding: 15px 16px 14px; margin-top: -1px; background: #fffdf8; border: 1px solid #e6d3ae; border-left: 3px solid #b38748; text-align: center; }
+.study-fix.is-unsure, .study-fix.is-uncertain { background: #f7f7f5; border-color: #d9d7d1; border-left-color: #8d8f8a; }
+.study-fix.is-whole-ayah { background: #fbf7ef; border-color: #e2d6bd; border-left-color: #a98f5f; }
+.study-fix.is-accepted { background: #eef6f0; border-color: #b6d0bc; border-left-color: #2e7857; }
+.fix-eyebrow { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 7px; color: #8a6a33; font-size: 9px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+.study-fix.is-unsure .fix-eyebrow, .study-fix.is-uncertain .fix-eyebrow { color: #5f625c; }
+.study-fix.is-accepted .fix-eyebrow { color: #2e7857; }
+/* The word itself. Nothing else in this card comes near its size. */
+.fix-word { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(38px, 8vw, 56px); line-height: 1.7; }
+.fix-position { margin: 2px 0 0; color: #7c867e; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.fix-headline { margin: 0; color: #24352c; font-size: 19px; font-weight: 800; line-height: 1.35; }
+.study-fix.is-accepted .fix-headline { color: #1d5a41; }
+.fix-observed { margin: 8px 0 0; color: #6f5228; font-size: 12px; font-weight: 700; line-height: 1.55; }
+.study-fix.is-unsure .fix-observed, .study-fix.is-uncertain .fix-observed { color: #5b5e58; }
+.study-fix.is-accepted .fix-observed { color: #3d5f4d; }
+/* Listen → Repeat → Recite → Record again, numbered, ending at the mic. */
+.fix-steps { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px; margin: 12px 0 0; padding: 0; list-style: none; counter-reset: fixstep; }
+.fix-steps li { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; color: #3e6554; background: rgba(255,255,255,.7); border: 1px solid #cddbcf; border-radius: 999px; font-size: 10px; font-weight: 800; }
+.fix-steps li::before { counter-increment: fixstep; content: counter(fixstep); display: inline-grid; width: 15px; height: 15px; place-content: center; color: #fffdf8; background: #6f8f7c; border-radius: 50%; font-size: 8px; }
+/* The record step is the button itself, so the chip's own frame comes off it
+   — the specificity has to beat `.fix-steps li`, hence the qualified selector. */
+.fix-steps li.fix-steps-record { padding: 0; border: 0; background: none; }
+.fix-steps li.fix-steps-record::before { margin-inline-end: 2px; }
+.fix-record { display: inline-flex; align-items: center; gap: 7px; min-height: 42px; padding: 10px 16px; color: #fffdf8; border: 1px solid #174d42; background: #174d42; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 800; }
+.fix-record:hover { background: #103e34; }
+.fix-record:active { transform: scale(.98); }
+.fix-record.is-recording { border-color: #9a3b32; background: #9a3b32; }
+.fix-record:disabled { opacity: .6; cursor: progress; }
+.fix-reference { margin-top: 11px; }
+.fix-listen { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 40px; padding: 10px 14px; color: #174d42; border: 1px solid #aac5b2; background: #f6faf7; border-radius: 8px; cursor: pointer; font-size: 11px; font-weight: 800; }
+.fix-listen:hover { background: #e8f2eb; }
+.fix-listen:disabled { opacity: .55; cursor: not-allowed; }
+.fix-reference small { display: block; margin-top: 6px; color: #7c867e; font-size: 10px; line-height: 1.45; }
+.fix-after { display: block; margin-top: 10px; color: #7c867e; font-size: 10px; line-height: 1.45; }
+.fix-cta { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin-top: 12px; padding: 11px 18px; color: #fffdf8; border: 1px solid #2e7857; background: #2e7857; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 800; }
+.fix-cta:hover { background: #256549; }
 .now-surah { color: #174d42; }
 .now-place > span + span::before { content: "·"; margin: 0 6px; color: #b6bdb5; }
 .now-steps { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; counter-reset: step; }
@@ -426,10 +459,11 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 [dir="rtl"] .loop-listen svg,
 [dir="rtl"] .listen-button svg,
 [dir="rtl"] .letter-play svg,
-[dir="rtl"] .correction-listen svg,
+[dir="rtl"] .fix-listen svg,
+[dir="rtl"] .fix-cta svg,
 [dir="rtl"] .listen-inline svg { transform: none; }
 /* Numbered strips and progress meters fill from the reading edge. */
-[dir="rtl"] .now-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
+[dir="rtl"] .now-steps, [dir="rtl"] .fix-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
 [dir="rtl"] .completion-track span, [dir="rtl"] .track-fill { margin-left: auto; margin-right: 0; }
 /* Mixed direction.
    An Arabic word quoted inside a Pashto, Dari or Urdu sentence is already
@@ -438,7 +472,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
    scopes the bidi algorithm to the element and leaves the sentence alone. Latin
    digits inside RTL text are handled by the algorithm itself and must not be
    forced, which is why nothing here sets `direction` on a number. */
-.now-word, .correction-target, .correction-word, .course-example span,
+.now-word, .fix-word, .correction-word, .course-example span,
 .course-subject span, .course-choice span, .acoustic-finding small,
 .chapter-arabic span, .brand-arabic { unicode-bidi: isolate; }
 /* A word in the learner's own script beside Arabic keeps the sentence's flow. */
@@ -507,9 +541,16 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .study-card { order: 2; padding: 12px 15px; }
   .study-pagination { order: 3; }
   .study-visual { display: none; }
-  .active-correction { padding: 13px 12px; }
-  .correction-target { font-size: clamp(34px, 12vw, 46px); word-break: break-word; }
-  .correction-listen { width: 100%; }
+  .study-fix { padding: 13px 12px; }
+  /* The word stays the largest thing on the screen and never overflows it. */
+  .fix-word { font-size: clamp(34px, 12vw, 48px); word-break: break-word; }
+  .fix-headline { font-size: 18px; }
+  .fix-listen, .fix-cta { width: 100%; }
+  /* One step per row on a phone, so the sequence reads as a sequence and the
+     record button is a full-width target rather than a chip in a wrapped row. */
+  .fix-steps { flex-direction: column; align-items: stretch; gap: 5px; }
+  .fix-steps li { justify-content: center; font-size: 10px; }
+  .fix-record { width: 100%; justify-content: center; min-height: 46px; }
   .now-place { row-gap: 2px; }
   .study-arabic { min-height: 115px; font-size: 40px; }
   .learning-layout { min-height: 520px; padding: 21px 20px 28px; }

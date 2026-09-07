@@ -51,13 +51,36 @@ export const strings: TranslatableStrings = {
   "now.stepsLabel": "چگونه تمرین کنید",
 
   "correction.label": "کلمه‌ای که باید اصلاح شود",
-  "correction.notHeard": "این کلمه شنیده نشد.",
-  "correction.different": "به جای آن چیز دیگری شنیده شد.",
-  "correction.sound": "کلمه‌ها درست بودند. ادای این کلمه را به دقت بشنوید.",
+  "correction.notHeard": "این کلمه را واضح نشنیدم.",
+  "correction.different": "این کلمه با کلمهٔ مورد انتظار فرق داشت.",
+  "correction.sound": "کلمه‌ها درست بودند — این تنها یک ملاحظه دربارهٔ آوای همین کلمه است.",
   "correction.unsure": "این به اندازهٔ کافی واضح نبود که مطمئن شویم.",
   "correction.listen": "آیت را آهسته بشنوید",
   "correction.retry": "بشنوید، کلمه را تکرار کنید، سپس تمام آیت را بخوانید.",
   "correction.wordAt": "کلمهٔ {number}",
+
+  // The exact-word card: the eyebrow above the Arabic, the steps beneath it,
+  // and the honest note that no word-level recording exists to play.
+  "correction.eyebrow": "نیاز به توجه",
+  "correction.stepsLabel": "چه کار کنید",
+  "correction.recordAgain": "دوباره ثبت کنید",
+  "correction.referenceNote": "ثبت جداگانهٔ یک کلمه وجود ندارد، بنابراین تمام آیت آهسته پخش می‌شود.",
+  "correction.after": "وقتی ثبت بعدی شما دیگر روی این کلمه نایستد، این کارت از بین می‌رود و شما پیش می‌روید.",
+  "correction.listenAgain": "دوباره بشنوید",
+
+  // The tier-two card when the decision named no word at all. Kept apart from
+  // the wording above so an unreviewable attempt never reads as a mistake.
+  "outcome.label": "این تلاش چگونه بود",
+  "outcome.ayahHeadline": "تمام آیت را دوباره بخوانید",
+  "outcome.ayahDetail": "هیچ کلمهٔ مشخصی نشانی نشد. تمام این تلاش به خواندن دوباره نیاز دارد.",
+  "outcome.unclearHeadline": "نتوانستم این تلاش را با اطمینان بررسی کنم",
+  "outcome.unclearDetail": "هیچ چیزی نادرست نشانی نشده است. یک بار بشنوید، سپس دوباره ثبت کنید.",
+  "outcome.problemHeadline": "این ثبت بررسی نشد",
+  "outcome.problemDetail": "ثبت به بررسی نرسید، بنابراین دربارهٔ خواندن شما هیچ داوری نشد.",
+  "outcome.acceptedHeadline": "خوب است — ادامه بدهید.",
+  "outcome.acceptedDetail": "این آیت پذیرفته شد. هر وقت آماده بودید پیش بروید.",
+  "outcome.surahHeadline": "خوب است — به پایان این سوره رسیدید.",
+  "outcome.surahDetail": "تمام آیت‌های این سوره خوانده شد.",
 
   "step.showWord": "به کلمه نگاه کنید",
   "step.listen": "بشنوید",

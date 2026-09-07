@@ -52,13 +52,36 @@ export const strings: TranslatableStrings = {
   "now.stepsLabel": "كيف تتدرب على هذا",
 
   "correction.label": "الكلمة التي تحتاج مراجعة",
-  "correction.notHeard": "لم تُسمع هذه الكلمة.",
-  "correction.different": "سُمع شيء آخر مكانها.",
-  "correction.sound": "الكلمات صحيحة. استمع جيدًا إلى نطق هذه الكلمة.",
+  "correction.notHeard": "لم أسمع هذه الكلمة بوضوح.",
+  "correction.different": "جاءت هذه الكلمة مختلفة عن الكلمة المتوقَّعة.",
+  "correction.sound": "الكلمات صحيحة — هذه ملاحظة عن صوت هذه الكلمة فقط.",
   "correction.unsure": "لم يكن هذا واضحًا بما يكفي للتأكد.",
   "correction.listen": "استمع إلى الآية ببطء",
   "correction.retry": "استمع، ثم أعد الكلمة، ثم اقرأ الآية كاملة.",
   "correction.wordAt": "الكلمة {number}",
+
+  // The exact-word card: the eyebrow above the Arabic, the steps beneath it,
+  // and the honest note that no word-level recording exists to play.
+  "correction.eyebrow": "تحتاج انتباهًا",
+  "correction.stepsLabel": "ما العمل",
+  "correction.recordAgain": "سجِّل مرة أخرى",
+  "correction.referenceNote": "لا يوجد تسجيل منفصل لكلمة واحدة، لذلك تُشغَّل الآية كاملة ببطء.",
+  "correction.after": "عندما لا يتوقف تسجيلك التالي عند هذه الكلمة، تختفي هذه البطاقة وتتابع.",
+  "correction.listenAgain": "استمع مرة أخرى",
+
+  // The tier-two card when the decision named no word at all. Kept apart from
+  // the wording above so an unreviewable attempt never reads as a mistake.
+  "outcome.label": "كيف كانت هذه المحاولة",
+  "outcome.ayahHeadline": "اقرأ الآية كاملة مرة أخرى",
+  "outcome.ayahDetail": "لم تُحدَّد كلمة بعينها. المحاولة كاملة تحتاج قراءة أخرى.",
+  "outcome.unclearHeadline": "لم أستطع مراجعة هذه المحاولة بثقة",
+  "outcome.unclearDetail": "لم يُوسَم شيء بالخطأ. استمع مرة، ثم سجِّل مرة أخرى.",
+  "outcome.problemHeadline": "تعذَّر فحص هذا التسجيل",
+  "outcome.problemDetail": "لم يصل التسجيل إلى المراجعة، فلم يُحكم على تلاوتك بشيء.",
+  "outcome.acceptedHeadline": "أحسنت — تابع.",
+  "outcome.acceptedDetail": "قُبلت هذه الآية. تابع متى كنت مستعدًا.",
+  "outcome.surahHeadline": "أحسنت — بلغت آخر هذه السورة.",
+  "outcome.surahDetail": "قُرئت كل آيات هذه السورة.",
 
   "step.showWord": "انظر إلى الكلمة",
   "step.listen": "استمع",

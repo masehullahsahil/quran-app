@@ -145,16 +145,46 @@ section heading, the listen and record controls, and **at most one** contextual
 button. The word position appears only when the instruction is about a word.
 Nothing technical: no evidence level, no reason code, no tracker state, no score.
 
-### Tier 2 — the active correction
+### Tier 2 — how that attempt went
 
-Immediately below NOW, visually attached to it, never collapsed. It carries the
-target word in large Arabic, one sentence saying what was observed, the slow
-reference playback, and the retry line. It appears only for `repeat-word` — an
-action the engine reached on confirmed evidence.
+Immediately below NOW, visually attached to it, never collapsed. One card,
+rendered by `client/src/components/StudyCorrection.tsx`, in one of four states.
+The states are mutually exclusive by construction — `describeStudyTiers` returns
+either a `correction` or an `outcome`, never both — and each has its own accent,
+so they cannot be mistaken for one another.
 
-When the tone is `unsure` the panel does not appear at all, and the NOW block
-uses a neutral palette rather than the amber one: an attempt the app could not
-hear must never look like a confirmed mistake.
+| State | When | What is on screen |
+|---|---|---|
+| **the exact word** | `repeat-word` with a focus word | The Arabic word, larger than anything else in the card; `Word 3`; one sentence saying what was observed; numbered steps ending at the recorder; the slow ayah playback; what happens once it comes through |
+| **the whole ayah** | `repeat-ayah` | "Recite the whole ayah again" and, explicitly, that no single word was singled out. No word is shown |
+| **uncertain** | `unclear`, `recording-problem` | "I couldn't confidently review that attempt", that nothing has been marked wrong, and listen + record again. No word is shown |
+| **accepted** | `next-ayah`, `surah-complete` | That the attempt was accepted, and the decision's own "Go to ayah *n*" button |
+
+Three rules hold across all four:
+
+- **No word is invented.** The Arabic comes from `decision.focus.expectedArabic`
+  and nothing else. A state with no focus renders no word, so an attempt the app
+  could not judge can never put a Quranic word on screen as though it were wrong.
+- **The wording never outruns the evidence.** The observation sentence is chosen
+  from `TeacherObservation` — `not-heard`, `came-through-differently`,
+  `sound-observation` — and the sound wording says it is an observation about how
+  a word sounded, not that it was pronounced wrongly.
+- **The microphone is in the card.** `Record again` is the terminal step of the
+  sequence and calls the page's one recorder. There is no second recorder, and
+  the "Try again" button is dropped in card states rather than sitting beside it
+  meaning nearly the same thing.
+
+The steps are the decision's own `sequence` with `show-word` removed — the card
+*is* the word. Nothing is added or reordered.
+
+**There is no word-level recitation to play.** The Quran data this app reads
+carries one audio file per ayah and no word timings, so the card replays the
+whole ayah slowly and says so in as many words. No Quranic Arabic is ever
+synthesised, by browser speech synthesis or anything else.
+
+Whichever card is showing takes the teaching steps and the contextual button
+with it: NOW keeps the instruction, the place and the microphone, so the learner
+is never offered the same tap twice a few centimetres apart.
 
 ### Tier 3 — Teacher notes
 
@@ -171,7 +201,9 @@ review and unavailable audio stay visible outside the collapsed section.
 |---|---|---|
 | "Listen. Repeat. Review." banner + badge | Above the instruction | Removed; the instruction is the heading |
 | Ayah numeral rail | "Ayah / 02 / of 07" | Numeral only; the location line carries the words |
-| Focus word | In NOW, and again in the correction table | Once, in the correction panel |
+| Focus word | In NOW, and again in the correction table | Once, in the result card |
+| Result of an attempt with no focus word | Generic instruction only | Its own card: whole-ayah, uncertain, or accepted |
+| Record again after a correction | Only in NOW, above the correction | The last step of the correction card itself |
 | Correction table (up to four rows with status pills) | Primary surface | Teacher notes |
 | "Every expected word was recognised" | Primary surface | Teacher notes |
 | Retry button inside the failure alert | Competed with the NOW button | Removed; the message stays |
@@ -179,10 +211,12 @@ review and unavailable audio stay visible outside the collapsed section.
 
 ### Mobile order
 
-On a phone the tiers stack as: location → instruction → focus word → listen and
-record → one action → correction → the ayah itself → navigation. The learner
-never scrolls past diagnostics to reach a correction, and the decorative artwork
-is not rendered at all.
+On a phone the tiers stack as: location → instruction → listen and record →
+the result card (focus word, what was observed, the steps, and the recorder) →
+the ayah itself → navigation. Inside the card each step takes its own row and
+the recorder is a full-width target, so the learner never scrolls past
+diagnostics to reach a correction and never hunts for the microphone. The
+decorative artwork is not rendered at all.
 
 ## The language-model boundary
 

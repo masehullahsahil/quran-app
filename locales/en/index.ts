@@ -242,13 +242,36 @@ export const strings = {
   // What was observed about one word, in a teacher's words. Never a score, and
   // never a claim about how it sounded unless the acoustic evaluator said so.
   "correction.label": "The word to fix",
-  "correction.notHeard": "This word was not heard.",
-  "correction.different": "Something else came through in its place.",
-  "correction.sound": "The words were right. Listen closely to how this one is said.",
+  "correction.notHeard": "I didn’t hear this word clearly.",
+  "correction.different": "This word sounded different from the expected word.",
+  "correction.sound": "The words were right — this is an observation about how this one sounded.",
   "correction.unsure": "This was not clear enough to be sure.",
   "correction.listen": "Listen to the ayah slowly",
   "correction.retry": "Listen, repeat the word, then recite the ayah again.",
   "correction.wordAt": "Word {number}",
+
+  // The exact-word card: the eyebrow above the Arabic, the steps beneath it,
+  // and the honest note that no word-level recording exists to play.
+  "correction.eyebrow": "Needs attention",
+  "correction.stepsLabel": "What to do",
+  "correction.recordAgain": "Record again",
+  "correction.referenceNote": "There is no separate recording of a single word, so this plays the whole ayah slowly.",
+  "correction.after": "When your next recording no longer stops at this word, this card goes and you carry on.",
+  "correction.listenAgain": "Listen again",
+
+  // The tier-two card when the decision named no word at all. Kept apart from
+  // the wording above so an unreviewable attempt never reads as a mistake.
+  "outcome.label": "How that attempt went",
+  "outcome.ayahHeadline": "Recite the whole ayah again",
+  "outcome.ayahDetail": "No single word was singled out. The attempt as a whole needs another recitation.",
+  "outcome.unclearHeadline": "I couldn’t confidently review that attempt",
+  "outcome.unclearDetail": "Nothing has been marked wrong. Listen once, then record again.",
+  "outcome.problemHeadline": "That recording could not be checked",
+  "outcome.problemDetail": "The recording did not reach the review, so nothing about your recitation was judged.",
+  "outcome.acceptedHeadline": "Good — continue.",
+  "outcome.acceptedDetail": "This ayah was accepted. Carry on when you are ready.",
+  "outcome.surahHeadline": "Good — you reached the end of this surah.",
+  "outcome.surahDetail": "Every ayah in this surah has been recited.",
 
   "now.label": "What to do now",
   "now.stepsLabel": "How to practise this",
