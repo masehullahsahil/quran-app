@@ -235,7 +235,7 @@ function stay(
  *  3b. Nothing of the expected ayah matched and no neighbour explains it — hold.
  *  4. Far more unexpected words than expected ones — treat as noise, hold.
  *  5. Enough of the expected ayah was recited, its end was reached, and no run of
- *     more than one word is unaccounted for — advance one ayah.
+ *     words already recited past are unaccounted for — advance one ayah.
  *  6. Otherwise the learner is part-way through: stay on the ayah and move the
  *     expected word to the first word not yet accounted for.
  */
@@ -294,9 +294,11 @@ export function followRecitation(input: VerseFollowingInput): VerseFollowingResu
     });
   }
 
+  const passedTheGap = firstGap <= total && lastMatched > firstGap;
   const sufficient =
     coverage >= ADVANCE_COVERAGE &&
     maxGapRun <= MAX_GAP_RUN &&
+    !passedTheGap &&
     lastMatched >= total - 1 &&
     matched.length >= Math.min(2, total);
 
@@ -370,7 +372,6 @@ export function followRecitation(input: VerseFollowingInput): VerseFollowingResu
 
   // 6. Part-way through the ayah. A gap the learner has already recited past is a
   // mistake to return to; a gap at the end simply means they stopped there.
-  const passedTheGap = firstGap <= total && lastMatched > firstGap;
   return stay(position, {
     state: passedTheGap ? "correcting" : "following",
     evidence: coverage >= PARTIAL_COVERAGE ? "partial" : "weak",
