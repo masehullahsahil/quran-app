@@ -13,8 +13,11 @@ Set the following server-side variables in the app environment. Do not expose th
 | `QURAN_EVALUATOR_URL` | Base URL of the specialised evaluator service. The app calls its `/v1/evaluate` route. |
 | `QURAN_EVALUATOR_API_KEY` | Optional bearer token for that service. |
 | `QURAN_EVALUATOR_TIMEOUT_MS` | Optional deadline; defaults to 8 seconds and is clamped between 1 and 20 seconds. |
+| `QURAN_EVALUATOR_PRIMARY_CORRECTIONS` | Optional explicit opt-in. Set to `1`/`true` only after the evaluator has been validated on held-out, teacher-labelled Quran recitation recordings for the target learner group. |
 
 Without `QURAN_EVALUATOR_URL`, the existing transcript-based word-recall review continues unchanged.
+
+By default, even an `available` acoustic response is non-blocking evidence. It may be shown as bounded practice context, but it cannot choose the primary `repeat-word` action or stop a correctly aligned text recitation from advancing. This keeps prototype or unvalidated services from turning nominal confidence into a false learner-facing pronunciation correction.
 
 ## Request
 
@@ -77,3 +80,7 @@ The allowed `kind` values are `phoneme`, `vowel_length`, `pause`, and `tajweed`.
 A credible implementation uses a Quran-aware canonical phoneme representation, a specialised acoustic or phoneme-recognition model, target-to-prediction alignment, and a confidence/abstention layer. A pause segmenter can identify recitation boundaries but is not, by itself, a pronunciation evaluator. Any advanced tajwid rule should be added only after a qualified teacher has approved the error taxonomy, acceptance criteria, and test recordings.
 
 The open-source research ecosystem includes Quran-specific phonemizers and phoneme-recognition models, but these need independent evaluation on the product’s target learner population. The Vercel app is intentionally only the secure client of the service: a model deployment should run where its GPU/runtime requirements and data-protection controls can be managed separately.
+
+## Learner-decision trace
+
+Study mode exposes a safe developer/test trace in non-production or when `VITE_RECITATION_DIAGNOSTICS=1` is set. It includes the teacher action kind, reason code, evidence level, focus source, focus word index, whether Arabic focus exists, match count, and acoustic status. It does not expose raw learner transcripts, audio, secrets, provider headers, or acoustic service prose.

@@ -24,4 +24,7 @@ export const ENV = {
   quranEvaluatorUrl: process.env.QURAN_EVALUATOR_URL ?? "",
   quranEvaluatorApiKey: process.env.QURAN_EVALUATOR_API_KEY ?? "",
   quranEvaluatorTimeoutMs: Number.parseInt(process.env.QURAN_EVALUATOR_TIMEOUT_MS ?? "8000", 10) || 8000,
+  quranEvaluatorPrimaryCorrections:
+    process.env.QURAN_EVALUATOR_PRIMARY_CORRECTIONS === "1" ||
+    process.env.QURAN_EVALUATOR_PRIMARY_CORRECTIONS?.toLowerCase() === "true",
 };

@@ -190,6 +190,7 @@ const UNCERTAIN_REASONS = new Set(["no_transcript", "too_little_evidence", "nois
  */
 export function actionableAcousticFindings(review: QuranAwareReview | null): Array<{ wordIndex: number; guidance: string; expectedArabic: string | null }> {
   if (!review || review.status !== "available") return [];
+  if (review.canDriveLearnerCorrection !== true) return [];
   if (review.confidence === null || review.confidence < ACOUSTIC_MIN_CONFIDENCE) return [];
   return review.findings
     .filter((finding): finding is typeof finding & { wordIndex: number } => finding.wordIndex !== null && finding.wordIndex > 0)
@@ -444,4 +445,27 @@ function expectedWordAt(attempt: AttemptEvidence, wordIndex: number): string {
 export function describeDecision(decision: TeacherDecision): string {
   const focus = decision.focus ? ` focus=word${decision.focus.wordIndex}:${decision.focus.source}` : "";
   return `${decision.action} (${decision.reason}) evidence=${decision.evidenceLevel} advance=${decision.canAdvance}${focus} notes=${decision.secondaryNotes.length}`;
+}
+
+export type TeacherDecisionTrace = {
+  kind: TeacherActionKind;
+  reason: TeacherReasonCode;
+  evidenceLevel: TeacherEvidenceLevel;
+  focusSource: TeacherFocusSource | null;
+  focusWordIndex: number | null;
+  hasFocusArabic: boolean;
+  canAdvance: boolean;
+};
+
+/** Safe developer trace: structured reason data, never raw transcript/audio. */
+export function traceTeacherDecision(decision: TeacherDecision): TeacherDecisionTrace {
+  return {
+    kind: decision.action,
+    reason: decision.reason,
+    evidenceLevel: decision.evidenceLevel,
+    focusSource: decision.focus?.source ?? null,
+    focusWordIndex: decision.focus?.wordIndex ?? null,
+    hasFocusArabic: Boolean(decision.focus?.expectedArabic),
+    canAdvance: decision.canAdvance,
+  };
 }

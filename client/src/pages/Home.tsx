@@ -50,7 +50,7 @@ import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationA
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import { synchronizeLearnerPersistence } from "@/lib/learnerPersistence";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
-import { resolveTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
+import { resolveTeacherAction, traceTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
 import { describeStudyTiers } from "@/lib/studyView";
 import { StudyCorrection } from "@/components/StudyCorrection";
 import type { MasteryState } from "@shared/memorization";
@@ -954,6 +954,8 @@ export default function Home() {
     livePosition: { currentSurah: position.currentSurah, currentAyah: position.currentAyah, expectedWordIndex: position.expectedWordIndex },
     hasNextAyah: Boolean(nextVerse),
   });
+  const teacherTrace = traceTeacherAction(teacherAction);
+  const recitationDiagnosticsEnabled = import.meta.env.DEV || import.meta.env.VITE_RECITATION_DIAGNOSTICS === "1";
   const runTeacherAction = () => {
     if (teacherAction.button?.command === "next-ayah" && teacherAction.targetAyah !== null) {
       selectVerse(teacherAction.targetAyah);
@@ -1151,6 +1153,7 @@ export default function Home() {
               <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
                 <p className="now-place"><span className="now-surah">{surahLabel}</span><span>{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}</span>{studyTiers.now.showWordPosition && teacherAction.focusWordIndex !== null && <span>{t("now.placeWord", { number: teacherAction.focusWordIndex })}</span>}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
                 <h2 className="now-instruction" aria-live="polite">{t(studyTiers.now.instructionKey, studyTiers.now.instructionParams)}</h2>
+                {teacherAction.focusArabic && <p className="now-word" lang="ar" dir="rtl">{teacherAction.focusArabic}</p>}
                 {studyTiers.now.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{studyTiers.now.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step as TeachingStep])}</li>)}</ol>}
                 <div className="loop-actions">
                   <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
@@ -1183,6 +1186,17 @@ export default function Home() {
 
               {/* The live guide is the mic's own feedback, so it sits with it. */}
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : index === position.expectedWordIndex - 1 ? "is-expected" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}
+
+              {recitationDiagnosticsEnabled && <section className="recitation-diagnostics" aria-label={t("diagnostics.label")}>
+                <strong>{t("diagnostics.label")}</strong>
+                <dl>
+                  <div><dt>{t("diagnostics.transcriptStatus")}</dt><dd>{feedback ? feedback.wordReviewAvailable ? t("diagnostics.available") : t("diagnostics.unavailable") : t("diagnostics.none")}</dd></div>
+                  <div><dt>{t("diagnostics.matchCount")}</dt><dd>{feedback ? `${feedback.matchedCount}/${feedback.totalWords}` : t("diagnostics.none")}</dd></div>
+                  <div><dt>{t("diagnostics.teacherReason")}</dt><dd>{teacherTrace.kind}:{teacherTrace.reason}</dd></div>
+                  <div><dt>{t("diagnostics.focus")}</dt><dd>{teacherTrace.focusWordIndex ?? t("diagnostics.none")} / {teacherTrace.hasFocusArabic ? t("diagnostics.yes") : t("diagnostics.no")}</dd></div>
+                  <div><dt>{t("diagnostics.acoustic")}</dt><dd>{feedback?.quranAwareReview.status ?? t("diagnostics.none")}</dd></div>
+                </dl>
+              </section>}
 
               {/* A failure the learner has to get past is never collapsed. */}
               {/* The instruction above already offers "Try again", so this

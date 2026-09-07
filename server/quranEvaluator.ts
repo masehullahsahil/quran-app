@@ -85,7 +85,14 @@ function parseResponse(value: unknown, maximumWordIndex: number): QuranAwareRevi
     return { status: "abstained", provider, confidence, summary: null, findings: [] };
   }
 
-  return { status: "available", provider, confidence, summary, findings };
+  return {
+    status: "available",
+    provider,
+    confidence,
+    summary,
+    findings,
+    canDriveLearnerCorrection: ENV.quranEvaluatorPrimaryCorrections,
+  };
 }
 
 /**

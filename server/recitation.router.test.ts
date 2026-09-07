@@ -181,6 +181,7 @@ describe("recitation.evaluate", () => {
       confidence: 0.9,
       summary: "Repeat the marked word slowly with the reference reciter.",
       findings: [{ kind: "phoneme", wordIndex: 1, expectedArabic: "بسم", guidance: "Listen once, then repeat the opening sound." }],
+      canDriveLearnerCorrection: false,
     });
     expect(calls).toContain("https://quran-evaluator.example.test/v1/evaluate");
   });

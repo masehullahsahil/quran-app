@@ -5,6 +5,7 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { transcribeAudio, type TranscriptionResponse } from "../server/_core/voiceTranscription";
+import { evaluateQuranAwareAudio } from "../server/quranEvaluator";
 import {
   assessRecitationTranscript,
   hasArabicScript,
@@ -12,10 +13,12 @@ import {
   tokenizeArabic,
 } from "../server/recitation";
 import { createVerseFollowingPosition, followRecitation } from "../shared/verseFollowing";
+import { decideTeacherAction, traceTeacherDecision } from "../shared/teacherDecision";
+import type { QuranAwareReview } from "../shared/quranEvaluation";
 
 type RealRecitationSample = {
   id: string;
-  kind: "correct_ayah" | "skipped_word" | "wrong_recitation";
+  kind: "correct_ayah" | "skipped_word" | "corrected_after_skip" | "wrong_recitation";
   description: string;
   expectedSurah: number;
   expectedAyah: number;
@@ -45,13 +48,26 @@ type SampleReport = {
   };
   transcriptReturned: string;
   transcriptLanguage: string | null;
+  transcriptionSucceeded: boolean;
   normalizedTranscript: string;
+  normalizedExpected: string;
   matchedWords: number;
   totalExpectedWords: number;
   omissions: Array<{ wordIndex: number; expected: string }>;
   substitutionsOrReviews: Array<{ wordIndex: number; expected: string; heard: string | null }>;
   extraWords: string[];
   verseFollowingState: ReturnType<typeof followRecitation>;
+  teacherDecision: ReturnType<typeof traceTeacherDecision> & {
+    focusArabic: string | null;
+    reason: ReturnType<typeof traceTeacherDecision>["reason"];
+  };
+  acoustic: {
+    status: QuranAwareReview["status"];
+    provider: string | null;
+    confidence: number | null;
+    canDriveLearnerCorrection: boolean;
+    findings: Array<{ kind: string; wordIndex: number | null; expectedArabic: string | null }>;
+  };
   latenciesMs: Timings;
   evaluationAbstained: boolean;
   abstentionReason: string | null;
@@ -97,6 +113,25 @@ const samples: RealRecitationSample[] = [
       urls: [
         "https://audio.qurancdn.com/wbw/001_002_001.mp3",
         "https://audio.qurancdn.com/wbw/001_002_002.mp3",
+        "https://audio.qurancdn.com/wbw/001_002_004.mp3",
+      ],
+    },
+  },
+  {
+    id: "quran-wbw-001002-correct-after-skip",
+    kind: "corrected_after_skip",
+    description: "Real Quran.com word-by-word audio for al-Fatiha 1:2 with all words present, used after the skipped-word case.",
+    expectedSurah: 1,
+    expectedAyah: 2,
+    expectedArabic: fatiha[1],
+    totalAyahs: fatiha.length,
+    audio: {
+      type: "concat-url",
+      mimeType: "audio/mpeg",
+      urls: [
+        "https://audio.qurancdn.com/wbw/001_002_001.mp3",
+        "https://audio.qurancdn.com/wbw/001_002_002.mp3",
+        "https://audio.qurancdn.com/wbw/001_002_003.mp3",
         "https://audio.qurancdn.com/wbw/001_002_004.mp3",
       ],
     },
@@ -149,6 +184,7 @@ async function loadAudio(source: AudioSource): Promise<Buffer> {
 
 async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
   const latenciesMs: Timings = {};
+  const totalStart = performance.now();
 
   const audioStart = performance.now();
   const audio = await loadAudio(sample.audio);
@@ -158,6 +194,19 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
   const audioBase64 = audio.toString("base64");
   latenciesMs.base64Encode = elapsedSince(encodeStart);
 
+  const acousticStart = performance.now();
+  const acousticPromise = evaluateQuranAwareAudio({
+    audioBase64,
+    mimeType: sample.audio.mimeType,
+    expectedArabic: sample.expectedArabic,
+    surah: sample.expectedSurah,
+    ayah: sample.expectedAyah,
+    learningLevel: "qaida",
+  }).then((review) => {
+    latenciesMs.acoustic = elapsedSince(acousticStart);
+    return review;
+  });
+
   const transcriptionStart = performance.now();
   const transcription = await transcribeAudio({
     audio,
@@ -165,6 +214,7 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
     language: "ar",
   });
   latenciesMs.transcription = elapsedSince(transcriptionStart);
+  const quranAwareReview = await acousticPromise;
 
   let transcript = "";
   let transcriptLanguage: string | null = null;
@@ -185,6 +235,7 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
   }
 
   const normalizedTranscript = normalizeTranscript(transcript);
+  const normalizedExpected = normalizeTranscript(sample.expectedArabic);
 
   const alignmentStart = performance.now();
   const assessment = assessRecitationTranscript(sample.expectedArabic, transcript);
@@ -205,9 +256,23 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
     transcriptUsable: !evaluationAbstained && Boolean(normalizedTranscript),
   });
   latenciesMs.decision = elapsedSince(decisionStart);
-  latenciesMs.totalCorrection = Math.round(
-    (latenciesMs.audioLoad + latenciesMs.base64Encode + latenciesMs.transcription + latenciesMs.alignment + latenciesMs.decision) * 10,
-  ) / 10;
+  const teacherDecision = decideTeacherAction({
+    recording: { isRecording: false, isReviewing: false, failed: false },
+    attempt: {
+      reviewable: !evaluationAbstained,
+      corrections: evaluationAbstained ? [] : assessment.corrections,
+      verseFollowing: verseFollowingState,
+    },
+    acoustic: quranAwareReview,
+    memory: { reviewDue: false, recurringWordIndexes: [] },
+    livePosition: {
+      currentSurah: position.currentSurah,
+      currentAyah: position.currentAyah,
+      expectedWordIndex: position.expectedWordIndex,
+    },
+    hasNextAyah: sample.expectedAyah < sample.totalAyahs,
+  });
+  latenciesMs.totalCorrection = elapsedSince(totalStart);
 
   return {
     id: sample.id,
@@ -222,7 +287,9 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
     },
     transcriptReturned: transcript,
     transcriptLanguage,
+    transcriptionSucceeded: !("error" in transcription),
     normalizedTranscript,
+    normalizedExpected,
     matchedWords: evaluationAbstained ? 0 : assessment.matchedCount,
     totalExpectedWords: assessment.totalWords,
     omissions: evaluationAbstained
@@ -237,6 +304,21 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
         .map((word) => ({ wordIndex: word.wordIndex as number, expected: word.expected, heard: word.heard })),
     extraWords: evaluationAbstained ? [] : assessment.extraWords.map((word) => word.heard ?? "").filter(Boolean),
     verseFollowingState,
+    teacherDecision: {
+      ...traceTeacherDecision(teacherDecision),
+      focusArabic: teacherDecision.focus?.expectedArabic ?? null,
+    },
+    acoustic: {
+      status: quranAwareReview.status,
+      provider: quranAwareReview.provider,
+      confidence: quranAwareReview.confidence,
+      canDriveLearnerCorrection: quranAwareReview.canDriveLearnerCorrection === true,
+      findings: quranAwareReview.findings.map((finding) => ({
+        kind: finding.kind,
+        wordIndex: finding.wordIndex,
+        expectedArabic: finding.expectedArabic,
+      })),
+    },
     latenciesMs,
     evaluationAbstained,
     abstentionReason,
@@ -254,14 +336,18 @@ function printHumanReport(reports: SampleReport[]): void {
     console.log(`  kind: ${report.kind}`);
     console.log(`  expected ayah: ${report.expectedAyah}`);
     console.log(`  audio: ${report.audio.mimeType}, ${report.audio.bytes} bytes, base64 ${report.audio.base64Length} chars`);
+    console.log(`  transcription success: ${report.transcriptionSucceeded ? "yes" : "no"}`);
     console.log(`  transcript returned: ${report.transcriptReturned || "(empty)"}`);
     console.log(`  normalized transcript: ${report.normalizedTranscript || "(empty)"}`);
+    console.log(`  normalized expected: ${report.normalizedExpected}`);
     console.log(`  matched words: ${report.matchedWords}/${report.totalExpectedWords}`);
     console.log(`  omissions: ${report.omissions.length ? report.omissions.map((word) => `${word.wordIndex}:${word.expected}`).join(", ") : "none"}`);
     console.log(`  substitutions/reviews: ${report.substitutionsOrReviews.length ? report.substitutionsOrReviews.map((word) => `${word.wordIndex}:${word.expected}->${word.heard ?? "(missing)"}`).join(", ") : "none"}`);
     console.log(`  verse following: ${report.verseFollowingState.state}, reason=${report.verseFollowingState.reason}, expectedWord=${report.verseFollowingState.expectedWordIndex}, advance=${report.verseFollowingState.shouldAdvance}`);
+    console.log(`  teacher decision: action=${report.teacherDecision.kind}, reason=${report.teacherDecision.reason}, evidence=${report.teacherDecision.evidenceLevel}, focusWord=${report.teacherDecision.focusWordIndex ?? "none"}, focusArabic=${report.teacherDecision.focusArabic ?? "none"}`);
+    console.log(`  acoustic: status=${report.acoustic.status}, confidence=${report.acoustic.confidence ?? "none"}, primary=${report.acoustic.canDriveLearnerCorrection ? "enabled" : "disabled"}, findings=${report.acoustic.findings.length ? report.acoustic.findings.map((finding) => `${finding.kind}:${finding.wordIndex ?? "general"}:${finding.expectedArabic ?? "none"}`).join(", ") : "none"}`);
     console.log(`  abstained: ${report.evaluationAbstained ? `yes (${report.abstentionReason})` : "no"}`);
-    console.log(`  latency ms: transcription=${report.latenciesMs.transcription}, alignment=${report.latenciesMs.alignment}, decision=${report.latenciesMs.decision}, total=${report.latenciesMs.totalCorrection}`);
+    console.log(`  latency ms: transcription=${report.latenciesMs.transcription}, acoustic=${report.latenciesMs.acoustic}, alignment=${report.latenciesMs.alignment}, decision=${report.latenciesMs.decision}, total=${report.latenciesMs.totalCorrection}`);
     console.log("");
   }
 }

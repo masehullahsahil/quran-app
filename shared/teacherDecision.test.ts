@@ -9,11 +9,23 @@ import { describe, expect, it } from "vitest";
 import type { QuranAwareReview } from "./quranEvaluation";
 import type { VerseFollowingResult } from "./verseFollowing";
 import {
+  assessRecitationTranscript,
+  hasArabicScript,
+  normaliseArabicToken,
+  tokenizeArabic,
+} from "../server/recitation";
+import {
+  createVerseFollowingPosition,
+  followRecitation,
+  toVerseFollowingPosition,
+} from "./verseFollowing";
+import {
   ACOUSTIC_MIN_CONFIDENCE,
   actionableAcousticFindings,
   decideTeacherAction,
   describeDecision,
   rankedTextCorrections,
+  traceTeacherDecision,
   type AttemptEvidence,
   type TeacherEvidence,
   type TextCorrection,
@@ -51,6 +63,7 @@ function acousticReview(patch: Partial<QuranAwareReview> = {}): QuranAwareReview
     confidence: 0.9,
     summary: "Listen once more to the marked word.",
     findings: [{ kind: "phoneme", wordIndex: 3, expectedArabic: "رَبِّ", guidance: "Listen to the reference, then repeat this word." }],
+    canDriveLearnerCorrection: true,
     ...patch,
   };
 }
@@ -65,6 +78,36 @@ function evidence(patch: Partial<TeacherEvidence> = {}): TeacherEvidence {
     hasNextAyah: true,
     ...patch,
   };
+}
+
+const FATIHA = [
+  "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+  "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ",
+  "الرَّحْمَٰنِ الرَّحِيمِ",
+  "مَالِكِ يَوْمِ الدِّينِ",
+  "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
+  "اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ",
+  "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
+];
+
+function transcriptAttempt(ayah: number, transcript: string, previous = createVerseFollowingPosition(1, ayah)): AttemptEvidence {
+  const alignment = assessRecitationTranscript(FATIHA[ayah - 1], transcript);
+  return {
+    reviewable: hasArabicScript(transcript),
+    corrections: alignment.corrections,
+    verseFollowing: followRecitation({
+      position: previous,
+      totalAyahs: FATIHA.length,
+      alignment,
+      previousAyahAlignment: ayah > 1 ? assessRecitationTranscript(FATIHA[ayah - 2], transcript) : null,
+      nextAyahAlignment: ayah < FATIHA.length ? assessRecitationTranscript(FATIHA[ayah], transcript) : null,
+      transcriptUsable: hasArabicScript(transcript),
+    }),
+  };
+}
+
+function normalized(text: string): string {
+  return tokenizeArabic(text).map(normaliseArabicToken).join(" ");
 }
 
 describe("the microphone outranks everything", () => {
@@ -99,6 +142,18 @@ describe("a perfect attempt", () => {
     expect(decision.sequence).toEqual([]);
   });
 
+  it("does not make a false repeat-word from safe Quran orthography differences", () => {
+    const attemptEvidence = transcriptAttempt(1, "بسم الله الرحمن الرحيم");
+    const decision = decideTeacherAction(evidence({
+      attempt: attemptEvidence,
+      livePosition: { currentSurah: 1, currentAyah: 1, expectedWordIndex: 1 },
+    }));
+
+    expect(normalized(FATIHA[0])).toBe("بسم الله الرحمن الرحيم");
+    expect(decision).toMatchObject({ action: "next-ayah", reason: "ayah_complete", canAdvance: true });
+    expect(decision.focus).toBeNull();
+  });
+
   it("reports the surah finished on the last ayah, and does not advance", () => {
     const decision = decideTeacherAction(evidence({
       hasNextAyah: false,
@@ -131,6 +186,42 @@ describe("textual corrections", () => {
     expect(decision).toMatchObject({ action: "repeat-word", reason: "text_missing_word", canAdvance: false });
     expect(decision.focus).toEqual({ wordIndex: 4, expectedArabic: "الْعَالَمِينَ", source: "tracker", observation: "not-heard" });
     expect(decision.sequence).toEqual(["show-word", "listen", "repeat-word", "recite-ayah"]);
+  });
+
+  it("puts an omitted real Quran word in focus with its exact Arabic", () => {
+    const attemptEvidence = transcriptAttempt(2, "الحمد لله العالمين");
+    const decision = decideTeacherAction(evidence({
+      attempt: attemptEvidence,
+      livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 1 },
+    }));
+
+    expect(decision).toMatchObject({ action: "repeat-word", reason: "text_missing_word", canAdvance: false });
+    expect(decision.focus).toEqual({ wordIndex: 3, expectedArabic: "رَبِّ", source: "tracker", observation: "not-heard" });
+  });
+
+  it("puts a different spoken word in focus with exact Arabic and observation", () => {
+    const attemptEvidence = transcriptAttempt(2, "الحمد للرحمن رب العالمين");
+    const decision = decideTeacherAction(evidence({
+      attempt: attemptEvidence,
+      livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 1 },
+    }));
+
+    expect(decision).toMatchObject({ action: "repeat-word", reason: "text_missing_word", canAdvance: false });
+    expect(decision.focus).toEqual({ wordIndex: 2, expectedArabic: "لِلَّهِ", source: "tracker", observation: "came-through-differently" });
+  });
+
+  it("clears the focus after a second corrected attempt completes the ayah", () => {
+    const skipped = transcriptAttempt(2, "الحمد لله العالمين");
+    expect(skipped.verseFollowing.correctionFocus).toMatchObject({ wordIndex: 3, expectedArabic: "رَبِّ" });
+
+    const corrected = transcriptAttempt(2, "الحمد لله رب العالمين", toVerseFollowingPosition(skipped.verseFollowing));
+    const decision = decideTeacherAction(evidence({
+      attempt: corrected,
+      livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 3 },
+    }));
+
+    expect(decision).toMatchObject({ action: "next-ayah", reason: "ayah_complete", canAdvance: true });
+    expect(decision.focus).toBeNull();
   });
 
   it("chooses the highest-priority correction when there are several", () => {
@@ -200,6 +291,17 @@ describe("abstention when the evidence is thin", () => {
     },
   );
 
+  it("does not turn a non-Arabic transcript into a specific correction", () => {
+    const attemptEvidence = transcriptAttempt(2, "In the name of Allah");
+    const decision = decideTeacherAction(evidence({
+      attempt: { ...attemptEvidence, reviewable: false, corrections: [] },
+      livePosition: { currentSurah: 1, currentAyah: 2, expectedWordIndex: 1 },
+    }));
+
+    expect(decision).toMatchObject({ action: "recording-problem", reason: "recording_unreviewable", canAdvance: false });
+    expect(decision.focus).toBeNull();
+  });
+
   it("discards an acoustic finding when the words themselves were not established", () => {
     const decision = decideTeacherAction(evidence({
       attempt: attempt({ verseFollowing: follow({ state: "uncertain", reason: "no_transcript", evidence: "none" }) }),
@@ -225,6 +327,17 @@ describe("acoustic findings", () => {
 
     expect(decision).toMatchObject({ action: "repeat-word", reason: "acoustic_high_confidence", canAdvance: false });
     expect(decision.focus).toEqual({ wordIndex: 3, expectedArabic: "رَبِّ", source: "acoustic", observation: "sound-observation" });
+  });
+
+  it("does not let unvalidated acoustic findings create learner-facing repeat-word", () => {
+    const decision = decideTeacherAction(evidence({
+      attempt: attempt({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 3, evidence: "strong", reason: "ayah_completed" }) }),
+      acoustic: acousticReview({ canDriveLearnerCorrection: false }),
+    }));
+
+    expect(decision).toMatchObject({ action: "next-ayah", reason: "ayah_complete", canAdvance: true });
+    expect(decision.focus).toBeNull();
+    expect(actionableAcousticFindings(acousticReview({ canDriveLearnerCorrection: false }))).toEqual([]);
   });
 
   it.each([
@@ -442,6 +555,21 @@ describe("evidence and instruction stay separate", () => {
     const decision = decideTeacherAction(evidence({ attempt: attempt({ corrections: [missing(2, "لِلَّهِ")], verseFollowing: follow({ state: "correcting" }) }) }));
 
     expect(describeDecision(decision)).toBe("repeat-word (text_missing_word) evidence=partial advance=false focus=word2:text notes=0");
+  });
+
+  it("exposes a safe trace for diagnostics without transcript or Arabic content", () => {
+    const decision = decideTeacherAction(evidence({ attempt: attempt({ corrections: [missing(2, "لِلَّهِ")], verseFollowing: follow({ state: "correcting" }) }) }));
+
+    expect(traceTeacherDecision(decision)).toEqual({
+      kind: "repeat-word",
+      reason: "text_missing_word",
+      evidenceLevel: "partial",
+      focusSource: "text",
+      focusWordIndex: 2,
+      hasFocusArabic: true,
+      canAdvance: false,
+    });
+    expect(JSON.stringify(traceTeacherDecision(decision))).not.toContain("لِلَّهِ");
   });
 });
 

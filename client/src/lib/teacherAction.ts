@@ -20,6 +20,7 @@ import {
   type TeacherEvidence,
   type TeacherEvidenceLevel,
   type TeacherFocus,
+  type TeacherFocusSource,
   type TeacherNote,
   type TeacherReasonCode,
   type TeachingStep,
@@ -53,6 +54,7 @@ export type TeacherAction = {
   /** The word to repeat, shown large in Arabic. Null unless kind is repeat-word. */
   focusArabic: string | null;
   focusWordIndex: number | null;
+  focusSource: TeacherFocusSource | null;
   /**
    * At most one button. Null when the listen and record controls below are
    * already the natural next step, so the page never shows two competing CTAs.
@@ -139,6 +141,7 @@ export function presentDecision(decision: TeacherDecision, input: TeacherActionI
     titleParams: titleParams(decision, input),
     focusArabic: focus?.expectedArabic ?? null,
     focusWordIndex: focus?.wordIndex ?? (decision.action === "continue" ? input.attempt?.verseFollowing.expectedWordIndex ?? null : null),
+    focusSource: focus?.source ?? null,
     button: buttonFor(decision),
     tone: TONES[decision.action],
     targetAyah: decision.targetAyah,
@@ -189,4 +192,27 @@ function buttonFor(decision: TeacherDecision): TeacherActionButton | null {
  */
 export function isPreAttempt(action: TeacherAction): boolean {
   return action.kind === "listen-first" || action.kind === "review-today";
+}
+
+export type TeacherActionTrace = {
+  kind: TeacherActionKind;
+  reason: TeacherReasonCode;
+  evidenceLevel: TeacherEvidenceLevel;
+  focusSource: TeacherFocusSource | null;
+  focusWordIndex: number | null;
+  hasFocusArabic: boolean;
+  canAdvance: boolean;
+};
+
+/** Safe developer/test trace: no raw transcript, no audio, no Arabic content. */
+export function traceTeacherAction(action: TeacherAction): TeacherActionTrace {
+  return {
+    kind: action.kind,
+    reason: action.reason,
+    evidenceLevel: action.evidenceLevel,
+    focusSource: action.focusSource,
+    focusWordIndex: action.focusWordIndex,
+    hasFocusArabic: Boolean(action.focusArabic),
+    canAdvance: action.canAdvance,
+  };
 }

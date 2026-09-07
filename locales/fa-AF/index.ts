@@ -82,6 +82,18 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "خوب است — به پایان این سوره رسیدید.",
   "outcome.surahDetail": "تمام آیت‌های این سوره خوانده شد.",
 
+  "diagnostics.label": "بررسی تلاوت",
+  "diagnostics.transcriptStatus": "متن",
+  "diagnostics.matchCount": "همخوانی‌ها",
+  "diagnostics.teacherReason": "دلیل استاد",
+  "diagnostics.focus": "نشانه",
+  "diagnostics.acoustic": "صدا",
+  "diagnostics.available": "موجود",
+  "diagnostics.unavailable": "ناموجود",
+  "diagnostics.none": "هیچ",
+  "diagnostics.yes": "بلی",
+  "diagnostics.no": "نه",
+
   "step.showWord": "به کلمه نگاه کنید",
   "step.listen": "بشنوید",
   "step.repeatWord": "کلمه را تکرار کنید",

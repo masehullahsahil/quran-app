@@ -21,6 +21,11 @@ decoder or transcription path. An unconfigured/untrained worker returns 503 and
 the evaluator abstains. A real checkpoint must be trained using authorized labels;
 repository tones validate plumbing only.
 
+The main app treats this evaluator as non-primary by default. Unless
+`QURAN_EVALUATOR_PRIMARY_CORRECTIONS=1` is explicitly enabled after held-out,
+teacher-labelled validation, returned findings may appear only as bounded
+practice evidence and cannot create the primary learner `repeat-word` correction.
+
 Supported taxonomy is **ق/ك, ص/س, ح/ه, ط/ت, and ض/د**, plus the cleanly supported
 groups **ظ/ز/ذ, ع/أ, and غ/خ**. “Supported” means target extraction, model label,
 and scoring architecture exist—not that discrimination accuracy is established.

@@ -81,6 +81,18 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "ښه دي — د دې سورت پای ته ورسېدئ.",
   "outcome.surahDetail": "د دې سورت ټول آیتونه ولوستل شول.",
 
+  "diagnostics.label": "د تلاوت کتنه",
+  "diagnostics.transcriptStatus": "متن",
+  "diagnostics.matchCount": "سمونونه",
+  "diagnostics.teacherReason": "د استاد دلیل",
+  "diagnostics.focus": "نښه",
+  "diagnostics.acoustic": "غږ",
+  "diagnostics.available": "شته",
+  "diagnostics.unavailable": "نشته",
+  "diagnostics.none": "هیڅ",
+  "diagnostics.yes": "هو",
+  "diagnostics.no": "نه",
+
   "step.showWord": "کلمې ته وګورئ",
   "step.listen": "واورئ",
   "step.repeatWord": "کلمه بیا ووایاست",

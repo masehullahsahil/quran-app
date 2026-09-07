@@ -78,7 +78,7 @@ const states: Array<[string, TeacherEvidence]> = [
   })],
   ["acoustic finding", evidence({
     attempt: attempt({ verseFollowing: follow({ shouldAdvance: true, currentAyah: 3, evidence: "strong" }) }),
-    acoustic: { status: "available", provider: "t", confidence: 0.92, summary: "s", findings: [{ kind: "phoneme", wordIndex: 4, expectedArabic: "الْعَالَمِينَ", guidance: "g" }] },
+    acoustic: { status: "available", provider: "t", confidence: 0.92, summary: "s", findings: [{ kind: "phoneme", wordIndex: 4, expectedArabic: "الْعَالَمِينَ", guidance: "g" }], canDriveLearnerCorrection: true },
   })],
   ["repeat ayah", evidence({ attempt: attempt({ verseFollowing: follow({ state: "correcting" }) }) })],
   ["partial progress", evidence({ attempt: attempt({ verseFollowing: follow({ state: "following", expectedWordIndex: 4 }) }) })],
@@ -123,6 +123,15 @@ describe("tier two carries the correction, outside Teacher notes", () => {
     expect(tiers.correction?.confirmed).toBe(true);
     // It is a tier of its own, never one of the collapsed note blocks.
     expect(tiers.notes).not.toContain("correction");
+  });
+
+  it("keeps the exact Arabic focus available for the Study view", () => {
+    const { action, tiers } = tiersFor(states.find(([n]) => n === "missing word")![1]);
+
+    expect(action.focusArabic).toBe("رَبِّ");
+    expect(action.focusWordIndex).toBe(3);
+    expect(tiers.correction?.arabic).toBe(action.focusArabic);
+    expect(tiers.correction?.wordIndex).toBe(action.focusWordIndex);
   });
 
   it("explains a sound observation differently from a missing word", () => {

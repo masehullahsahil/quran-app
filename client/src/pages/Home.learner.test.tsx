@@ -56,19 +56,30 @@ const FAKE_INDEX = {
   translations: [{ id: 131, authorName: "Test Translation", languageName: "english" }],
 };
 
+const mutationMocks = vi.hoisted(() => ({
+  recitationEvaluate: vi.fn(),
+  recitationIngest: vi.fn(),
+  learnerSyncProgress: vi.fn(),
+  learnerSyncQaidaProgress: vi.fn(),
+  learnerRecordMemorization: vi.fn(),
+}));
+
 vi.mock("@/lib/trpc", () => {
-  const mutation = () => ({ mutateAsync: vi.fn(), mutate: vi.fn(), isPending: false, reset: vi.fn() });
+  const mutation = (mutateAsync = vi.fn(), mutate = vi.fn()) => ({ mutateAsync, mutate, isPending: false, reset: vi.fn() });
   const empty = () => ({ data: undefined, isSuccess: false, isLoading: false, isError: false, error: null, refetch: vi.fn() });
   const ready = (data: unknown) => () => ({ data, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() });
   return {
     trpc: {
       quran: { index: { useQuery: ready(FAKE_INDEX) }, surah: { useQuery: ready(FAKE_SURAH) } },
       auth: { me: { useQuery: empty } },
-      recitation: { evaluate: { useMutation: mutation }, ingestChunk: { useMutation: mutation } },
+      recitation: {
+        evaluate: { useMutation: () => mutation(mutationMocks.recitationEvaluate) },
+        ingestChunk: { useMutation: () => mutation(mutationMocks.recitationIngest) },
+      },
       learner: {
-        syncProgress: { useMutation: mutation },
-        syncQaidaProgress: { useMutation: mutation },
-        recordMemorizationAttempt: { useMutation: mutation },
+        syncProgress: { useMutation: () => mutation(vi.fn(), mutationMocks.learnerSyncProgress) },
+        syncQaidaProgress: { useMutation: () => mutation(vi.fn(), mutationMocks.learnerSyncQaidaProgress) },
+        recordMemorizationAttempt: { useMutation: () => mutation(vi.fn(), mutationMocks.learnerRecordMemorization) },
         getReviewQueue: { useQuery: empty },
       },
     },
@@ -100,6 +111,29 @@ class FakeAudio {
   pause() {}
   load() {}
   removeAttribute() {}
+}
+
+class FakeMediaRecorder {
+  static isTypeSupported() {
+    return true;
+  }
+
+  state: "inactive" | "recording" = "inactive";
+  mimeType = "audio/webm";
+  ondataavailable: ((event: { data: Blob }) => void) | null = null;
+  onstop: (() => void) | null = null;
+
+  constructor(readonly stream: MediaStream) {}
+
+  start() {
+    this.state = "recording";
+    this.ondataavailable?.({ data: new Blob([new Uint8Array([1, 2, 3, 4])], { type: this.mimeType }) });
+  }
+
+  stop() {
+    this.state = "inactive";
+    this.onstop?.();
+  }
 }
 
 let Home: typeof import("./Home").default;
@@ -156,6 +190,16 @@ async function openLearn(label = en.strings["mode.learn"]) {
   });
   await settle();
 }
+async function openStudy(label = en.strings["mode.study"]) {
+  const tab = Array.from(container.querySelectorAll<HTMLButtonElement>(".mode-tab")).find((button) =>
+    button.textContent?.includes(label),
+  );
+  if (!tab) throw new Error(`No mode tab labelled ${label}`);
+  await act(async () => {
+    tab.click();
+  });
+  await settle();
+}
 const triggers = () => Array.from(container.querySelectorAll<HTMLButtonElement>(".language-trigger"));
 
 async function chooseLanguage(code: string) {
@@ -171,11 +215,19 @@ async function chooseLanguage(code: string) {
 }
 
 beforeEach(() => {
+  for (const mock of Object.values(mutationMocks)) mock.mockReset();
   played.length = 0;
   failing.clear();
   window.localStorage.clear();
   document.documentElement.dir = "ltr";
   (globalThis as { Audio?: unknown }).Audio = FakeAudio;
+  (globalThis as { MediaRecorder?: unknown }).MediaRecorder = FakeMediaRecorder;
+  Object.defineProperty(navigator, "mediaDevices", {
+    configurable: true,
+    value: { getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop: vi.fn() }] })) },
+  });
+  URL.createObjectURL = vi.fn(() => "blob:test-recording");
+  URL.revokeObjectURL = vi.fn();
   window.HTMLMediaElement.prototype.play = function play(this: HTMLMediaElement) {
     played.push(this.getAttribute("src") ?? "");
     return Promise.resolve();
@@ -506,5 +558,54 @@ describe("Quran recitation plays from the learner interface", () => {
     expect(container.querySelector(".playback-warning")!.textContent).toContain(
       ar.strings["playback.audioFailed"]!.split("{")[0].trim(),
     );
+  });
+});
+
+describe("Study recitation correction", () => {
+  it("renders the exact Arabic focus word after a word-level review", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce({
+      reviewStatus: "reviewed",
+      wordReviewAvailable: true,
+      transcript: "قل هو احد",
+      matchedCount: 4,
+      totalWords: 5,
+      score: 80,
+      corrections: [{ expected: "اللَّهُ", heard: null, status: "missing", wordIndex: 3 }],
+      encouragement: "Keep practising.",
+      nextStep: "Return to word 3.",
+      spokenGuidance: "Return to word 3.",
+      note: "Word-recall review only.",
+      reviewMessage: null,
+      reviewMessageCode: null,
+      quranAwareReview: { status: "not_configured", provider: null, confidence: null, summary: null, findings: [] },
+      verseFollowing: {
+        currentSurah: 112,
+        currentAyah: 1,
+        expectedWordIndex: 3,
+        lastCompletedAyah: null,
+        state: "correcting",
+        attemptsOnCurrentAyah: 1,
+        evidence: "partial",
+        shouldAdvance: false,
+        nextAyah: 2,
+        correctionFocus: { wordIndex: 3, expectedArabic: "اللَّهُ", kind: "missing" },
+        reason: "mistake_to_correct",
+      },
+    });
+    await mount();
+    await openStudy();
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".loop-record")!.click();
+    });
+    await settle();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".loop-record")!.click();
+    });
+    await settle();
+
+    expect(container.querySelector(".now-word")?.textContent).toContain("اللَّهُ");
+    expect(container.querySelector(".study-fix")?.textContent).toContain("اللَّهُ");
+    expect(text()).toContain("Word 3");
   });
 });
