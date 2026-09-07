@@ -222,6 +222,26 @@ had just pressed "Say", and would never get to say it heard them. It is a copy
 of what the decision last named; it never creates a correction, and the page
 drops it as soon as a reviewed whole-ayah attempt names no word.
 
+**A correction belongs to one ayah, and cannot outlive it.** `retainedTarget`
+carries the surah and ayah it was made about, and three checks stand between a
+stale target and the screen — all at render time, because effects run after the
+commit and the frame in between is a real frame a learner sees:
+
+1. a review is evidence for the ayah it was an attempt at, and for no other. The
+   page pairs each review with that ayah and drops it everywhere — instruction,
+   cards, word rows, score — the moment the learner is somewhere else;
+2. a review naming a word position the ayah on screen does not have is dropped
+   whole, however it got there;
+3. the lesson refuses any target — the decision's, the page's retained copy, or
+   the service's session — that is not the word standing at that position in the
+   ayah on screen, and renders nothing rather than something wrong.
+
+Failing closed is the point. Advancing from Al-Fatiha 1:2 to 1:3 once carried
+`رَبِّ` across and rendered "Word 3 of 2": a word that ayah does not contain, at
+a position it does not have. The comparison behind check 3 folds harakat and the
+alif variants — the reviewer's `expectedArabic` and the ayah text legitimately
+differ that way — and compares only; nothing rendered is ever rewritten.
+
 **The service's own session wins.** `deriveCorrectionLesson` takes an optional
 `session` in the shape the recitation service will supply once it holds the
 correction session itself (`CorrectionSessionSnapshot`). When present its

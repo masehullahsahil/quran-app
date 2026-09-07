@@ -264,6 +264,22 @@ function storedNumberList(key: string): number[] {
 }
 
 
+/**
+ * Whether a review's word positions describe the ayah on screen.
+ *
+ * A review names words by position, and a position only means something
+ * against the ayah it was made about. If any of them falls outside this ayah,
+ * the review is about somewhere else however it got here, and every conclusion
+ * drawn from it — the instruction, the correction, the word rows, the score —
+ * would be about words this ayah does not have. Dropping the whole review is
+ * the safe direction: Study falls back to its ordinary states.
+ */
+function reviewFitsAyah(review: RecitationFeedback, arabic: string): boolean {
+  const words = arabic.split(/\s+/).filter(Boolean).length;
+  if (words === 0) return false;
+  return review.corrections.every((correction) => correction.wordIndex === null || (correction.wordIndex >= 1 && correction.wordIndex <= words));
+}
+
 export default function Home() {
   const [view, setView] = useState<View>("read");
   const [surahNumber, setSurahNumber] = useState(1);
@@ -292,7 +308,18 @@ export default function Home() {
   // is only ever a copy of what the decision last named.
   const [correctionTarget, setCorrectionTarget] = useState<RetainedTarget | null>(null);
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<RecitationFeedback | null>(null);
+  /**
+   * The last reviewed attempt, with the ayah it was an attempt at.
+   *
+   * The ayah matters. A review is a statement about one recitation of one ayah,
+   * and reading it on a different ayah's screen produces claims about words
+   * that ayah does not have — which is how a correction on Al-Fatiha 1:2 came
+   * to be rendered against 1:3 as "رَبِّ · Word 3 of 2". An effect clears this on
+   * navigation, but effects run after the commit, so the frame between the ayah
+   * changing and the effect firing is a render that must also be safe. Hence
+   * `feedback` below: derived, not stored, so there is no such frame.
+   */
+  const [reviewedAttempt, setReviewedAttempt] = useState<{ surah: number; ayah: number; review: RecitationFeedback } | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [learningLevel, setLearningLevel] = useState<LearningLevel>("qaida");
   const [selectedLetter, setSelectedLetter] = useState(0);
@@ -397,6 +424,21 @@ export default function Home() {
     [ayahs, selectedVerse],
   );
   const activeIndex = activeVerse ? ayahs.findIndex((verse) => verse.number === activeVerse.number) : -1;
+  /**
+   * The last review, but only where it applies.
+   *
+   * A review of another ayah is not evidence about this one, so it is dropped
+   * here rather than in an effect — that keeps the instruction, the correction
+   * card, the lesson, the word rows and the score all consistent on every
+   * render, including the one right after the learner moves.
+   */
+  const feedback: RecitationFeedback | null =
+    reviewedAttempt &&
+    reviewedAttempt.surah === surahNumber &&
+    reviewedAttempt.ayah === (activeVerse?.number ?? selectedVerse) &&
+    reviewFitsAyah(reviewedAttempt.review, activeVerse?.arabic ?? "")
+      ? reviewedAttempt.review
+      : null;
   const nextVerse = activeIndex >= 0 ? ayahs[activeIndex + 1] ?? null : null;
   const previousVerse = activeIndex > 0 ? ayahs[activeIndex - 1] : null;
   const surahLabel = activeSurah?.nameSimple ?? t("reader.loading");
@@ -462,7 +504,7 @@ export default function Home() {
     audioRef.current?.pause();
     setIsPlaying(false);
     setLessonStage("listen");
-    setFeedback(null);
+    setReviewedAttempt(null);
     setReviewError(null);
     setLiveTranscript("");
     setLiveMatched([]);
@@ -813,7 +855,7 @@ export default function Home() {
         },
       });
       const review = result as RecitationFeedback;
-      setFeedback(review);
+      setReviewedAttempt({ surah: surahNumber, ayah: activeVerse.number, review });
       setPosition(toVerseFollowingPosition(review.verseFollowing));
       // This is the sole history write point: the recorder's finalized server
       // assessment must be usable. Live/interim chunks only guide position.
@@ -874,7 +916,7 @@ export default function Home() {
     setLastAttemptScope(scope);
     try {
       audioRef.current?.pause();
-      setFeedback(null);
+      setReviewedAttempt(null);
       setReviewError(null);
       setLiveTranscript("");
       setLiveMatched([]);
@@ -912,7 +954,7 @@ export default function Home() {
 
   const retryLesson = () => {
     stopRecognition();
-    setFeedback(null);
+    setReviewedAttempt(null);
     setReviewError(null);
     setLiveTranscript("");
     setLiveMatched([]);
@@ -1016,6 +1058,10 @@ export default function Home() {
    */
   const correctionLesson = deriveCorrectionLesson({
     action: teacherAction,
+    // The ayah on screen. Anything the lesson holds about another one is
+    // dropped rather than rendered against this ayah's words.
+    surah: surahNumber,
+    ayah: activeVerse?.number ?? selectedVerse,
     observationKey: studyTiers.correction?.explanationKey ?? null,
     retainedTarget: correctionTarget,
     ayahWords: expectedWords,
@@ -1034,6 +1080,8 @@ export default function Home() {
     // the answer came from a whole-ayah attempt.
     if (teacherAction.kind === "repeat-word" && teacherAction.focusArabic && teacherAction.focusWordIndex !== null) {
       setCorrectionTarget({
+        surah: surahNumber,
+        ayah: activeVerse?.number ?? selectedVerse,
         wordIndex: teacherAction.focusWordIndex,
         arabic: teacherAction.focusArabic,
         observationKey: studyTiers.correction?.explanationKey ?? "correction.notHeard",
@@ -1045,9 +1093,11 @@ export default function Home() {
     // and the recorder reporting itself as running, and clearing on that would
     // pull the lesson out from under a learner who has just pressed "Say".
     if (feedback && lastAttemptScope !== "word") setCorrectionTarget(null);
-  }, [teacherAction.kind, teacherAction.focusArabic, teacherAction.focusWordIndex, studyTiers.correction?.explanationKey, feedback, lastAttemptScope]);
+  }, [teacherAction.kind, teacherAction.focusArabic, teacherAction.focusWordIndex, studyTiers.correction?.explanationKey, feedback, lastAttemptScope, surahNumber, activeVerse?.number, selectedVerse]);
 
-  // A different ayah is a different lesson.
+  // A different ayah is a different lesson. The derivation above already
+  // refuses to render a target from another ayah — this clears the state so it
+  // cannot linger behind that guard either.
   useEffect(() => {
     setCorrectionTarget(null);
     setLastAttemptScope(null);

@@ -66,6 +66,8 @@ function evidence(patch: Partial<TeacherEvidence> = {}): TeacherEvidence {
 function lessonFor(patch: Partial<CorrectionLessonInput> = {}): CorrectionLesson {
   const lesson = deriveCorrectionLesson({
     action: resolveTeacherAction(evidence()),
+    surah: 1,
+    ayah: 2,
     observationKey: "correction.notHeard",
     ayahWords: AYAH_WORDS,
     corrections: [MISSING],

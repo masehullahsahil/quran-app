@@ -78,11 +78,29 @@ export type CorrectionSessionSnapshot = {
  * when the decision names it, and must not change into a different sentence
  * just because a later render no longer has the decision in hand.
  */
-export type RetainedTarget = { wordIndex: number; arabic: string; observationKey: StringKey };
+export type RetainedTarget = {
+  /**
+   * The ayah this correction was made about.
+   *
+   * Scoping it is not bookkeeping. A correction is a statement about one word
+   * of one ayah, and the moment the learner is on a different ayah it is a
+   * statement about somewhere else. Without this, advancing from Al-Fatiha 1:2
+   * to 1:3 carried `رَبِّ` across and rendered "Word 3 of 2" — a word that is
+   * not in the ayah on screen, at a position that ayah does not have.
+   */
+  surah: number;
+  ayah: number;
+  wordIndex: number;
+  arabic: string;
+  observationKey: StringKey;
+};
 
 export type CorrectionLessonInput = {
   /** The presented decision. The source of the target word, and of nothing else. */
   action: TeacherAction;
+  /** The ayah on screen right now. Anything about another ayah is not shown. */
+  surah: number;
+  ayah: number;
   /** What was observed about the word the decision named, when it named one. */
   observationKey: StringKey | null;
   /** The expected ayah, word by word, exactly as the Quran text gives it. */
@@ -177,13 +195,24 @@ export function deriveCorrectionLesson(input: CorrectionLessonInput): Correction
       : null;
   // A word held over from the last decision counts only while this attempt is
   // still about it: during the recording, during the check, and for the one
-  // result that answers a focused word attempt.
-  const carried = input.isRecording || input.isChecking || input.lastAttemptScope === "word" ? input.retainedTarget ?? null : null;
+  // result that answers a focused word attempt — and only while the learner is
+  // still on the ayah it was about.
+  const stillHere = input.retainedTarget?.surah === input.surah && input.retainedTarget?.ayah === input.ayah;
+  const carryable = input.isRecording || input.isChecking || input.lastAttemptScope === "word";
+  const carried = stillHere && carryable ? input.retainedTarget ?? null : null;
   const target = named ?? carried;
   if (!target) return null;
 
   const targetWordIndex = session?.targetWordIndex ?? target.wordIndex;
   const targetArabic = session?.targetArabic ?? target.arabic;
+
+  // Last line of defence, applied to every source of a target — the decision's,
+  // the page's retained copy, and the service's own session alike. A word the
+  // ayah on screen does not have at that position is not a correction anybody
+  // can act on, so nothing is rendered and Study falls back to its ordinary
+  // states. Failing closed here is what makes a stale target impossible to
+  // show, rather than merely unlikely.
+  if (!targetFitsAyah(targetWordIndex, targetArabic, input.ayahWords)) return null;
   const recognition = session?.recognition ?? recogniseTarget(input, targetWordIndex);
   const stage = session?.stage ?? deriveStage(input, recognition);
 
@@ -208,6 +237,46 @@ export function deriveCorrectionLesson(input: CorrectionLessonInput): Correction
     busy,
     context: { words: input.ayahWords, targetIndex: targetWordIndex },
   };
+}
+
+/**
+ * Whether a target still describes the ayah on screen.
+ *
+ * Two questions, both of which must hold: is there a word at that position at
+ * all, and is the word there the one the correction is about?
+ */
+function targetFitsAyah(wordIndex: number, arabic: string, ayahWords: readonly string[]): boolean {
+  if (!Number.isInteger(wordIndex) || wordIndex < 1 || wordIndex > ayahWords.length) return false;
+  return sameQuranWord(ayahWords[wordIndex - 1], arabic);
+}
+
+/** Marks and joiners that distinguish two spellings of the same word. */
+const COMPARISON_NOISE = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u0640\u0670\u200C-\u200F\u202A-\u202E\u2066-\u2069]/g;
+
+/**
+ * Whether two spellings are the same Quranic word.
+ *
+ * The reviewer's `expectedArabic` and the ayah text on screen can differ in
+ * harakat and in which alif is written — `اللَّهُ` against `ٱللَّهُ` is the same word
+ * in the same place — and treating those as different words would hide a
+ * correction that is perfectly valid.
+ *
+ * This compares; it never rewrites. Both arguments are thrown away and the
+ * ayah is always rendered exactly as the content gives it. The rules mirror the
+ * equivalences in `server/recitation.ts` — that module belongs to the server and
+ * is deliberately not imported into the browser bundle — and any drift between
+ * them can only change whether the lesson is *shown*, never what it says.
+ */
+function sameQuranWord(left: string, right: string): boolean {
+  const fold = (word: string) =>
+    word
+      .normalize("NFKC")
+      .replace(COMPARISON_NOISE, "")
+      .replace(/[أإآٱ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .trim();
+  const folded = fold(left);
+  return folded.length > 0 && folded === fold(right);
 }
 
 /**
