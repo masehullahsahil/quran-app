@@ -177,6 +177,71 @@ Three rules hold across all four:
 The steps are the decision's own `sequence` with `show-word` removed — the card
 *is* the word. Nothing is added or reordered.
 
+#### The exact-word state is a lesson, not a marker
+
+When the page can build one, the exact-word card is replaced by
+`client/src/components/FocusedWordLesson.tsx`, driven by
+`client/src/lib/correctionSession.ts`. Showing the word and "try again" tells a
+learner where the mistake is and leaves them to work out what to do about it; a
+teacher points at the place, says it, listens to the learner say it back, and
+only then asks for the whole ayah. The lesson is that, in four steps:
+
+| Stage | Reached when | Primary action |
+|---|---|---|
+| `hear` | nothing recorded since the word came up, or a whole-ayah attempt still misses it | Say *{word}* |
+| `say-word` | a focused attempt did not match the target | Say *{word}* |
+| `recite-ayah` | a focused attempt matched the target | Recite the full ayah |
+| `continue` | the service's session says so | Continue |
+
+**No progress is invented.** The stage is a pure function of two facts: which of
+the two record buttons the learner pressed (`lastAttemptScope`) and what the
+newest review's own corrections list says about the target word. There is no
+counter and no timer — replaying the same two facts always yields the same
+stage, which is what `correctionSession.test.ts` asserts.
+
+**Recognition has three values, and `unknown` is the common one.** An attempt
+that produced no word-by-word result says nothing about the word and is never
+reported as either success or failure.
+
+**"Heard" is not "pronounced correctly".** When the target is matched the app
+says *"Good — I heard the marked word this time."* It does not say the
+pronunciation was right, and it never mentions makhraj or tajwid: matching a
+word in a transcript is not an assessment of how it was said. Tests assert those
+words never appear.
+
+**The Quran text is rendered, not processed.** The context line shows the ayah's
+own words in the ayah's own order with harakat intact; the target is marked with
+a background. Nothing is normalised, transliterated or reordered, in any
+interface direction.
+
+**`retainedTarget` keeps the lesson on screen for the length of one attempt.**
+The decision names no focus while a recording is in flight — the previous review
+is cleared when the microphone opens — and names none once the word has gone
+through. Without holding the word, the lesson would vanish under a learner who
+had just pressed "Say", and would never get to say it heard them. It is a copy
+of what the decision last named; it never creates a correction, and the page
+drops it as soon as a reviewed whole-ayah attempt names no word.
+
+**The service's own session wins.** `deriveCorrectionLesson` takes an optional
+`session` in the shape the recitation service will supply once it holds the
+correction session itself (`CorrectionSessionSnapshot`). When present its
+`stage` and `recognition` are used as given and the derivation above is not
+consulted at all.
+
+#### An attempt the engine declined to judge produces no findings
+
+`unclear` and `recording-problem` set `abstained` on the view. Everything
+derived from that attempt is then suppressed: the aligner's per-word rows, the
+observations list, and the score. The aligner produces one row per expected word
+whether or not any of them means anything, so a recording of a different ayah
+used to show four "came through differently" rows beneath a card that had just
+said the attempt could not be reviewed — four specific findings nobody had made.
+The card says instead, in one line, that the recording did not match enough of
+the ayah for individual words to be reviewed.
+
+The same rule covers the score. A percentage under an unreviewed attempt reads
+as a mark for the recitation. It is not shown at all.
+
 **There is no word-level recitation to play.** The Quran data this app reads
 carries one audio file per ayah and no word timings, so the card replays the
 whole ayah slowly and says so in as many words. No Quranic Arabic is ever
@@ -204,6 +269,10 @@ review and unavailable audio stay visible outside the collapsed section.
 | Focus word | In NOW, and again in the correction table | Once, in the result card |
 | Result of an attempt with no focus word | Generic instruction only | Its own card: whole-ayah, uncertain, or accepted |
 | Record again after a correction | Only in NOW, above the correction | The last step of the correction card itself |
+| The exact-word state | Word, observation, and a retry | A four-step lesson: hear it, say it, put it back in the ayah, carry on |
+| Per-word rows under an unreviewed attempt | One row per expected word, in Teacher notes | Suppressed; one line says the recording did not match the ayah |
+| Score under an unreviewed attempt | Shown as a percentage | Not shown |
+| Surah position | "This reading — 29%", which reads as a mark | "Place in this surah — Ayah 2 of 7", with a line saying it is not a score |
 | Correction table (up to four rows with status pills) | Primary surface | Teacher notes |
 | "Every expected word was recognised" | Primary surface | Teacher notes |
 | Retry button inside the failure alert | Competed with the NOW button | Removed; the message stays |

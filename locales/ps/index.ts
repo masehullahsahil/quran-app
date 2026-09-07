@@ -81,6 +81,47 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "ښه دي — د دې سورت پای ته ورسېدئ.",
   "outcome.surahDetail": "د دې سورت ټول آیتونه ولوستل شول.",
 
+  // -- Study: practising one word ------------------------------------------
+  // The guided lesson a learner is put through when one word needs another
+  // attempt: hear it, say it, put it back in the ayah, carry on. None of this
+  // wording claims anything about pronunciation quality — see
+  // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
+  "lesson.label": "د یوې کلمې تمرین",
+  "lesson.eyebrow": "پاملرنې ته اړتیا",
+  "lesson.wordOf": "کلمه {number} له {total} څخه",
+  "lesson.stepsLabel": "د دې سمون پړاوونه",
+  "lesson.stageHear": "واورئ",
+  "lesson.stageSay": "کلمه ووایاست",
+  "lesson.stageRecite": "آیت ولولئ",
+  "lesson.stageContinue": "مخته لاړ شئ",
+  "lesson.contextLabel": "کلمه چېرته راځي",
+  "lesson.hearHeadline": "دا کلمه واورئ، بیا یې ووایاست",
+  "lesson.hearDetail": "له مخته تګ دمخه یوازې پر همدې یوه ځای تمرین کوئ.",
+  "lesson.sayHeadline": "ستاسو وار — دا کلمه ووایاست",
+  "lesson.sayDetail": "یوازې همدا یوه کلمه. آیت وروسته راځي.",
+  "lesson.notRecognisedDetail": "دا کلمه مې لا هم په څرګنده توګه ونه پېژندله. یو ځل بیا یې واورئ او بیا هڅه وکړئ.",
+  "lesson.reciteHeadline": "اوس یې بېرته آیت ته ورګډه کړئ",
+  "lesson.reciteDetail": "ټول آیت ولولئ، دا کلمه دې په خپل ځای کې وي.",
+  "lesson.continueHeadline": "ښه دي — هغه کلمه بېرته په آیت کې ده.",
+  "lesson.continueDetail": "کله چې چمتو یاست، مخته لاړ شئ.",
+  "lesson.hearWord": "{word} واورئ",
+  "lesson.sayWord": "{word} ووایاست",
+  "lesson.reciteAyah": "ټول آیت ولولئ",
+  "lesson.continue": "مخته لاړ شئ",
+  "lesson.stopRecording": "ودروئ",
+  "lesson.checking": "دا کلمه کتل کېږي…",
+  "lesson.listening": "اورېدل کېږي…",
+  "lesson.recognised": "ښه دي — دا ځل مې نښه شوې کلمه واورېده.",
+  "lesson.referenceNote": "دا ټول آیت ورو غږوي: د یوې کلمې جلا ثبت نشته.",
+
+  // A recording that matched too little of the ayah for any word to be judged.
+  "outcome.unrelatedHeadline": "دا ثبت د اوسني آیت سره بس دومره ونه لګېد",
+  "outcome.unrelatedDetail": "جلا جلا کلمې ونه کتل شوې. آیت واورئ، بیا یې ثبت کړئ.",
+
+  // Where the learner is in the surah. Not a score, and labelled so.
+  "panel.placeInSurah": "په دې سورت کې ځای",
+  "panel.placeNote": "دا ښیي چې د سورت څومره برخه مو وهلې — ستاسو د لوستلو نمره نه ده.",
+
   "diagnostics.label": "د تلاوت کتنه",
   "diagnostics.transcriptStatus": "متن",
   "diagnostics.matchCount": "سمونونه",

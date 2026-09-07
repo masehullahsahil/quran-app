@@ -313,6 +313,60 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .fix-after { display: block; margin-top: 10px; color: #7c867e; font-size: 10px; line-height: 1.45; }
 .fix-cta { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin-top: 12px; padding: 11px 18px; color: #fffdf8; border: 1px solid #2e7857; background: #2e7857; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 800; }
 .fix-cta:hover { background: #256549; }
+
+/* ---------------------------------------------------------------------------
+   The focused word lesson.
+
+   Same slot as the result card, but this is a lesson rather than a marker: the
+   word is the object, the ayah beneath it says where the word belongs, and one
+   control is primary at a time. The stage classes tint the accent so the
+   learner can see at a glance whether they are being asked for the word or for
+   the whole ayah. Recording and checking are never signalled by colour alone —
+   the button text and a status line say so too.
+--------------------------------------------------------------------------- */
+.word-lesson { padding: 16px; margin-top: -1px; background: #fffdf8; border: 1px solid #e6d3ae; border-left: 3px solid #b38748; text-align: center; }
+.word-lesson.is-recite-ayah { background: #f6faf7; border-color: #bcd4c3; border-left-color: #2e7857; }
+.word-lesson.is-continue { background: #eef6f0; border-color: #b6d0bc; border-left-color: #2e7857; }
+.lesson-eyebrow { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 7px; color: #8a6a33; font-size: 9px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
+.word-lesson.is-recite-ayah .lesson-eyebrow, .word-lesson.is-continue .lesson-eyebrow { color: #2e7857; }
+/* Nothing else in the lesson comes near this size. */
+.lesson-word { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(38px, 8vw, 56px); line-height: 1.7; }
+.lesson-position { margin: 2px 0 0; color: #7c867e; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
+.lesson-observed { margin: 7px 0 0; color: #6f5228; font-size: 12px; font-weight: 700; line-height: 1.5; }
+
+/* Four steps, one current. Short enough not to read as an onboarding wizard. */
+.lesson-steps { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; margin: 12px 0 0; padding: 0; list-style: none; counter-reset: lessonstep; }
+.lesson-steps li { display: inline-flex; align-items: center; gap: 4px; padding: 4px 9px; color: #8b938a; background: rgba(255,255,255,.6); border: 1px solid #ddd9cf; border-radius: 999px; font-size: 9px; font-weight: 800; }
+.lesson-steps li::before { counter-increment: lessonstep; content: counter(lessonstep); display: inline-grid; width: 13px; height: 13px; place-content: center; color: #fffdf8; background: #c3c8c1; border-radius: 50%; font-size: 7px; }
+.lesson-steps li.is-done { color: #3e6554; border-color: #cddbcf; }
+.lesson-steps li.is-done::before { background: #6f8f7c; }
+.lesson-steps li.is-current { color: #fffdf8; background: #174d42; border-color: #174d42; }
+.lesson-steps li.is-current::before { color: #174d42; background: #fffdf8; }
+
+/* The ayah, in its own order, with the target marked. */
+.lesson-context { margin-top: 13px; padding: 10px 12px; background: rgba(255,255,255,.66); border: 1px solid #e4ddcd; border-radius: 10px; }
+.lesson-context-label { display: block; color: #8b938a; font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.lesson-context p { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: center; gap: 0 10px; margin: 6px 0 0; color: #2f4a3c; font-family: "Amiri Quran", serif; font-size: clamp(19px, 4.5vw, 25px); line-height: 2; }
+.lesson-context p .is-target { padding: 0 6px; color: #1f4d3d; background: #f6e6c4; border-radius: 6px; box-shadow: inset 0 -2px 0 #b38748; }
+
+.lesson-headline { margin: 13px 0 0; color: #24352c; font-size: 17px; font-weight: 800; line-height: 1.4; }
+.lesson-headline:focus-visible { outline: 2px solid #174d42; outline-offset: 4px; }
+.lesson-heard { display: inline-flex; align-items: center; gap: 6px; margin: 7px 0 0; color: #2e7857; font-size: 12px; font-weight: 800; }
+.lesson-detail { margin: 6px 0 0; color: #62705f; font-size: 12px; line-height: 1.55; }
+.lesson-status { display: inline-flex; align-items: center; gap: 6px; margin: 9px 0 0; color: #6f5228; font-size: 11px; font-weight: 800; }
+
+.lesson-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin-top: 13px; }
+.lesson-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 12px 20px; color: #fffdf8; border: 1px solid #174d42; background: #174d42; border-radius: 999px; cursor: pointer; font-size: 13px; font-weight: 800; }
+.lesson-primary:hover { background: #103e34; }
+.lesson-primary:active { transform: scale(.98); }
+.lesson-primary.is-recording { border-color: #9a3b32; background: #9a3b32; }
+.lesson-primary.is-checking { border-color: #b9bdb5; background: #b9bdb5; cursor: progress; }
+.lesson-primary.is-continue { border-color: #2e7857; background: #2e7857; }
+.lesson-primary:disabled { cursor: progress; }
+.lesson-listen { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 11px 15px; color: #174d42; border: 1px solid #aac5b2; background: #f6faf7; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
+.lesson-listen:hover { background: #e8f2eb; }
+.lesson-listen:disabled { opacity: .55; cursor: not-allowed; }
+.lesson-note { display: block; margin-top: 9px; color: #7c867e; font-size: 10px; line-height: 1.45; }
 .now-surah { color: #174d42; }
 .now-place > span + span::before { content: "·"; margin: 0 6px; color: #b6bdb5; }
 .now-steps { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; counter-reset: step; }
@@ -467,9 +521,11 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 [dir="rtl"] .letter-play svg,
 [dir="rtl"] .fix-listen svg,
 [dir="rtl"] .fix-cta svg,
+[dir="rtl"] .lesson-primary svg,
+[dir="rtl"] .lesson-listen svg,
 [dir="rtl"] .listen-inline svg { transform: none; }
 /* Numbered strips and progress meters fill from the reading edge. */
-[dir="rtl"] .now-steps, [dir="rtl"] .fix-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
+[dir="rtl"] .now-steps, [dir="rtl"] .fix-steps, [dir="rtl"] .lesson-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
 [dir="rtl"] .completion-track span, [dir="rtl"] .track-fill { margin-left: auto; margin-right: 0; }
 /* Mixed direction.
    An Arabic word quoted inside a Pashto, Dari or Urdu sentence is already
@@ -478,7 +534,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
    scopes the bidi algorithm to the element and leaves the sentence alone. Latin
    digits inside RTL text are handled by the algorithm itself and must not be
    forced, which is why nothing here sets `direction` on a number. */
-.now-word, .fix-word, .correction-word, .course-example span,
+.now-word, .fix-word, .lesson-word, .lesson-context p span, .correction-word, .course-example span,
 .course-subject span, .course-choice span, .acoustic-finding small,
 .chapter-arabic span, .brand-arabic { unicode-bidi: isolate; }
 /* A word in the learner's own script beside Arabic keeps the sentence's flow. */
@@ -557,6 +613,18 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .fix-steps { flex-direction: column; align-items: stretch; gap: 5px; }
   .fix-steps li { justify-content: center; font-size: 10px; }
   .fix-record { width: 100%; justify-content: center; min-height: 46px; }
+  /* The lesson on a phone: the word stays the largest thing, the ayah line
+     wraps rather than scrolling the page sideways, and both controls are
+     full-width targets well over the 44px minimum. */
+  .word-lesson { padding: 14px 12px; }
+  .lesson-word { font-size: clamp(34px, 12vw, 48px); word-break: break-word; }
+  .lesson-headline { font-size: 16px; }
+  .lesson-steps { gap: 4px; }
+  .lesson-steps li { font-size: 8px; padding: 4px 7px; }
+  .lesson-context { padding: 9px 8px; }
+  .lesson-context p { gap: 0 8px; font-size: clamp(18px, 5.5vw, 22px); }
+  .lesson-actions { flex-direction: column; align-items: stretch; }
+  .lesson-primary, .lesson-listen { width: 100%; min-height: 48px; }
   .now-place { row-gap: 2px; }
   .study-arabic { min-height: 115px; font-size: 40px; }
   .learning-layout { min-height: 520px; padding: 21px 20px 28px; }
