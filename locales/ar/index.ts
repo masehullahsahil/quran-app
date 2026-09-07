@@ -83,6 +83,18 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "أحسنت — بلغت آخر هذه السورة.",
   "outcome.surahDetail": "قُرئت كل آيات هذه السورة.",
 
+  "diagnostics.label": "فحص التلاوة",
+  "diagnostics.transcriptStatus": "النص",
+  "diagnostics.matchCount": "المطابقة",
+  "diagnostics.teacherReason": "سبب المعلم",
+  "diagnostics.focus": "الموضع",
+  "diagnostics.acoustic": "الصوت",
+  "diagnostics.available": "متوفر",
+  "diagnostics.unavailable": "غير متوفر",
+  "diagnostics.none": "لا يوجد",
+  "diagnostics.yes": "نعم",
+  "diagnostics.no": "لا",
+
   "step.showWord": "انظر إلى الكلمة",
   "step.listen": "استمع",
   "step.repeatWord": "أعد الكلمة",

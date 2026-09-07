@@ -54,12 +54,33 @@ describe("Quran-aware evaluator adapter", () => {
       confidence: 0.91,
       summary: "Pause briefly before the next phrase, then repeat it slowly.",
       findings: [{ kind: "pause", wordIndex: 2, expectedArabic: "الله", guidance: "Practise the pause before continuing." }],
+      canDriveLearnerCorrection: false,
     });
     const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
     expect(String(requestUrl)).toBe("https://quran-evaluator.example.test/v1/evaluate");
     expect(requestInit).toMatchObject({
       method: "POST",
       headers: expect.objectContaining({ authorization: "Bearer service-key" }),
+    });
+  });
+
+  it("marks specialist observations as primary only when explicitly enabled", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+    vi.stubEnv("QURAN_EVALUATOR_PRIMARY_CORRECTIONS", "1");
+    global.fetch = vi.fn(async () => new Response(JSON.stringify({
+      status: "available",
+      provider: "quran-phoneme-service",
+      confidence: 0.91,
+      summary: "Review this word.",
+      findings: [
+        { kind: "phoneme", wordIndex: 1, expectedArabic: "بسم", guidance: "Listen to this word." },
+      ],
+    }), { status: 200 })) as unknown as typeof fetch;
+    const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+
+    await expect(evaluateQuranAwareAudio(evaluatorInput)).resolves.toMatchObject({
+      status: "available",
+      canDriveLearnerCorrection: true,
     });
   });
 

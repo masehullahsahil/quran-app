@@ -97,6 +97,7 @@ const SCENARIOS = {
       confidence: 0.92,
       summary: "s",
       findings: [{ kind: "phoneme", wordIndex: 4, expectedArabic: "الْعَالَمِينَ", guidance: "g" }],
+      canDriveLearnerCorrection: true,
     },
   }),
   /** C. Nothing could be established about the attempt. */

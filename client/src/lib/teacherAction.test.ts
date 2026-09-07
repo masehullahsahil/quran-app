@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
 import type { VerseFollowingResult } from "@shared/verseFollowing";
 import { decideTeacherAction, type AttemptEvidence, type TeacherEvidence } from "@shared/teacherDecision";
-import { presentDecision, resolveTeacherAction, type TeacherAction } from "./teacherAction";
+import { presentDecision, resolveTeacherAction, traceTeacherAction, type TeacherAction } from "./teacherAction";
 import en from "@locales/en";
 
 function follow(patch: Partial<VerseFollowingResult> = {}): VerseFollowingResult {
@@ -66,6 +66,7 @@ const everyState: Array<[string, TeacherEvidence]> = [
       confidence: 0.92,
       summary: "A summary the learner may read in Teacher notes.",
       findings: [{ kind: "phoneme", wordIndex: 4, expectedArabic: "الْعَالَمِينَ", guidance: "Guidance text from the evaluator." }],
+      canDriveLearnerCorrection: true,
     } satisfies QuranAwareReview,
   })],
   ["repeat ayah", evidence({ attempt: attempt({ verseFollowing: follow({ state: "correcting" }) }) })],
@@ -138,6 +139,21 @@ describe("wording follows the evidence that named the word", () => {
     const action = resolveTeacherAction(everyState.find(([name]) => name === "missing word")![1]);
     expect(action.titleParams).toEqual({ number: 3 });
   });
+
+  it("carries the evidence source into the safe trace", () => {
+    const action = resolveTeacherAction(everyState.find(([name]) => name === "missing word")![1]);
+
+    expect(traceTeacherAction(action)).toEqual({
+      kind: "repeat-word",
+      reason: "text_missing_word",
+      evidenceLevel: "partial",
+      focusSource: "text",
+      focusWordIndex: 3,
+      hasFocusArabic: true,
+      canAdvance: false,
+    });
+    expect(JSON.stringify(traceTeacherAction(action))).not.toContain("رَبِّ");
+  });
 });
 
 describe("the language-model boundary", () => {
@@ -168,6 +184,7 @@ describe("the language-model boundary", () => {
         confidence: 0.92,
         summary: "A summary the learner may read in Teacher notes.",
         findings: [{ kind: "phoneme", wordIndex: 6, expectedArabic: null, guidance: "Guidance text from the evaluator." }],
+        canDriveLearnerCorrection: true,
       },
     }));
 

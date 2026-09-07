@@ -81,6 +81,18 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "اچھا — آپ اس سورت کے اختتام تک پہنچ گئے۔",
   "outcome.surahDetail": "اس سورت کی تمام آیات پڑھی جا چکی ہیں۔",
 
+  "diagnostics.label": "تلاوت کی جانچ",
+  "diagnostics.transcriptStatus": "متن",
+  "diagnostics.matchCount": "مطابقتیں",
+  "diagnostics.teacherReason": "استاد کی وجہ",
+  "diagnostics.focus": "نشان",
+  "diagnostics.acoustic": "آواز",
+  "diagnostics.available": "موجود",
+  "diagnostics.unavailable": "موجود نہیں",
+  "diagnostics.none": "کوئی نہیں",
+  "diagnostics.yes": "ہاں",
+  "diagnostics.no": "نہیں",
+
   "step.showWord": "لفظ دیکھیں",
   "step.listen": "سنیں",
   "step.repeatWord": "لفظ دہرائیں",

@@ -26,6 +26,13 @@ export type QuranAwareReview = {
   confidence: number | null;
   summary: string | null;
   findings: QuranEvaluationFinding[];
+  /**
+   * False unless this deployment has explicitly opted into using acoustic
+   * findings as the primary learner correction. Unvalidated services may still
+   * be displayed as bounded evidence, but they must not block clean text
+   * recitation or create a repeat-word instruction.
+   */
+  canDriveLearnerCorrection?: boolean;
 };
 
 export const EMPTY_QURAN_AWARE_REVIEW: QuranAwareReview = {

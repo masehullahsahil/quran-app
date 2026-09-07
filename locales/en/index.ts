@@ -273,6 +273,19 @@ export const strings = {
   "outcome.surahHeadline": "Good — you reached the end of this surah.",
   "outcome.surahDetail": "Every ayah in this surah has been recited.",
 
+  // -- Study: safe diagnostics --------------------------------------------
+  "diagnostics.label": "Recitation diagnostics",
+  "diagnostics.transcriptStatus": "Transcript",
+  "diagnostics.matchCount": "Matches",
+  "diagnostics.teacherReason": "Teacher reason",
+  "diagnostics.focus": "Focus",
+  "diagnostics.acoustic": "Acoustic",
+  "diagnostics.available": "available",
+  "diagnostics.unavailable": "unavailable",
+  "diagnostics.none": "none",
+  "diagnostics.yes": "yes",
+  "diagnostics.no": "no",
+
   "now.label": "What to do now",
   "now.stepsLabel": "How to practise this",
   "step.showWord": "Look at the word",
