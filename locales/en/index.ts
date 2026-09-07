@@ -273,6 +273,47 @@ export const strings = {
   "outcome.surahHeadline": "Good — you reached the end of this surah.",
   "outcome.surahDetail": "Every ayah in this surah has been recited.",
 
+  // -- Study: practising one word ------------------------------------------
+  // The guided lesson a learner is put through when one word needs another
+  // attempt: hear it, say it, put it back in the ayah, carry on. None of this
+  // wording claims anything about pronunciation quality — see
+  // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
+  "lesson.label": "Practising one word",
+  "lesson.eyebrow": "Needs attention",
+  "lesson.wordOf": "Word {number} of {total}",
+  "lesson.stepsLabel": "Steps in this correction",
+  "lesson.stageHear": "Hear",
+  "lesson.stageSay": "Say the word",
+  "lesson.stageRecite": "Recite the ayah",
+  "lesson.stageContinue": "Continue",
+  "lesson.contextLabel": "Where the word belongs",
+  "lesson.hearHeadline": "Hear this word, then say it back",
+  "lesson.hearDetail": "You are practising this one place before going on.",
+  "lesson.sayHeadline": "Your turn — say this word",
+  "lesson.sayDetail": "Just the one word. The ayah comes next.",
+  "lesson.notRecognisedDetail": "I still couldn’t clearly match this word. Hear it once more and try again.",
+  "lesson.reciteHeadline": "Now put it back into the ayah",
+  "lesson.reciteDetail": "Recite the whole ayah, with this word in its place.",
+  "lesson.continueHeadline": "Good — that word is back in the ayah.",
+  "lesson.continueDetail": "Carry on when you are ready.",
+  "lesson.hearWord": "Hear {word}",
+  "lesson.sayWord": "Say {word}",
+  "lesson.reciteAyah": "Recite the full ayah",
+  "lesson.continue": "Continue",
+  "lesson.stopRecording": "Stop",
+  "lesson.checking": "Checking this word…",
+  "lesson.listening": "Listening…",
+  "lesson.recognised": "Good — I heard the marked word this time.",
+  "lesson.referenceNote": "This plays the whole ayah slowly: there is no separate recording of a single word.",
+
+  // A recording that matched too little of the ayah for any word to be judged.
+  "outcome.unrelatedHeadline": "This recording didn’t match enough of the current ayah",
+  "outcome.unrelatedDetail": "Individual words were not reviewed. Hear the ayah, then record again.",
+
+  // Where the learner is in the surah. Not a score, and labelled so.
+  "panel.placeInSurah": "Place in this surah",
+  "panel.placeNote": "How far through the surah you are — not a score for your recitation.",
+
   // -- Study: safe diagnostics --------------------------------------------
   "diagnostics.label": "Recitation diagnostics",
   "diagnostics.transcriptStatus": "Transcript",

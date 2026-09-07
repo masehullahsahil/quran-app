@@ -83,6 +83,47 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "أحسنت — بلغت آخر هذه السورة.",
   "outcome.surahDetail": "قُرئت كل آيات هذه السورة.",
 
+  // -- Study: practising one word ------------------------------------------
+  // The guided lesson a learner is put through when one word needs another
+  // attempt: hear it, say it, put it back in the ayah, carry on. None of this
+  // wording claims anything about pronunciation quality — see
+  // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
+  "lesson.label": "تدريب على كلمة واحدة",
+  "lesson.eyebrow": "تحتاج انتباهًا",
+  "lesson.wordOf": "الكلمة {number} من {total}",
+  "lesson.stepsLabel": "خطوات هذا التصحيح",
+  "lesson.stageHear": "استمع",
+  "lesson.stageSay": "قل الكلمة",
+  "lesson.stageRecite": "اقرأ الآية",
+  "lesson.stageContinue": "تابع",
+  "lesson.contextLabel": "موضع الكلمة",
+  "lesson.hearHeadline": "استمع إلى هذه الكلمة ثم أعدها",
+  "lesson.hearDetail": "تتدرب على هذا الموضع وحده قبل المتابعة.",
+  "lesson.sayHeadline": "دورك — قل هذه الكلمة",
+  "lesson.sayDetail": "هذه الكلمة وحدها. الآية بعدها.",
+  "lesson.notRecognisedDetail": "ما زلت لم أطابق هذه الكلمة بوضوح. استمع إليها مرة أخرى ثم أعد المحاولة.",
+  "lesson.reciteHeadline": "الآن أعدها إلى موضعها في الآية",
+  "lesson.reciteDetail": "اقرأ الآية كاملة، وهذه الكلمة في مكانها.",
+  "lesson.continueHeadline": "أحسنت — عادت الكلمة إلى الآية.",
+  "lesson.continueDetail": "تابع متى كنت مستعدًا.",
+  "lesson.hearWord": "استمع إلى {word}",
+  "lesson.sayWord": "قل {word}",
+  "lesson.reciteAyah": "اقرأ الآية كاملة",
+  "lesson.continue": "تابع",
+  "lesson.stopRecording": "أوقف",
+  "lesson.checking": "يجري فحص هذه الكلمة…",
+  "lesson.listening": "أستمع…",
+  "lesson.recognised": "أحسنت — سمعت الكلمة المحددة هذه المرة.",
+  "lesson.referenceNote": "هذا يشغّل الآية كاملة ببطء: لا يوجد تسجيل منفصل لكلمة واحدة.",
+
+  // A recording that matched too little of the ayah for any word to be judged.
+  "outcome.unrelatedHeadline": "هذا التسجيل لم يطابق ما يكفي من الآية الحالية",
+  "outcome.unrelatedDetail": "لم تُراجَع الكلمات فرادى. استمع إلى الآية، ثم سجِّل مرة أخرى.",
+
+  // Where the learner is in the surah. Not a score, and labelled so.
+  "panel.placeInSurah": "موضعك في هذه السورة",
+  "panel.placeNote": "يبيّن كم قطعت من السورة — وليس درجة لتلاوتك.",
+
   "diagnostics.label": "فحص التلاوة",
   "diagnostics.transcriptStatus": "النص",
   "diagnostics.matchCount": "المطابقة",

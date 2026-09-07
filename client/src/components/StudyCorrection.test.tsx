@@ -100,9 +100,13 @@ const SCENARIOS = {
       canDriveLearnerCorrection: true,
     },
   }),
-  /** C. Nothing could be established about the attempt. */
+  /** C. Words came through, but not enough of this ayah to judge any of them. */
   uncertain: evidence({
     attempt: attempt({ verseFollowing: follow({ state: "uncertain", reason: "noisy_transcript", evidence: "weak" }) }),
+  }),
+  /** C2. Nothing usable came back at all. */
+  noTranscript: evidence({
+    attempt: attempt({ reviewable: false, verseFollowing: follow({ state: "uncertain", reason: "no_transcript", evidence: "none" }) }),
   }),
   /** D. The whole ayah needs another recitation. */
   repeatAyah: evidence({ attempt: attempt({ verseFollowing: follow({ state: "correcting" }) }) }),
@@ -302,16 +306,19 @@ describe("states that name no word never show one", () => {
     expect(card()?.className).toContain("is-whole-ayah");
   });
 
-  it("says it could not review the attempt, and shows no correction word", async () => {
+  it("says the recording did not match the ayah, and shows no correction word", async () => {
     await show(SCENARIOS.uncertain);
 
     expect(word()).toBeNull();
-    expect(text()).toContain(en.strings["outcome.unclearHeadline"]);
-    expect(text()).toContain(en.strings["outcome.unclearDetail"]);
+    // Words *were* transcribed; they just did not fit this ayah. Saying that is
+    // more use than "nothing has been marked wrong", and it is what stops the
+    // learner reading four aligner rows as four specific mistakes.
+    expect(text()).toContain(en.strings["outcome.unrelatedHeadline"]);
+    expect(text()).toContain(en.strings["outcome.unrelatedDetail"]);
     expect(card()?.className).toContain("is-uncertain");
     // Nothing about an unreviewable attempt may read as a confirmed mistake.
     // The card says the opposite in as many words, and never asserts one.
-    expect(text()).toContain(en.strings["outcome.unclearDetail"]);
+    expect(text()).toContain(en.strings["outcome.unrelatedDetail"]);
     expect(text()).not.toContain(en.strings["correction.eyebrow"]);
     for (const claim of ["was wrong", "is wrong", "incorrect", "mistake"]) {
       expect(text().toLowerCase(), claim).not.toContain(claim);
@@ -323,6 +330,16 @@ describe("states that name no word never show one", () => {
     // "Try again" next to "Record again" is two names for one thing.
     expect(container.querySelector(".fix-cta")).toBeNull();
     expect(text()).not.toContain(en.strings["now.tryAgain"]);
+  });
+
+  it("keeps the softer wording when nothing came back at all", async () => {
+    await show(SCENARIOS.noTranscript);
+
+    // No transcript is a different thing from a transcript that did not fit,
+    // and telling the learner their recording "did not match the ayah" when the
+    // app never heard anything would be a claim about a recitation it has not read.
+    expect(text()).toContain(en.strings["outcome.problemHeadline"]);
+    expect(word()).toBeNull();
   });
 
   it("keeps the uncertain card visually distinct from a correction", async () => {
@@ -415,8 +432,8 @@ describe("every language the app carries", () => {
   it("shows the uncertain state in Arabic rather than falling back to English", async () => {
     await show(SCENARIOS.uncertain, "ar");
 
-    expect(text()).toContain(ar.strings["outcome.unclearHeadline"]);
-    expect(text()).not.toContain(en.strings["outcome.unclearHeadline"]);
+    expect(text()).toContain(ar.strings["outcome.unrelatedHeadline"]);
+    expect(text()).not.toContain(en.strings["outcome.unrelatedHeadline"]);
     expect(document.documentElement.dir).toBe("rtl");
   });
 

@@ -82,6 +82,47 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "خوب است — به پایان این سوره رسیدید.",
   "outcome.surahDetail": "تمام آیت‌های این سوره خوانده شد.",
 
+  // -- Study: practising one word ------------------------------------------
+  // The guided lesson a learner is put through when one word needs another
+  // attempt: hear it, say it, put it back in the ayah, carry on. None of this
+  // wording claims anything about pronunciation quality — see
+  // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
+  "lesson.label": "تمرین یک کلمه",
+  "lesson.eyebrow": "نیاز به توجه",
+  "lesson.wordOf": "کلمهٔ {number} از {total}",
+  "lesson.stepsLabel": "مرحله‌های این اصلاح",
+  "lesson.stageHear": "بشنوید",
+  "lesson.stageSay": "کلمه را بگویید",
+  "lesson.stageRecite": "آیت را بخوانید",
+  "lesson.stageContinue": "ادامه",
+  "lesson.contextLabel": "جای این کلمه",
+  "lesson.hearHeadline": "این کلمه را بشنوید، بعد بگویید",
+  "lesson.hearDetail": "پیش از ادامه، تنها همین یک جا را تمرین می‌کنید.",
+  "lesson.sayHeadline": "نوبت شماست — این کلمه را بگویید",
+  "lesson.sayDetail": "فقط همین یک کلمه. آیت پس از آن می‌آید.",
+  "lesson.notRecognisedDetail": "باز هم نتوانستم این کلمه را روشن تطبیق کنم. یک بار دیگر بشنوید و دوباره کوشش کنید.",
+  "lesson.reciteHeadline": "حالا آن را دوباره در آیت بگذارید",
+  "lesson.reciteDetail": "تمام آیت را بخوانید، با این کلمه در جای خودش.",
+  "lesson.continueHeadline": "خوب است — آن کلمه دوباره در آیت است.",
+  "lesson.continueDetail": "هر وقت آماده بودید ادامه بدهید.",
+  "lesson.hearWord": "{word} را بشنوید",
+  "lesson.sayWord": "{word} را بگویید",
+  "lesson.reciteAyah": "تمام آیت را بخوانید",
+  "lesson.continue": "ادامه",
+  "lesson.stopRecording": "توقف",
+  "lesson.checking": "این کلمه بررسی می‌شود…",
+  "lesson.listening": "در حال شنیدن…",
+  "lesson.recognised": "خوب است — این بار کلمهٔ نشانی‌شده را شنیدم.",
+  "lesson.referenceNote": "این تمام آیت را آهسته پخش می‌کند: ثبت جداگانهٔ یک کلمه وجود ندارد.",
+
+  // A recording that matched too little of the ayah for any word to be judged.
+  "outcome.unrelatedHeadline": "این ثبت به اندازهٔ کافی با آیت کنونی نخورد",
+  "outcome.unrelatedDetail": "کلمه‌ها جداگانه بررسی نشدند. آیت را بشنوید، سپس دوباره ثبت کنید.",
+
+  // Where the learner is in the surah. Not a score, and labelled so.
+  "panel.placeInSurah": "جای شما در این سوره",
+  "panel.placeNote": "نشان می‌دهد چقدر از سوره پیش رفته‌اید — نمرهٔ خواندن شما نیست.",
+
   "diagnostics.label": "بررسی تلاوت",
   "diagnostics.transcriptStatus": "متن",
   "diagnostics.matchCount": "همخوانی‌ها",

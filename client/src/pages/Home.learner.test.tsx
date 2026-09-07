@@ -561,6 +561,56 @@ describe("Quran recitation plays from the learner interface", () => {
   });
 });
 
+/**
+ * A word-level review that names one missing word.
+ *
+ * The shape is the recitation service's own response; the overrides let a test
+ * send the same attempt back with the target no longer named, which is how the
+ * backend reports that it heard the word this time.
+ */
+function wordCorrectionReview(patch: Record<string, unknown> = {}) {
+  return {
+    reviewStatus: "reviewed",
+    wordReviewAvailable: true,
+    transcript: "قل هو احد",
+    matchedCount: 4,
+    totalWords: 5,
+    score: 80,
+    corrections: [{ expected: "اللَّهُ", heard: null, status: "missing", wordIndex: 3 }],
+    encouragement: "Keep practising.",
+    nextStep: "Return to word 3.",
+    spokenGuidance: "Return to word 3.",
+    note: "Word-recall review only.",
+    reviewMessage: null,
+    reviewMessageCode: null,
+    quranAwareReview: { status: "not_configured", provider: null, confidence: null, summary: null, findings: [] },
+    verseFollowing: {
+      currentSurah: 112,
+      currentAyah: 1,
+      expectedWordIndex: 3,
+      lastCompletedAyah: null,
+      state: "correcting",
+      attemptsOnCurrentAyah: 1,
+      evidence: "partial",
+      shouldAdvance: false,
+      nextAyah: 2,
+      correctionFocus: { wordIndex: 3, expectedArabic: "اللَّهُ", kind: "missing" },
+      reason: "mistake_to_correct",
+    },
+    ...patch,
+  };
+}
+
+/** Presses the main record button, then presses it again to stop and review. */
+async function recordOnce(selector = ".loop-record") {
+  for (let press = 0; press < 2; press += 1) {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(selector)!.click();
+    });
+    await settle();
+  }
+}
+
 describe("Study recitation correction", () => {
   it("renders the exact Arabic focus word after a word-level review", async () => {
     mutationMocks.recitationEvaluate.mockResolvedValueOnce({
@@ -604,8 +654,135 @@ describe("Study recitation correction", () => {
     });
     await settle();
 
-    expect(container.querySelector(".now-word")?.textContent).toContain("اللَّهُ");
-    expect(container.querySelector(".study-fix")?.textContent).toContain("اللَّهُ");
+    // The word reaches the screen, in the guided lesson that replaced the bare
+    // marker. It is the lesson's own object now, so `.now-word` above it is
+    // gone: the learner reads the diagnosis once, not twice.
+    const lesson = container.querySelector(".word-lesson");
+    expect(lesson).toBeTruthy();
+    expect(lesson!.querySelector(".lesson-word")?.textContent).toBe("اللَّهُ");
+    expect(container.querySelector(".now-word")).toBeNull();
     expect(text()).toContain("Word 3");
+  });
+
+  it("does not repeat the same word as a heading, a card and a note row", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    // In the teaching surface the word is rendered once, as the thing being
+    // practised. It used to appear again as a heading above the card.
+    const lesson = container.querySelector(".word-lesson")!;
+    expect(lesson.querySelectorAll(".lesson-word")).toHaveLength(1);
+    expect(container.querySelector(".now-word")).toBeNull();
+
+    // The diagnosis itself — the eyebrow and the observation sentence — is
+    // stated once, not once per surface.
+    expect(container.querySelectorAll(".lesson-eyebrow")).toHaveLength(1);
+    const observed = Array.from(container.querySelectorAll("*")).filter(
+      (node) => node.children.length === 0 && (node.textContent ?? "").includes("I didn’t hear this word clearly"),
+    );
+    expect(observed).toHaveLength(1);
+
+    // Anything else that names the word is a diagnostic row, and diagnostics
+    // stay inside the collapsed notes rather than beside the lesson.
+    const elsewhere = Array.from(container.querySelectorAll(".correction-word"));
+    for (const node of elsewhere) expect(node.closest("details.teacher-notes")).toBeTruthy();
+  });
+
+  it("walks the learner from the word back into the ayah", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    // Step one: hear it. The primary action asks for the word, not the ayah.
+    const steps = Array.from(container.querySelectorAll(".lesson-steps li")).map((node) => node.textContent ?? "");
+    expect(steps).toHaveLength(4);
+    expect(container.querySelector('.lesson-steps li[aria-current="step"]')?.textContent).toContain("Hear");
+    expect(container.querySelector(".lesson-primary")?.textContent).toContain("اللَّهُ");
+
+    // The ayah is on screen with the target marked, in its own order.
+    const context = container.querySelector(".lesson-context p");
+    expect(context?.getAttribute("dir")).toBe("rtl");
+    expect(context?.querySelector(".is-target")?.textContent).toBe("اللَّهُ");
+  });
+
+  it("says it heard the word without claiming the pronunciation was right", async () => {
+    // The focused attempt comes back with the target no longer named.
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(container.querySelector(".lesson-primary"), "the lesson offers a primary action").toBeTruthy();
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview({ corrections: [], matchedCount: 5, score: 100 }));
+    await recordOnce(".lesson-primary");
+
+    const lesson = container.querySelector(".word-lesson");
+    expect(lesson?.textContent).toContain("I heard the marked word this time");
+    expect(lesson?.textContent).toContain("Now put it back into the ayah");
+    for (const claim of ["pronunciation is correct", "perfect", "makhraj", "tajwid"]) {
+      expect((lesson?.textContent ?? "").toLowerCase(), claim).not.toContain(claim);
+    }
+    expect(container.querySelector(".lesson-primary")?.textContent).toContain("Recite the full ayah");
+  });
+});
+
+describe("an attempt the app could not review", () => {
+  /** A recording of a different ayah entirely: nothing here fits this one. */
+  const unrelatedReview = () =>
+    wordCorrectionReview({
+      matchedCount: 0,
+      score: 29,
+      corrections: [
+        { expected: "قُلْ", heard: "الحمد", status: "review", wordIndex: 1 },
+        { expected: "هُوَ", heard: "لله", status: "review", wordIndex: 2 },
+        { expected: "ٱللَّهُ", heard: "رب", status: "review", wordIndex: 3 },
+        { expected: "أَحَدٌ", heard: "العالمين", status: "review", wordIndex: 4 },
+      ],
+      verseFollowing: {
+        currentSurah: 112, currentAyah: 1, expectedWordIndex: 1, lastCompletedAyah: null,
+        state: "uncertain", attemptsOnCurrentAyah: 1, evidence: "weak", shouldAdvance: false,
+        nextAyah: 2, correctionFocus: null, reason: "too_little_evidence",
+      },
+    });
+
+  it("shows one neutral message instead of four word rows", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(unrelatedReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(text()).toContain("This recording didn’t match enough of the current ayah");
+    // The aligner produced a row per expected word. None of them is a finding
+    // the engine made, so none of them is shown as one.
+    expect(container.querySelectorAll(".correction-row")).toHaveLength(0);
+    expect(container.querySelector(".word-lesson")).toBeNull();
+  });
+
+  it("shows no score for an attempt that was never reviewed", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(unrelatedReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(container.querySelector(".feedback-score")).toBeNull();
+    expect(text()).not.toContain("29%");
+  });
+});
+
+describe("the surah progress meter is not a mark for the recitation", () => {
+  it("labels it as a place in the surah and shows the ayah count", async () => {
+    await mount();
+    await openStudy();
+
+    const card = container.querySelector(".completion-card");
+    expect(card?.textContent).toContain("Place in this surah");
+    // The number that used to sit here — the place in the surah as a percentage —
+    // sat under the heading "This reading" and read as a mark for the attempt.
+    expect(card?.textContent).toContain("Ayah 1 of 2");
+    expect(card?.textContent).not.toContain("%");
+    expect(card?.textContent).toContain("not a score");
   });
 });

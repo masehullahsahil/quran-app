@@ -109,6 +109,11 @@ export type StudyTiers = {
   alerts: { audioUnavailable: boolean; reviewFailed: boolean; reviewUnavailable: boolean };
   /** Tier 3 keys, in render order. Everything here is collapsed by default. */
   notes: StudyNoteBlock[];
+  /**
+   * The engine declined to judge this attempt. Nothing derived from it —
+   * word rows, score, observations — may be shown as a finding.
+   */
+  abstained: boolean;
 };
 
 export type StudyNoteBlock =
@@ -136,6 +141,14 @@ export type StudyViewInput = {
 /** Actions whose focus word is a confirmed observation rather than a guess. */
 const CONFIRMED_CORRECTION_KINDS = new Set(["repeat-word"]);
 
+/**
+ * Actions the engine reached by declining to judge the attempt.
+ *
+ * Nothing derived from that attempt may be presented as a finding: not the
+ * word rows, not the score, not the observations list.
+ */
+const ABSTAINED_KINDS = new Set(["unclear", "recording-problem"]);
+
 export function describeStudyTiers(input: StudyViewInput): StudyTiers {
   const { action } = input;
 
@@ -157,17 +170,25 @@ export function describeStudyTiers(input: StudyViewInput): StudyTiers {
         }
       : null;
 
-  const outcome = correction ? null : outcomeFor(action);
+  const outcome = correction ? null : outcomeFor(action, input);
   // Whichever tier-2 card is showing takes the steps and the contextual button
   // with it. Leaving copies in NOW would give the learner two places to tap for
   // the same thing, a few centimetres apart; NOW keeps the instruction, the
   // place and the microphone, and the card owns the path back to it.
   const card = correction ?? outcome;
 
+  // When the engine abstained, the aligner's per-word rows are not actionable:
+  // a recording that matched nothing of this ayah still produces one row per
+  // expected word, and showing four of them reads as four specific mistakes the
+  // decision explicitly declined to claim. The same goes for the score — a
+  // percentage under an attempt that was never reviewed reads as a mark for the
+  // recitation. Both are suppressed, and the card above says so in one line.
+  const abstained = ABSTAINED_KINDS.has(action.kind);
+
   const notes: StudyNoteBlock[] = [];
-  if (action.secondaryNotes.length > 0) notes.push("observations");
-  if (input.hasFeedback) notes.push("score");
-  if (input.hasFeedback && input.wordReviewAvailable) notes.push("corrections");
+  if (action.secondaryNotes.length > 0 && !abstained) notes.push("observations");
+  if (input.hasFeedback && !abstained) notes.push("score");
+  if (input.hasFeedback && input.wordReviewAvailable && !abstained) notes.push("corrections");
   notes.push("memory");
   if (input.hasFeedback) notes.push("place");
   if (input.hasAcousticReview) notes.push("acoustic");
@@ -192,6 +213,7 @@ export function describeStudyTiers(input: StudyViewInput): StudyTiers {
       reviewUnavailable: input.hasFeedback && !input.wordReviewAvailable,
     },
     notes,
+    abstained,
   };
 }
 
@@ -214,7 +236,7 @@ function cardSteps(action: TeacherAction): readonly TeachingStep[] {
  * turns an unrecognised kind into a correction: a state this function does not
  * know about renders no card at all, which is the safe direction to fail in.
  */
-function outcomeFor(action: TeacherAction): StudyOutcomePanel | null {
+function outcomeFor(action: TeacherAction, input: StudyViewInput): StudyOutcomePanel | null {
   // Only a button that goes somewhere is carried. A "Try again" button here
   // would sit beside the card's own Record again and mean nearly the same
   // thing, which is exactly the ambiguity this card exists to remove.
@@ -230,8 +252,15 @@ function outcomeFor(action: TeacherAction): StudyOutcomePanel | null {
 
     // The app could not tell. Nothing is marked wrong, no word is shown, and
     // the wording says what happened rather than implying a mistake.
+    // Two different things a learner needs told apart. "Unrelated" is the case
+    // where words *were* transcribed and simply did not fit this ayah — the
+    // learner recited something else, or from somewhere else. Saying "nothing
+    // has been marked wrong" there is true but unhelpful; saying the recording
+    // did not match enough of this ayah is what actually happened.
     case "unclear":
-      return { ...base, kind: "uncertain", headlineKey: "outcome.unclearHeadline", detailKey: "outcome.unclearDetail", offerRecord: true };
+      return input.hasFeedback && input.wordReviewAvailable
+        ? { ...base, kind: "uncertain", headlineKey: "outcome.unrelatedHeadline", detailKey: "outcome.unrelatedDetail", offerRecord: true }
+        : { ...base, kind: "uncertain", headlineKey: "outcome.unclearHeadline", detailKey: "outcome.unclearDetail", offerRecord: true };
     case "recording-problem":
       return { ...base, kind: "uncertain", headlineKey: "outcome.problemHeadline", detailKey: "outcome.problemDetail", offerRecord: true };
 

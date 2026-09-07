@@ -28,6 +28,8 @@ import React from "react";
 import { AlertCircle, ArrowRight, Check, HelpCircle, Mic, RotateCcw, Square, Volume2 } from "lucide-react";
 import { useLocale } from "@/contexts/LocaleContext";
 import type { StudyCorrectionPanel, StudyOutcomePanel } from "@/lib/studyView";
+import type { CorrectionLesson } from "@/lib/correctionSession";
+import { FocusedWordLesson } from "./FocusedWordLesson";
 import type { TeachingStep } from "@/lib/teacherAction";
 import type { StringKey } from "@locales/index";
 
@@ -43,6 +45,16 @@ const STEP_LABELS: Record<TeachingStep, StringKey> = {
 export type StudyCorrectionProps = {
   correction: StudyCorrectionPanel | null;
   outcome: StudyOutcomePanel | null;
+  /**
+   * The guided lesson for the word, when there is one. Present exactly when
+   * `correction` is, and rendered instead of it: a word a learner has to get
+   * back is worth teaching, not just marking.
+   */
+  lesson?: CorrectionLesson | null;
+  /** Records one word — the page's own recorder, scoped by the caller. */
+  onRecordWord?: () => void;
+  /** Stops an open recording. */
+  onStop?: () => void;
   /** Replays the ayah slowly. The page owns the audio element. */
   onListen: () => void;
   /** Starts or stops the one recorder the page already has. */
@@ -63,6 +75,9 @@ export function StudyCorrection({
   isRecording,
   isReviewing,
   audioUnavailable,
+  lesson = null,
+  onRecordWord,
+  onStop,
 }: StudyCorrectionProps) {
   const { t } = useLocale();
 
@@ -104,6 +119,27 @@ export function StudyCorrection({
       <Volume2 size={16} aria-hidden="true" /> {t(label)}
     </button>
   );
+
+  // The guided lesson replaces the marker card whenever the page can build one.
+  // It carries the same word, the same observation and the same recorder — this
+  // is one teaching surface, not a second opinion beside the first.
+  //
+  // Checked before `correction`, not alongside it: while the learner is
+  // recording the word, the decision is "listening" and names no correction at
+  // all, and the lesson must not vanish from under them mid-attempt.
+  if (lesson) {
+    return (
+      <FocusedWordLesson
+        lesson={lesson}
+        onListen={onListen}
+        onRecordWord={onRecordWord ?? onRecord}
+        onRecordAyah={onRecord}
+        onStop={onStop ?? onRecord}
+        onContinue={onCta}
+        audioUnavailable={audioUnavailable}
+      />
+    );
+  }
 
   if (correction) {
     return (

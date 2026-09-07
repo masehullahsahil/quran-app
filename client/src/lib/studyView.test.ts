@@ -354,3 +354,56 @@ describe("the result card never claims more than the decision did", () => {
     for (const key of Array.from(keys)) expect(en.strings[key as keyof typeof en.strings], key).toBeTruthy();
   });
 });
+
+describe("an attempt the engine declined to judge produces no findings", () => {
+  /**
+   * The real report this covers: a learner recited something unrelated to the
+   * current ayah. The top of the screen correctly said the attempt could not be
+   * confidently reviewed — and underneath it, Teacher notes listed all four
+   * words of the ayah as "came through differently", and a percentage sat at
+   * the bottom of the page. Neither was a finding anyone had made.
+   */
+  const unrelated = evidence({
+    attempt: attempt({
+      corrections: [
+        { expected: "ٱلْحَمْدُ", heard: "قل", status: "review", wordIndex: 1 },
+        { expected: "لِلَّهِ", heard: "هو", status: "review", wordIndex: 2 },
+        { expected: "رَبِّ", heard: "الله", status: "review", wordIndex: 3 },
+        { expected: "ٱلْعَـٰلَمِينَ", heard: "احد", status: "review", wordIndex: 4 },
+      ],
+      verseFollowing: follow({ state: "uncertain", reason: "too_little_evidence", evidence: "weak" }),
+    }),
+  });
+
+  it("abstains rather than naming a word", () => {
+    const { action, tiers } = tiersFor(unrelated);
+    expect(action.kind).toBe("unclear");
+    expect(tiers.abstained).toBe(true);
+    expect(tiers.correction).toBeNull();
+  });
+
+  it("hides the per-word rows the aligner produced anyway", () => {
+    const { tiers } = tiersFor(unrelated);
+    expect(tiers.notes).not.toContain("corrections");
+    expect(tiers.notes).not.toContain("observations");
+  });
+
+  it("hides the score, which under an unreviewed attempt reads as a mark", () => {
+    const { tiers } = tiersFor(unrelated);
+    expect(tiers.notes).not.toContain("score");
+  });
+
+  it("says instead, in one line, that the recording did not match the ayah", () => {
+    const { tiers } = tiersFor(unrelated);
+    expect(tiers.outcome?.headlineKey).toBe("outcome.unrelatedHeadline");
+    expect(tiers.outcome?.detailKey).toBe("outcome.unrelatedDetail");
+    expect(en.strings["outcome.unrelatedDetail"]).toBeTruthy();
+  });
+
+  it("still shows the rows and the score when the engine did judge the attempt", () => {
+    const { tiers } = tiersFor(states.find(([name]) => name === "missing word")![1]);
+    expect(tiers.abstained).toBe(false);
+    expect(tiers.notes).toContain("corrections");
+    expect(tiers.notes).toContain("score");
+  });
+});

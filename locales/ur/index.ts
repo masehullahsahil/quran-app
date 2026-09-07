@@ -81,6 +81,47 @@ export const strings: TranslatableStrings = {
   "outcome.surahHeadline": "اچھا — آپ اس سورت کے اختتام تک پہنچ گئے۔",
   "outcome.surahDetail": "اس سورت کی تمام آیات پڑھی جا چکی ہیں۔",
 
+  // -- Study: practising one word ------------------------------------------
+  // The guided lesson a learner is put through when one word needs another
+  // attempt: hear it, say it, put it back in the ayah, carry on. None of this
+  // wording claims anything about pronunciation quality — see
+  // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
+  "lesson.label": "ایک لفظ کی مشق",
+  "lesson.eyebrow": "توجہ درکار ہے",
+  "lesson.wordOf": "لفظ {number} از {total}",
+  "lesson.stepsLabel": "اس درستی کے مراحل",
+  "lesson.stageHear": "سنیں",
+  "lesson.stageSay": "لفظ کہیں",
+  "lesson.stageRecite": "آیت پڑھیں",
+  "lesson.stageContinue": "آگے بڑھیں",
+  "lesson.contextLabel": "یہ لفظ کہاں آتا ہے",
+  "lesson.hearHeadline": "یہ لفظ سنیں، پھر دہرائیں",
+  "lesson.hearDetail": "آگے بڑھنے سے پہلے آپ صرف اسی ایک جگہ کی مشق کر رہے ہیں۔",
+  "lesson.sayHeadline": "اب آپ کی باری — یہ لفظ کہیں",
+  "lesson.sayDetail": "صرف یہی ایک لفظ۔ آیت اس کے بعد۔",
+  "lesson.notRecognisedDetail": "میں اب بھی اس لفظ کو واضح طور پر نہ ملا سکا۔ ایک بار پھر سنیں اور دوبارہ کوشش کریں۔",
+  "lesson.reciteHeadline": "اب اسے واپس آیت میں رکھیں",
+  "lesson.reciteDetail": "پوری آیت پڑھیں، یہ لفظ اپنی جگہ پر ہو۔",
+  "lesson.continueHeadline": "اچھا — وہ لفظ واپس آیت میں آ گیا۔",
+  "lesson.continueDetail": "جب تیار ہوں آگے بڑھیں۔",
+  "lesson.hearWord": "{word} سنیں",
+  "lesson.sayWord": "{word} کہیں",
+  "lesson.reciteAyah": "پوری آیت پڑھیں",
+  "lesson.continue": "آگے بڑھیں",
+  "lesson.stopRecording": "روکیں",
+  "lesson.checking": "یہ لفظ جانچا جا رہا ہے…",
+  "lesson.listening": "سنا جا رہا ہے…",
+  "lesson.recognised": "اچھا — اس بار مجھے نشان زد لفظ سنائی دیا۔",
+  "lesson.referenceNote": "یہ پوری آیت آہستہ سناتا ہے: کسی ایک لفظ کی الگ ریکارڈنگ موجود نہیں۔",
+
+  // A recording that matched too little of the ayah for any word to be judged.
+  "outcome.unrelatedHeadline": "یہ ریکارڈنگ موجودہ آیت سے کافی حد تک نہ ملی",
+  "outcome.unrelatedDetail": "انفرادی الفاظ کا جائزہ نہیں لیا گیا۔ آیت سنیں، پھر دوبارہ ریکارڈ کریں۔",
+
+  // Where the learner is in the surah. Not a score, and labelled so.
+  "panel.placeInSurah": "اس سورت میں آپ کی جگہ",
+  "panel.placeNote": "یہ بتاتا ہے کہ آپ سورت میں کہاں تک پہنچے — یہ آپ کی تلاوت کا اسکور نہیں۔",
+
   "diagnostics.label": "تلاوت کی جانچ",
   "diagnostics.transcriptStatus": "متن",
   "diagnostics.matchCount": "مطابقتیں",
