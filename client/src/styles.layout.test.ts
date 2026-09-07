@@ -124,9 +124,18 @@ describe("the phone puts teaching before content", () => {
 
   it("keeps the correction word large and unbroken on a narrow screen", () => {
     const block = mobileBlock();
-    expect(block).toMatch(/\.correction-target\s*\{[^}]*font-size:\s*clamp\(/);
-    expect(block).toMatch(/\.correction-target\s*\{[^}]*word-break:\s*break-word/);
-    expect(block).toMatch(/\.correction-listen\s*\{[^}]*width:\s*100%/);
+    expect(block).toMatch(/\.fix-word\s*\{[^}]*font-size:\s*clamp\(/);
+    expect(block).toMatch(/\.fix-word\s*\{[^}]*word-break:\s*break-word/);
+    expect(block).toMatch(/\.fix-listen, \.fix-cta\s*\{[^}]*width:\s*100%/);
+  });
+
+  it("gives the record-again control a full-width tap target on a phone", () => {
+    const block = mobileBlock();
+    // The learner must never have to hunt for the microphone after a
+    // correction, least of all on the screen with the least room.
+    expect(block).toMatch(/\.fix-record\s*\{[^}]*width:\s*100%/);
+    const height = block.match(/\.fix-record\s*\{[^}]*min-height:\s*(\d+)px/);
+    expect(Number(height?.[1])).toBeGreaterThanOrEqual(44);
   });
 });
 
@@ -143,7 +152,18 @@ describe("an unconfirmed result is not styled as an error", () => {
   });
 
   it("carries the neutral palette into the correction panel", () => {
-    expect(css).toMatch(/\.active-correction\.is-unsure\s*\{[^}]*border-left-color:/);
+    expect(css).toMatch(/\.study-fix\.is-unsure, \.study-fix\.is-uncertain\s*\{[^}]*border-left-color:/);
+  });
+
+  it("gives each result state its own accent, so they cannot be confused", () => {
+    const accent = (selector: string) => css.match(new RegExp(`${selector}\\s*\\{[^}]*border-left-color:\\s*([^;]+);`))?.[1]?.trim();
+    const word = css.match(/\.study-fix\s*\{[^}]*border-left:\s*3px solid ([^;]+);/)?.[1]?.trim();
+    const uncertain = accent("\\.study-fix\\.is-unsure, \\.study-fix\\.is-uncertain");
+    const wholeAyah = accent("\\.study-fix\\.is-whole-ayah");
+    const accepted = accent("\\.study-fix\\.is-accepted");
+
+    for (const value of [word, uncertain, wholeAyah, accepted]) expect(value).toBeTruthy();
+    expect(new Set([word, uncertain, wholeAyah, accepted]).size).toBe(4);
   });
 });
 

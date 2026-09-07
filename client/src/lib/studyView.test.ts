@@ -221,3 +221,127 @@ describe("the mobile teaching order", () => {
     expect(order.indexOf("score")).toBeGreaterThan(order.indexOf("correction"));
   });
 });
+
+describe("the result card never claims more than the decision did", () => {
+  const pick = (name: string) => tiersFor(states.find(([entry]) => entry === name)![1]);
+
+  it("shows the exact word, its position and one observation for a word correction", () => {
+    const { tiers } = pick("missing word");
+
+    expect(tiers.correction?.arabic).toBe(missingWord.expected);
+    expect(tiers.correction?.wordIndex).toBe(3);
+    expect(tiers.correction?.observation).toBe("not-heard");
+    expect(tiers.correction?.explanationKey).toBe("correction.notHeard");
+    expect(tiers.outcome).toBeNull();
+  });
+
+  it("uses different wording for a word that came through differently", () => {
+    const substituted = evidence({
+      attempt: attempt({
+        corrections: [{ expected: "رَبِّ", heard: "رَبَّ", status: "review", wordIndex: 3 }],
+        verseFollowing: follow({ state: "correcting" }),
+      }),
+    });
+    const { tiers } = tiersFor(substituted);
+
+    expect(tiers.correction?.observation).toBe("came-through-differently");
+    expect(tiers.correction?.explanationKey).toBe("correction.different");
+    expect(tiers.correction?.explanationKey).not.toBe(pick("missing word").tiers.correction?.explanationKey);
+  });
+
+  it("keeps a sound observation as an observation, not a verdict", () => {
+    const { tiers } = pick("acoustic finding");
+
+    expect(tiers.correction?.observation).toBe("sound-observation");
+    expect(tiers.correction?.explanationKey).toBe("correction.sound");
+    // The wording must not assert that the word was pronounced wrongly: the
+    // evaluator reported how it sounded, and that is all the learner is told.
+    const sentence = en.strings["correction.sound"].toLowerCase();
+    for (const claim of ["wrong", "incorrect", "mistake", "error"]) expect(sentence, claim).not.toContain(claim);
+  });
+
+  it("walks the learner from listening back to the microphone", () => {
+    const { tiers } = pick("missing word");
+
+    // The decision's own sequence, minus the step that names the word the card
+    // is already showing. The recorder is the terminal step.
+    expect(tiers.correction?.steps).toEqual(["listen", "repeat-word", "recite-ayah"]);
+    expect(tiers.correction?.steps).not.toContain("show-word");
+    expect(tiers.correction?.offerRecord).toBe(true);
+  });
+
+  it("offers the ayah as the reference, because no word-level recording exists", () => {
+    expect(pick("missing word").tiers.correction?.reference).toBe("ayah");
+  });
+
+  it("names no word when the whole ayah needs another attempt", () => {
+    const { tiers } = pick("repeat ayah");
+
+    expect(tiers.correction).toBeNull();
+    expect(tiers.outcome?.kind).toBe("whole-ayah");
+    expect(tiers.outcome?.headlineKey).toBe("outcome.ayahHeadline");
+    expect(tiers.outcome?.offerRecord).toBe(true);
+  });
+
+  it("names no word when the attempt could not be judged", () => {
+    for (const name of ["uncertain", "unreviewable", "recorder failed"]) {
+      const { tiers } = pick(name);
+      expect(tiers.correction, name).toBeNull();
+      expect(tiers.outcome?.kind, name).toBe("uncertain");
+      expect(tiers.outcome?.offerRecord, name).toBe(true);
+    }
+  });
+
+  it("says an accepted attempt was accepted, and offers only what the decision offers", () => {
+    const complete = pick("ayah complete");
+    expect(complete.tiers.correction).toBeNull();
+    expect(complete.tiers.outcome?.kind).toBe("accepted");
+    expect(complete.tiers.outcome?.offerRecord).toBe(false);
+    expect(complete.tiers.outcome?.cta?.command).toBe("next-ayah");
+
+    const surah = pick("surah complete");
+    expect(surah.tiers.outcome?.headlineKey).toBe("outcome.surahHeadline");
+  });
+
+  it("clears the correction once the next attempt no longer reports it", () => {
+    const before = pick("missing word").tiers;
+    expect(before.correction?.arabic).toBe(missingWord.expected);
+
+    // The same learner, one good recording later: the corrections list is empty
+    // and the tracker advances. Nothing of the old card may survive that.
+    const after = pick("ayah complete").tiers;
+    expect(after.correction).toBeNull();
+    expect(after.outcome?.kind).toBe("accepted");
+  });
+
+  it("shows one card at a time, never a word and an outcome together", () => {
+    for (const [name] of states) {
+      const { tiers } = pick(name);
+      expect(Boolean(tiers.correction && tiers.outcome), name).toBe(false);
+    }
+  });
+
+  it("hands the steps and the contextual button to the card that is showing", () => {
+    for (const [name] of states) {
+      const { tiers } = pick(name);
+      if (!tiers.correction && !tiers.outcome) continue;
+      // Otherwise NOW and the card would offer the same tap twice over.
+      expect(tiers.now.cta, name).toBeNull();
+      expect(tiers.now.sequence, name).toEqual([]);
+    }
+  });
+
+  it("has real wording in every language for every key the card can use", () => {
+    const keys = new Set<string>();
+    for (const [name] of states) {
+      const { tiers } = pick(name);
+      if (tiers.correction) keys.add(tiers.correction.explanationKey);
+      if (tiers.outcome) {
+        keys.add(tiers.outcome.headlineKey);
+        keys.add(tiers.outcome.detailKey);
+      }
+    }
+    expect(keys.size).toBeGreaterThan(3);
+    for (const key of Array.from(keys)) expect(en.strings[key as keyof typeof en.strings], key).toBeTruthy();
+  });
+});

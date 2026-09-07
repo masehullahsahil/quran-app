@@ -50,13 +50,36 @@ export const strings: TranslatableStrings = {
   "now.stepsLabel": "څنګه یې تمرین کړئ",
 
   "correction.label": "هغه کلمه چې سمېدو ته اړتیا لري",
-  "correction.notHeard": "دا کلمه وا نه اورېدل شوه.",
-  "correction.different": "د دې پر ځای بل څه واورېدل شول.",
-  "correction.sound": "کلمې سمې وې. د دې کلمې ادا په ځیر واورئ.",
+  "correction.notHeard": "دا کلمه مې په څرګنده توګه وا نه اورېده.",
+  "correction.different": "دا کلمه له هغې کلمې سره چې تمه کېده توپیر لرلو.",
+  "correction.sound": "کلمې سمې وې — دا یوازې د دې کلمې د غږ په اړه یوه کتنه ده.",
   "correction.unsure": "دا دومره روښانه نه وه چې ډاډ ترلاسه شي.",
   "correction.listen": "آیت ورو واورئ",
   "correction.retry": "واورئ، کلمه بیا ووایاست، بیا ټول آیت ولولئ.",
   "correction.wordAt": "کلمه {number}",
+
+  // The exact-word card: the eyebrow above the Arabic, the steps beneath it,
+  // and the honest note that no word-level recording exists to play.
+  "correction.eyebrow": "پاملرنې ته اړتیا",
+  "correction.stepsLabel": "څه وکړئ",
+  "correction.recordAgain": "بیا یې ثبت کړئ",
+  "correction.referenceNote": "د یوې کلمې جلا ثبت نشته، نو دلته ټول آیت ورو غږول کېږي.",
+  "correction.after": "کله چې ستاسو راتلونکی ثبت پر دې کلمه ونه دریږي، دا کارت ورکېږي او تاسو مخته ځئ.",
+  "correction.listenAgain": "بیا واورئ",
+
+  // The tier-two card when the decision named no word at all. Kept apart from
+  // the wording above so an unreviewable attempt never reads as a mistake.
+  "outcome.label": "دا هڅه څنګه وه",
+  "outcome.ayahHeadline": "ټول آیت بیا ولولئ",
+  "outcome.ayahDetail": "هېڅ یوه کلمه په ځانګړې توګه نه ده نښه شوې. ټوله هڅه بیا لوستلو ته اړتیا لري.",
+  "outcome.unclearHeadline": "دا هڅه مې په ډاډ سره و نه شوه کتلای",
+  "outcome.unclearDetail": "هېڅ شی غلط نه دی نښه شوی. یو ځل واورئ، بیا یې ثبت کړئ.",
+  "outcome.problemHeadline": "دا ثبت و نه کتل شو",
+  "outcome.problemDetail": "ثبت کتنې ته و نه رسېد، نو ستاسو د لوستلو په اړه هېڅ پرېکړه ونه شوه.",
+  "outcome.acceptedHeadline": "ښه دي — مخته لاړ شئ.",
+  "outcome.acceptedDetail": "دا آیت ومنل شو. کله چې چمتو یاست، مخته لاړ شئ.",
+  "outcome.surahHeadline": "ښه دي — د دې سورت پای ته ورسېدئ.",
+  "outcome.surahDetail": "د دې سورت ټول آیتونه ولوستل شول.",
 
   "step.showWord": "کلمې ته وګورئ",
   "step.listen": "واورئ",
