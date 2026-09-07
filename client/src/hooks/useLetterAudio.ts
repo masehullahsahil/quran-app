@@ -12,6 +12,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export type LetterAudioState = {
   /** The recording currently playing, if any. */
   playingSrc: string | null;
+  /**
+   * The recording that has been asked for and has not started yet.
+   *
+   * On a phone on a slow connection a tap can sit silent for a second or two,
+   * which reads as a dead button. Reporting it lets the control say it is
+   * loading instead of looking broken.
+   */
+  loadingSrc: string | null;
   /** The recording that was asked for and could not be played. */
   unavailableSrc: string | null;
 };
@@ -26,7 +34,7 @@ export type LetterAudioState = {
 const knownMissing = new Set<string>();
 
 export function useLetterAudio() {
-  const [state, setState] = useState<LetterAudioState>({ playingSrc: null, unavailableSrc: null });
+  const [state, setState] = useState<LetterAudioState>({ playingSrc: null, loadingSrc: null, unavailableSrc: null });
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const stop = useCallback(() => {
@@ -36,7 +44,7 @@ export function useLetterAudio() {
       audio.removeAttribute("src");
       audio.load();
     }
-    setState((current) => ({ playingSrc: null, unavailableSrc: current.unavailableSrc }));
+    setState((current) => ({ playingSrc: null, loadingSrc: null, unavailableSrc: current.unavailableSrc }));
   }, []);
 
   useEffect(() => () => {
@@ -46,9 +54,11 @@ export function useLetterAudio() {
 
   const play = useCallback(async (src: string) => {
     if (knownMissing.has(src)) {
-      setState({ playingSrc: null, unavailableSrc: src });
+      setState({ playingSrc: null, loadingSrc: null, unavailableSrc: src });
       return;
     }
+
+    setState({ playingSrc: null, loadingSrc: src, unavailableSrc: null });
 
     const audio = audioRef.current ?? new Audio();
     audioRef.current = audio;
@@ -58,7 +68,7 @@ export function useLetterAudio() {
 
     const markUnavailable = (cacheable: boolean) => {
       if (cacheable) knownMissing.add(src);
-      setState({ playingSrc: null, unavailableSrc: src });
+      setState({ playingSrc: null, loadingSrc: null, unavailableSrc: src });
     };
 
     audio.onended = () => setState((current) => (
@@ -74,7 +84,7 @@ export function useLetterAudio() {
 
     try {
       await audio.play();
-      setState({ playingSrc: src, unavailableSrc: null });
+      setState({ playingSrc: src, loadingSrc: null, unavailableSrc: null });
     } catch (error) {
       // Chrome rejects with NotSupportedError when the source cannot be decoded,
       // which is the same "no recording yet" case as the error event above.

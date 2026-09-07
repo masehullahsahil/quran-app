@@ -2,7 +2,10 @@
  * Quiet Sanctuary design reminder: Quranic Arabic remains primary, while the
  * teacher loop makes listening, repetition, and careful review immediately usable.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+// The default import keeps this renderable in a test: the app's build uses the
+// automatic JSX runtime, while the test transform falls back to the classic one
+// (tsconfig sets `jsx: "preserve"`), where JSX needs React in scope.
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -12,7 +15,6 @@ import {
   Check,
   ChevronDown,
   Headphones,
-  Globe,
   Home as HomeIcon,
   Languages,
   Library,
@@ -33,12 +35,13 @@ import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
 import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
 import { QaidaCourse } from "@/components/QaidaCourse";
 import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
-import { SUPPORTED_LANGUAGES, languageNoteKey, type SupportedLanguageCode } from "@shared/languages";
+import { type SupportedLanguageCode } from "@shared/languages";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { ACTIVE_LETTER_AUDIO_SOURCE } from "@/lib/letterAudioSources";
 import { useLetterAudio } from "@/hooks/useLetterAudio";
 import { useLocale } from "@/contexts/LocaleContext";
 import { SurahPicker } from "@/components/SurahPicker";
+import { LanguagePicker } from "@/components/LanguagePicker";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
 import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
@@ -313,7 +316,7 @@ export default function Home() {
   // the src swap that a verse change causes.
   const resumeOnVerseChangeRef = useRef(false);
 
-  const { t, locale, setLocale, locales, letterLesson, manifest } = useLocale();
+  const { t, locale, letterLesson, manifest } = useLocale();
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
   const ingestRecitationChunk = trpc.recitation.ingestChunk.useMutation();
@@ -554,13 +557,20 @@ export default function Home() {
     if (juz) selectSurah(juz.firstSurah, juz.firstAyah);
   };
 
-  const playReciter = async (rate = 1) => {
+  /**
+   * @param options.retry the reader pressed "try again" on a failed source. The
+   * element is reloaded and the remembered failure is ignored — without both,
+   * the retry is answered by the same cached error and looks broken too.
+   */
+  const playReciter = async (rate = 1, options: { retry?: boolean } = {}) => {
     const audio = audioRef.current;
     if (!audio) return;
-    if (audioUnavailable) {
+    // A missing source always blocks; a *failed* one blocks until it is retried.
+    if (!activeVerse?.audioUrl || (audioLoadFailed && !options.retry)) {
       setRecorderMessage(audioUnavailableMessage);
       return;
     }
+    if (options.retry) audio.load();
     audio.pause();
     audio.currentTime = 0;
     audio.playbackRate = rate;
@@ -581,6 +591,19 @@ export default function Home() {
         setRecorderMessage(t("recorder.audioFailed"));
       }
     }
+  };
+
+  /**
+   * Try a failed reciter source again.
+   *
+   * A CDN hiccup is the common case and it clears on a second attempt, so the
+   * failure is forgotten and the element is reloaded before playing — without
+   * the reload the browser serves its cached error and the retry looks broken
+   * too. Nothing about the ayah or the reciter changes here.
+   */
+  const retryReciterAudio = () => {
+    setFailedAudioSrc(null);
+    void playReciter(1, { retry: true });
   };
 
   /**
@@ -1028,18 +1051,11 @@ export default function Home() {
               </select>
               <ChevronDown size={14} aria-hidden="true" />
             </label>
-            <label className="quran-picker language-picker">
-              <Globe size={15} aria-hidden="true" />
-              <span className="sr-only">{t("language.label")}</span>
-              <select value={locale} onChange={(event) => setLocale(event.target.value)}>
-                {/* The pack's own name, with an honest note about what it is:
-                    "interface only" while long-form lesson text still falls
-                    back to English, and "AI-drafted" once every string is
-                    carried but no speaker of the language has read them. */}
-                {locales.map((option) => <option key={option.code} value={option.code}>{option.name}{languageNoteKey(option.code as SupportedLanguageCode) ? ` — ${t(languageNoteKey(option.code as SupportedLanguageCode)!)}` : ""}</option>)}
-              </select>
-              <ChevronDown size={14} aria-hidden="true" />
-            </label>
+            {/* The language control is a labelled menu rather than an icon:
+                a learner has to be able to see that the app speaks their
+                language without opening anything first. See
+                components/LanguagePicker.tsx. */}
+            <LanguagePicker variant="header" />
             {/* Straight from the API's translation list, grouped by language —
                 a language Quran.com adds appears here with no code change. */}
             <label className="quran-picker translation-picker">
@@ -1083,7 +1099,10 @@ export default function Home() {
                 <span className="playback-place">{t("playback.place", { number: activeVerse?.number ?? "—", total: ayahs.length || "—" })}</span>
                 <label className="playback-continuous"><input type="checkbox" checked={continuousListening} onChange={(event) => setContinuousListening(event.target.checked)} /> {t("playback.keepPlaying")}</label>
               </div>
-              {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
+              {/* A failed source used to leave a dead play button. The message
+                  names what happened in the learner's language and offers the
+                  retry, which reloads the element before trying again. */}
+              {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}{audioLoadFailed && <button type="button" className="playback-retry" onClick={retryReciterAudio}><RotateCcw size={13} aria-hidden="true" /> {t("content.retry")}</button>}</p>}
             </>}
             <div className="reader-footer"><span>{t("reader.footerHint")}</span><button type="button" onClick={() => setShowTranslation((current) => !current)}>{t(showTranslation ? "reader.hideMeaning" : "reader.showMeaning")}</button></div>
           </div>}
@@ -1091,20 +1110,23 @@ export default function Home() {
           {view === "learn" && <div className="learning-layout">
             <div className="learning-topline"><div><span className="eyebrow">{t("learn.paceEyebrow")}</span><h2>{t("learn.paceHeading")}</h2></div><span>{t(activeLevel.cueKey)}</span></div>
             <div className="level-picker" role="tablist" aria-label={t("learn.levelsLabel")}>{learningLevels.map((level) => { const progress = level.id === "qaida" ? qaidaPercent : feedback ? 100 : 0; return <button key={level.id} type="button" role="tab" aria-selected={learningLevel === level.id} className={learningLevel === level.id ? "is-selected" : ""} onClick={() => setLearningLevel(level.id)}><span>{level.order}</span><strong>{t(level.titleKey)}</strong><small>{progress ? t("learn.percentComplete", { percent: progress }) : t(level.cueKey)}</small></button>; })}</div>
-            {learningLevel === "qaida" && <details className="letter-reference">
-              <summary><span>{t("course.letterReference")}</span><small>{t("course.letterReferenceHint")}</small></summary>
-              <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount", { percent: lettersPractisedPercent })}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""}`} onClick={() => setSelectedLetter(index)}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small></button>)}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={16} /> {t("qaida.playLetter")}</button></div>
+            {/* Open by default: while this was collapsed, every letter recording
+                in the app sat behind a disclosure a learner had no reason to
+                open, which is why the app looked as though it had no sound. */}
+            {learningLevel === "qaida" && <details className="letter-reference" open>
+              <summary><span>{t("course.letterReference")}</span><small><Volume2 size={12} aria-hidden="true" /> {t("course.letterReferenceHint")}</small></summary>
+              <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount", { percent: lettersPractisedPercent })}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => { const tileSrc = letterAudioPath(item.slug); return <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""} ${letterAudio.playingSrc === tileSrc ? "is-playing" : ""}`} onClick={() => { setSelectedLetter(index); if (tileSrc) void letterAudio.play(tileSrc); }} aria-label={t("qaida.playLetterLabel", { letter: item.name })}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small><Volume2 size={11} aria-hidden="true" className="tile-speaker" /></button>; })}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${letterAudio.playingSrc === soloAudioSrc ? "is-playing" : ""} ${letterAudio.loadingSrc === soloAudioSrc ? "is-loading" : ""} ${letterAudio.unavailableSrc === soloAudioSrc ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={18} aria-hidden="true" /> {letterAudio.loadingSrc === soloAudioSrc ? t("qaida.audioLoading") : letterAudio.unavailableSrc === soloAudioSrc ? t("qaida.audioRetry") : t("qaida.listenLetter")}</button></div>
 
               {/* One recording per harakat. Nothing here is synthesised: if a
                   reciter's file is not present the control says so rather than
                   approximating the sound with an English voice. */}
-              <div className="harakat-strip">{HARAKAT.map((harakat) => { const src = letterAudioPath(activeLetter.slug, harakat.id); return <button type="button" key={harakat.id} className={`harakat-play ${letterAudio.playingSrc === src ? "is-playing" : ""} ${letterAudio.unavailableSrc === src ? "is-unavailable" : ""}`} onClick={() => src && void letterAudio.play(src)} disabled={!src} aria-label={t("qaida.playHarakatLabel", { letter: activeLetter.name, harakat: t(harakatLabelKeys[harakat.id].label) })}><span lang="ar" dir="rtl">{activeLetter.letter}{harakat.mark}</span><small>{t(harakatLabelKeys[harakat.id].label)} · {t(harakatLabelKeys[harakat.id].hint)}</small></button>; })}</div>
+              <div className="harakat-strip">{HARAKAT.map((harakat) => { const src = letterAudioPath(activeLetter.slug, harakat.id); return <button type="button" key={harakat.id} className={`harakat-play ${letterAudio.playingSrc === src ? "is-playing" : ""} ${letterAudio.loadingSrc === src ? "is-loading" : ""} ${letterAudio.unavailableSrc === src ? "is-unavailable" : ""}`} onClick={() => src && void letterAudio.play(src)} disabled={!src} aria-label={t("qaida.playHarakatLabel", { letter: activeLetter.name, harakat: t(harakatLabelKeys[harakat.id].label) })}><span lang="ar" dir="rtl">{activeLetter.letter}{harakat.mark}</span><small>{t(harakatLabelKeys[harakat.id].label)} · {t(harakatLabelKeys[harakat.id].hint)}</small><Volume2 size={12} aria-hidden="true" className="tile-speaker" /></button>; })}</div>
 
               {activeLesson && <div className="letter-lesson-text"><p>{activeLesson.articulation}</p>{activeLesson.tip && <small>{activeLesson.tip}</small>}</div>}
 
               {harakatAudioMissing && <p className="letter-audio-status" role="note"><AlertCircle size={13} /> {t("qaida.audioFormUnavailable")}</p>}
 
-              <p className="letter-audio-status" role="status">{letterAudio.unavailableSrc ? <><AlertCircle size={13} /> {t(usingPlaceholderAudio ? "qaida.audioUnavailablePlaceholder" : "qaida.audioUnavailable")}</> : letterAudio.playingSrc ? <><Volume2 size={13} /> {t(usingPlaceholderAudio ? "qaida.audioPlayingPlaceholder" : "qaida.audioPlaying")}</> : <><Headphones size={13} /> {t(usingPlaceholderAudio ? "qaida.audioIdlePlaceholder" : "qaida.audioIdle")}</>}</p>
+              <p className="letter-audio-status" role="status">{letterAudio.unavailableSrc ? <><AlertCircle size={13} /> {t(usingPlaceholderAudio ? "qaida.audioUnavailablePlaceholder" : "qaida.audioUnavailable")}</> : letterAudio.loadingSrc ? <><Headphones size={13} /> {t("qaida.audioLoading")}</> : letterAudio.playingSrc ? <><Volume2 size={13} /> {t(usingPlaceholderAudio ? "qaida.audioPlayingPlaceholder" : "qaida.audioPlaying")}</> : <><Headphones size={13} /> {t(usingPlaceholderAudio ? "qaida.audioIdlePlaceholder" : "qaida.audioIdle")}</>}</p>
 
               {usingPlaceholderAudio && ACTIVE_LETTER_AUDIO_SOURCE.attribution && <p className="letter-audio-credit">{t("qaida.audioAttribution", { source: ACTIVE_LETTER_AUDIO_SOURCE.attribution })}</p>}
 
@@ -1135,7 +1157,10 @@ export default function Home() {
                 </div>
                 {teacherAction.button && <button type="button" className="now-action" onClick={runTeacherAction}>{teacherAction.button.command === "next-ayah" ? <>{t(teacherAction.button.labelKey, teacherAction.button.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(teacherAction.button.labelKey, teacherAction.button.params)}</>}</button>}
                 <p className="loop-message" role="status">{recorderMessage ?? t("recorder.intro")}</p>
-                {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}</p>}
+                {/* A failed source used to leave a dead play button. The message
+                  names what happened in the learner's language and offers the
+                  retry, which reloads the element before trying again. */}
+              {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}{audioLoadFailed && <button type="button" className="playback-retry" onClick={retryReciterAudio}><RotateCcw size={13} aria-hidden="true" /> {t("content.retry")}</button>}</p>}
               </section>
 
               {/* Tier two: the word to fix. Arabic first, one line of
@@ -1250,7 +1275,7 @@ export default function Home() {
         <div className="practice-note"><img src="/assets/quran-study-lantern-illustration.svg" alt="" /><div><span className="eyebrow">{t("panel.sequenceEyebrow")}</span><p>{t("panel.sequenceCopy")}</p></div></div>
         <div className="completion-card"><div><span className="eyebrow">{t("panel.thisReading")}</span><strong>{readingPercent}%</strong></div><div className="completion-track"><span style={{ width: `${readingPercent}%` }} /></div><p>{t("panel.progressNote")}</p></div>
       </aside>
-      <div className="mobile-dock" aria-label={t("dock.label")}><button type="button" onClick={() => setView("read")} className={view === "read" ? "is-active" : ""}><BookOpen size={18} /><span>{t("dock.read")}</span></button><button type="button" onClick={() => setView("study")} className="dock-listen"><Mic size={19} /><span>{t("dock.practise")}</span></button><button type="button" onClick={() => setView("memorise")} className={view === "memorise" ? "is-active" : ""}><Sparkles size={18} /><span>{t("dock.recall")}</span></button></div>
+      <div className="mobile-dock" aria-label={t("dock.label")}><button type="button" onClick={() => setView("read")} className={view === "read" ? "is-active" : ""}><BookOpen size={18} /><span>{t("dock.read")}</span></button><button type="button" onClick={() => setView("study")} className="dock-listen"><Mic size={19} /><span>{t("dock.practise")}</span></button><button type="button" onClick={() => setView("memorise")} className={view === "memorise" ? "is-active" : ""}><Sparkles size={18} /><span>{t("dock.recall")}</span></button>{/* On a phone the dock is the only chrome always in reach, so the language menu lives here too rather than only in the desk header. */}<LanguagePicker variant="dock" /></div>
     </div>
   );
 }

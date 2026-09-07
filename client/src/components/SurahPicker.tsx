@@ -8,7 +8,10 @@
  * close — comes back from Command inside a Popover, and search here also matches
  * the Arabic name and the surah number.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+// The default import keeps this renderable in a test: the app's build uses the
+// automatic JSX runtime, while the test transform falls back to the classic one
+// (tsconfig sets `jsx: "preserve"`), where JSX needs React in scope.
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

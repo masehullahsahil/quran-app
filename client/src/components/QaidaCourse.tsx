@@ -10,7 +10,10 @@
  * control. These are reading exercises; the app is not listening to the learner
  * here, and none of them judges tajwid, makhraj, madd or ghunnah.
  */
-import { useEffect, useMemo, useState } from "react";
+// The default import keeps this renderable in a test: the app's build uses the
+// automatic JSX runtime, while the test transform falls back to the classic one
+// (tsconfig sets `jsx: "preserve"`), where JSX needs React in scope.
+import React, { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowRight, BookOpen, Check, Lock, RotateCcw, Volume2 } from "lucide-react";
 import { type QaidaLesson, type QaidaLessonStage } from "@shared/qaidaCurriculum";
 import { describeCourseView } from "@/lib/courseView";
@@ -175,14 +178,29 @@ export function QaidaCourse({
               </div>
             )}
 
+            {/* The listening step of a lesson, made visible: a lesson that has a
+                reference recording says so with a control the learner can see,
+                and one that has none says *that* instead of showing a button
+                that does nothing. */}
             {audioSrc && (
               <button
                 type="button"
-                className={`course-audio ${letterAudio.playingSrc === audioSrc ? "is-playing" : ""}`}
+                className={`course-audio ${letterAudio.playingSrc === audioSrc ? "is-playing" : ""} ${letterAudio.loadingSrc === audioSrc ? "is-loading" : ""} ${letterAudio.unavailableSrc === audioSrc ? "is-unavailable" : ""}`}
                 onClick={() => void letterAudio.play(audioSrc)}
+                aria-label={t("course.playAudio")}
               >
-                <Volume2 size={16} /> {t("course.playAudio")}
+                <Volume2 size={18} aria-hidden="true" />{" "}
+                {letterAudio.loadingSrc === audioSrc
+                  ? t("qaida.audioLoading")
+                  : letterAudio.unavailableSrc === audioSrc
+                    ? t("qaida.audioRetry")
+                    : t("course.playAudio")}
               </button>
+            )}
+            {audioSrc && letterAudio.unavailableSrc === audioSrc && (
+              <p className="course-note" role="status">
+                <AlertCircle size={13} /> {t("course.audioUnavailable")}
+              </p>
             )}
             {item.audio && !audioSrc && <p className="course-note"><AlertCircle size={13} /> {t("course.audioUnavailable")}</p>}
 
