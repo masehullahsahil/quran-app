@@ -21,6 +21,16 @@ import type { Ayah, JuzSummary, QuranIndex, Reciter, SurahContent, SurahSummary,
 const AUDIO_CDN_BASE = "https://verses.quran.com/";
 
 /**
+ * Word recordings come from a different host to the ayah recordings.
+ *
+ * `word.audio_url` is a relative asset — "wbw/001_001_001.mp3" — and the Quran
+ * Foundation documentation resolves it against audio.qurancdn.com, not against
+ * the verses host the ayah files use. They are two asset stores, and reusing
+ * the ayah base here would build URLs that happen to look right and 404.
+ */
+const WORD_AUDIO_CDN_BASE = "https://audio.qurancdn.com/";
+
+/**
  * The translation shown under each ayah is chosen by the reader from the list
  * the API advertises, so no translation id is hardcoded here. This is only the
  * fallback used when no choice has been made yet: Dr. Mustafa Khattab's "The
@@ -453,9 +463,13 @@ async function listVerseText(surah: number, translationId: number): Promise<Vers
  *
  * Two things are dropped rather than trusted: entries whose `char_type_name` is
  * not `word` — the ayah-number marker at the end of each verse is a "word" in
- * the payload and is not a word of the Quran — and entries with no audio. The
- * positions that survive are renumbered against the words themselves, so an
- * ayah's word 3 is its third *word*.
+ * the payload and is not a word of the Quran — and entries with no audio.
+ *
+ * Dropping a word with no audio drops the *recording*, never the position. The
+ * count runs over every word of the ayah, so word 3 is the third word whether
+ * or not words 1 and 2 were recorded. Compressing the numbering around a gap
+ * would make "hear word 3" play word 4, against a correction that named a
+ * canonical position.
  */
 type WordResponse = {
   verses: Array<{
@@ -477,9 +491,14 @@ async function listWordAudioByVerseKey(surah: number): Promise<Record<string, Wo
     let page: number | null = 1;
 
     while (page !== null && page <= MAX_VERSE_PAGES) {
+      // `words=true` and the text field are the two things this endpoint is
+      // documented to accept. `audio_url` is modelled as word *audio* rather
+      // than as another text field, and asking for it as one risks a legacy
+      // endpoint rejecting the whole request — so it is parsed when the word
+      // objects carry it and simply absent when they do not.
       const query = new URLSearchParams({
         words: "true",
-        word_fields: "text_uthmani,audio_url",
+        word_fields: "text_uthmani",
         per_page: String(VERSES_PER_PAGE),
         page: String(page),
       });
@@ -490,13 +509,22 @@ async function listWordAudioByVerseKey(surah: number): Promise<Record<string, Wo
       for (const verse of payload.verses ?? []) {
         if (!verse.verse_key) continue;
         const words: WordAudio[] = [];
+        // Counts every word of the ayah, recorded or not. The correction engine
+        // addresses canonical Quran positions, so a word the source served no
+        // recording for still occupies its place: numbering the recordings
+        // 1, 2, 3… around a gap would silently shift every later word, and
+        // "hear word 3" would play word 4.
+        let canonicalPosition = 0;
         for (const word of verse.words ?? []) {
           // The verse-end marker is served as a word and is not one.
           if (word.char_type_name && word.char_type_name !== "word") continue;
           const arabic = (word.text_uthmani ?? word.text ?? "").trim();
+          if (!arabic) continue;
+          canonicalPosition += 1;
           const url = word.audio_url?.trim();
-          if (!arabic || !url) continue;
-          words.push({ position: words.length + 1, arabic, url: absoluteAudioUrl(url) });
+          // No recording: the position is still spent, and nothing is emitted.
+          if (!url) continue;
+          words.push({ position: canonicalPosition, arabic, url: absoluteWordAudioUrl(url) });
         }
         if (words.length) byVerseKey[verse.verse_key] = words;
       }
@@ -514,6 +542,11 @@ type AudioResponse = {
 
 function absoluteAudioUrl(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `${AUDIO_CDN_BASE}${url.replace(/^\/+/, "")}`;
+}
+
+/** The same rule for word recordings, against their own host. */
+export function absoluteWordAudioUrl(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `${WORD_AUDIO_CDN_BASE}${url.replace(/^\/+/, "")}`;
 }
 
 async function listAudioByVerseKey(surah: number, reciterId: number): Promise<Record<string, string>> {

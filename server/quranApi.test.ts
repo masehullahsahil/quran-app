@@ -184,22 +184,79 @@ describe("getSurahContent", () => {
     for (const word of content.ayahs[0].wordAudio) expect(word.arabic).not.toContain("\u06dd");
   });
 
-  it("numbers word recordings by their place among the words", async () => {
-    // A word the source serves without audio is dropped, and the positions that
-    // survive are renumbered — otherwise a gap would shift every later word.
+  it("keeps a word's canonical position when an earlier word has no recording", async () => {
+    // The correction engine addresses canonical Quran positions. A word the
+    // source served no recording for still occupies its place: renumbering the
+    // recordings 1, 2, 3… around the gap would shift every later word, and
+    // "hear word 3" would play word 4.
     stubQuranApi({
       words: [
         { position: 1, char_type_name: "word", text_uthmani: "first", audio_url: null },
-        { position: 2, char_type_name: "word", text_uthmani: "second", audio_url: "wbw/x_002.mp3" },
-        { position: 3, char_type_name: "word", text_uthmani: "third", audio_url: "wbw/x_003.mp3" },
+        { position: 2, char_type_name: "word", text_uthmani: "second", audio_url: "wbw/001_002_002.mp3" },
+        { position: 3, char_type_name: "word", text_uthmani: "third", audio_url: "wbw/001_002_003.mp3" },
+        { position: 4, char_type_name: "end", text_uthmani: "\u06dd1", audio_url: null },
       ],
     });
     const content = await getSurahContent(1, 7);
 
     expect(content.ayahs[0].wordAudio).toEqual([
-      { position: 1, arabic: "second", url: "https://verses.quran.com/wbw/x_002.mp3" },
-      { position: 2, arabic: "third", url: "https://verses.quran.com/wbw/x_003.mp3" },
+      { position: 2, arabic: "second", url: "https://audio.qurancdn.com/wbw/001_002_002.mp3" },
+      { position: 3, arabic: "third", url: "https://audio.qurancdn.com/wbw/001_002_003.mp3" },
     ]);
+    // Nothing claims to be word 1, because word 1 has no recording.
+    expect(content.ayahs[0].wordAudio.some((word) => word.position === 1)).toBe(false);
+  });
+
+  it("resolves word recordings against the word-audio CDN, not the ayah one", async () => {
+    stubQuranApi({
+      words: [
+        { position: 1, char_type_name: "word", text_uthmani: "w", audio_url: "wbw/001_002_003.mp3" },
+      ],
+    });
+    const content = await getSurahContent(1, 7);
+
+    // Two different asset stores: the ayah files live on verses.quran.com and
+    // the word files on audio.qurancdn.com. Reusing the ayah base here builds
+    // URLs that look right and 404.
+    expect(content.ayahs[0].wordAudio[0].url).toBe("https://audio.qurancdn.com/wbw/001_002_003.mp3");
+    expect(content.ayahs[0].audioUrl).toBe("https://verses.quran.com/Alafasy/mp3/001001.mp3");
+  });
+
+  it("leaves an absolute word url alone", async () => {
+    stubQuranApi({
+      words: [
+        { position: 1, char_type_name: "word", text_uthmani: "w", audio_url: "https://cdn.example/one.mp3" },
+      ],
+    });
+    const content = await getSurahContent(1, 7);
+    expect(content.ayahs[0].wordAudio[0].url).toBe("https://cdn.example/one.mp3");
+  });
+
+  it("asks only for what the endpoint is documented to accept", async () => {
+    // `audio_url` is modelled as word audio rather than as another text field,
+    // so it is not requested as one: it is parsed when the word objects carry
+    // it. Asking for it risks a legacy endpoint rejecting the whole request,
+    // which would cost the ayah's recordings entirely.
+    const calls = stubQuranApi();
+    await getSurahContent(1, 7);
+
+    const wordCall = calls.find((url) => url.includes("words=true"))!;
+    expect(wordCall).toContain("word_fields=text_uthmani");
+    expect(wordCall).not.toContain("audio_url");
+  });
+
+  it("serves no recordings, and no ayah damage, when the words carry no audio", async () => {
+    stubQuranApi({
+      words: [
+        { position: 1, char_type_name: "word", text_uthmani: "first" },
+        { position: 2, char_type_name: "word", text_uthmani: "second" },
+      ],
+    });
+    const content = await getSurahContent(1, 7);
+
+    expect(content.ayahs[0].wordAudio).toEqual([]);
+    expect(content.wordAudioSource).toBeNull();
+    expect(content.ayahs[0].audioUrl).toBe("https://verses.quran.com/Alafasy/mp3/001001.mp3");
   });
 
   it("says what the word recordings are, and that they are not the chosen reciter", async () => {
@@ -253,8 +310,8 @@ describe("getSurahContent", () => {
         transliteration: "translit-1",
         audioUrl: "https://verses.quran.com/Alafasy/mp3/001001.mp3",
         wordAudio: [
-          { position: 1, arabic: "word-1-1", url: "https://verses.quran.com/wbw/001_001_001.mp3" },
-          { position: 2, arabic: "word-1-2", url: "https://verses.quran.com/wbw/001_001_002.mp3" },
+          { position: 1, arabic: "word-1-1", url: "https://audio.qurancdn.com/wbw/001_001_001.mp3" },
+          { position: 2, arabic: "word-1-2", url: "https://audio.qurancdn.com/wbw/001_001_002.mp3" },
         ],
       },
       {
@@ -265,8 +322,8 @@ describe("getSurahContent", () => {
         transliteration: "translit-2",
         audioUrl: "https://verses.quran.com/Alafasy/mp3/001002.mp3",
         wordAudio: [
-          { position: 1, arabic: "word-2-1", url: "https://verses.quran.com/wbw/001_002_001.mp3" },
-          { position: 2, arabic: "word-2-2", url: "https://verses.quran.com/wbw/001_002_002.mp3" },
+          { position: 1, arabic: "word-2-1", url: "https://audio.qurancdn.com/wbw/001_002_001.mp3" },
+          { position: 2, arabic: "word-2-2", url: "https://audio.qurancdn.com/wbw/001_002_002.mp3" },
         ],
       },
     ]);

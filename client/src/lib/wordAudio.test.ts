@@ -16,7 +16,7 @@ const AYAH_WORDS = ["ٱلْحَمْدُ", "لِلَّهِ", "رَبِّ", "ٱل�
 const RECORDINGS = AYAH_WORDS.map((arabic, index) => ({
   position: index + 1,
   arabic,
-  url: `https://verses.quran.com/wbw/001_002_00${index + 1}.mp3`,
+  url: `https://audio.qurancdn.com/wbw/001_002_00${index + 1}.mp3`,
 }));
 
 const SOURCE: WordAudioSource = {
@@ -46,7 +46,7 @@ const target = (patch: Partial<Parameters<typeof findWordAudio>[0]> = {}) => ({
 describe("a trustworthy recording is found", () => {
   it("returns the file for that exact word", () => {
     const reference = findWordAudio(target(), lookup())!;
-    expect(reference.url).toBe("https://verses.quran.com/wbw/001_002_003.mp3");
+    expect(reference.url).toBe("https://audio.qurancdn.com/wbw/001_002_003.mp3");
     expect(reference.wordIndex).toBe(3);
   });
 
@@ -131,5 +131,48 @@ describe("nothing is ever generated", () => {
     for (const fake of ["tts", "speech", "synth", "data:", "blob:"]) {
       expect(reference.url.toLowerCase(), fake).not.toContain(fake);
     }
+  });
+});
+
+describe("a gap in the recordings never shifts a word", () => {
+  /**
+   * Al-Fatiha 1:2 with no recording for its first word. The correction engine
+   * addresses canonical Quran positions, so the recordings that do exist keep
+   * theirs: word 2 is word 2. If they were renumbered around the gap, asking to
+   * hear word 2 would play word 3 — the app would say one word and speak
+   * another, which is the worst failure available here.
+   */
+  const gapped = lookup({
+    wordAudio: RECORDINGS.filter((word) => word.position !== 1),
+  });
+
+  it("returns the recording of the word that was asked for", () => {
+    expect(findWordAudio(target({ wordIndex: 2, arabic: "لِلَّهِ" }), gapped)?.url).toContain("001_002_002.mp3");
+    expect(findWordAudio(target({ wordIndex: 3, arabic: "رَبِّ" }), gapped)?.url).toContain("001_002_003.mp3");
+    expect(findWordAudio(target({ wordIndex: 4, arabic: "ٱلْعَـٰلَمِينَ" }), gapped)?.url).toContain("001_002_004.mp3");
+  });
+
+  it("offers nothing for the word that has no recording", () => {
+    expect(findWordAudio(target({ wordIndex: 1, arabic: "ٱلْحَمْدُ" }), gapped)).toBeNull();
+  });
+
+  it("never lets a later recording answer for an earlier word", () => {
+    // The shape the bug had: the second recording standing in as "word 1".
+    for (const reference of RECORDINGS.slice(1)) {
+      const found = findWordAudio(target({ wordIndex: 1, arabic: "ٱلْحَمْدُ" }), gapped);
+      expect(found?.url, reference.url).not.toBe(reference.url);
+    }
+  });
+
+  it("still refuses a recording whose position was renumbered by the source", () => {
+    // Belt and braces: even if a source compressed the numbering itself, the
+    // word-text check catches it, because position 1 would then carry the
+    // second word's text.
+    const compressed = RECORDINGS.filter((word) => word.position !== 1).map((word, index) => ({
+      ...word,
+      position: index + 1,
+    }));
+    expect(findWordAudio(target({ wordIndex: 1, arabic: "ٱلْحَمْدُ" }), lookup({ wordAudio: compressed }))).toBeNull();
+    expect(findWordAudio(target({ wordIndex: 2, arabic: "لِلَّهِ" }), lookup({ wordAudio: compressed }))).toBeNull();
   });
 });

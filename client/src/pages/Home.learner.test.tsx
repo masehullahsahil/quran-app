@@ -45,7 +45,7 @@ export const FAKE_AYAHS = [
     audioUrl: "https://audio.example/112001.mp3",
     // The word-by-word recordings Quran.com serves alongside the ayah.
     wordAudio: "قُلْ هُوَ اللَّهُ أَحَدٌ".split(" ").map((arabic, index) => ({
-      position: index + 1, arabic, url: `https://verses.example/wbw/112_001_00${index + 1}.mp3`,
+      position: index + 1, arabic, url: `https://audio.qurancdn.example/wbw/112_001_00${index + 1}.mp3`,
     })),
   },
   {
@@ -53,7 +53,7 @@ export const FAKE_AYAHS = [
     translation: "Allah, the Eternal", transliteration: null,
     audioUrl: "https://audio.example/112002.mp3",
     wordAudio: "اللَّهُ الصَّمَدُ".split(" ").map((arabic, index) => ({
-      position: index + 1, arabic, url: `https://verses.example/wbw/112_002_00${index + 1}.mp3`,
+      position: index + 1, arabic, url: `https://audio.qurancdn.example/wbw/112_002_00${index + 1}.mp3`,
     })),
   },
 ];
@@ -1023,7 +1023,7 @@ describe("hearing the exact Quran word", () => {
 
     // Word 3 of 112:1, and nothing else — not the ayah recording, and nothing
     // generated.
-    expect(played).toEqual(["https://verses.example/wbw/112_001_003.mp3"]);
+    expect(played).toEqual(["https://audio.qurancdn.example/wbw/112_001_003.mp3"]);
   });
 
   it("shows the canonical Quran word unchanged beside the control", async () => {

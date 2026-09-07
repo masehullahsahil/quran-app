@@ -83,8 +83,37 @@ Two things the server does to the payload before it becomes that:
 - **the verse-end marker is dropped.** Quran.com serves the ayah-number glyph as
   a word. Counting it would make every ayah one word longer than it is, and
   Study addresses words by position;
-- **positions are renumbered against the words that survive**, so an ayah's word
-  3 is its third word even if the source omitted audio for an earlier one.
+- **positions are canonical, and a missing recording never shifts them.** The
+  count runs over every word of the ayah, recorded or not, so word 3 is the
+  third word whether or not words 1 and 2 were recorded. Only the *recording* is
+  omitted when a word has no `audio_url`. Compressing the numbering around a gap
+  would make "hear word 3" play word 4, against a correction that named a
+  canonical position — the app would say one word and speak another.
+
+### Which host
+
+`word.audio_url` is a relative asset — `wbw/001_001_001.mp3` — and it resolves
+against **`https://audio.qurancdn.com/`**, not against the `verses.quran.com`
+host the *ayah* recordings use. These are two asset stores, and reusing the ayah
+base for word audio builds URLs that look right and 404. Word audio therefore
+has its own resolver (`absoluteWordAudioUrl`); the ayah path is unchanged.
+Absolute URLs pass through untouched on both.
+
+### Which fields are requested
+
+The request asks for `words=true` and `word_fields=text_uthmani` — the two
+things this endpoint is documented to accept — and reads `audio_url` off the
+word objects when they carry it.
+
+`audio_url` is deliberately **not** requested as a `word_fields` string. The
+current field reference does not list it among the ordinary text fields the way
+it lists `text_uthmani`, and the newer SDK models it as word *audio* rather than
+as another field; asking a legacy endpoint for it as one risks the whole request
+being rejected, which would cost every word recording rather than one field. If
+the word objects arrive without audio, `wordAudio` is empty, `wordAudioSource`
+is null, and the lesson falls back to the ayah exactly as if the source served
+nothing. Migrating to the newer authenticated Quran Foundation API is a separate
+piece of work and is not attempted here.
 
 The request is separate from the ayah-text request and cached separately, per
 surah rather than per reciter. Word audio is an extra: a failure here logs a
@@ -134,14 +163,16 @@ native-reviewed.
   both blocked by this environment's egress proxy (403 on CONNECT), as is the
   API documentation site. Every test uses deterministic fixtures. The field
   names (`words`, `word_fields`, `position`, `char_type_name`, `text_uthmani`,
-  `audio_url`) and the CDN base are taken from the documented v4 shape and the
-  app's existing conventions, and **have not been exercised against the live
-  service.** The first thing to check on the deployed app is whether a word
-  request returns recordings at all.
-- **The CDN host is assumed.** Word `audio_url` values are resolved against the
-  same `https://verses.quran.com/` base the ayah recordings use, via the existing
-  `absoluteAudioUrl`. Absolute URLs pass through unchanged, so if the service
-  returns them fully qualified this is moot.
+  `audio_url`) and the CDN base are taken from the documented shape, and **have
+  not been exercised against the live service.**
+- **The legacy endpoint's word-audio behaviour is unverified.** Whether
+  `api.quran.com/api/v4/verses/by_chapter/{surah}?words=true` returns `audio_url`
+  on its word objects in production is the single thing to check first on the
+  deployed app. If it does not, nothing breaks — the lesson falls back to the
+  ayah — but the feature does nothing either.
+- **The CDN host follows the documentation, not a live response.**
+  `https://audio.qurancdn.com/` is what the Quran Foundation documentation
+  resolves relative word assets against. It has not been fetched from here.
 - **No per-reciter word audio**, as above.
 - **No licensing terms were retrieved**, because the documentation site is also
   blocked. The API is public and needs no key, and the app already depends on it
