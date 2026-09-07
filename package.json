@@ -21,6 +21,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:verify-learner-persistence": "tsx scripts/verify-learner-persistence-db.ts",
     "verify:production-readiness": "node scripts/verify-production-readiness.mjs",
+    "validate:real-recitation": "tsx scripts/validate-real-recitation.ts",
     "benchmark:acoustic": "tsx scripts/acoustic-benchmark.ts",
     "acoustic:dev": "tsx watch services/quran-acoustic-evaluator/index.ts",
     "test:acoustic": "pnpm test -- services/quran-acoustic-evaluator"

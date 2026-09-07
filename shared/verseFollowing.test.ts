@@ -74,11 +74,17 @@ describe("followRecitation — advancing", () => {
     expect(second.lastCompletedAyah).toBe(2);
   });
 
-  it("advances when one word is omitted but the rest of the ayah continues strongly", () => {
+  it("does not advance when one word is omitted and the rest of the ayah continues", () => {
     const result = follow(at(7), "صراط الذين أنعمت عليهم المغضوب عليهم ولا الضالين");
 
     expect(result.shouldAdvance).toBe(false); // ayah 7 is the last ayah
-    expect(result).toMatchObject({ state: "completed", evidence: "strong", lastCompletedAyah: 7 });
+    expect(result).toMatchObject({
+      currentAyah: 7,
+      state: "correcting",
+      reason: "mistake_to_correct",
+      lastCompletedAyah: null,
+    });
+    expect(result.correctionFocus).toMatchObject({ wordIndex: 5, kind: "missing" });
   });
 
   it("advances when a word is repeated during the recitation", () => {
@@ -142,6 +148,19 @@ describe("followRecitation — staying on the ayah", () => {
       "صراط الذين أنعمت عليهم غير المغضوب عليهم ولا الضالين",
     );
     expect(recovered).toMatchObject({ state: "completed", lastCompletedAyah: 7, evidence: "strong" });
+  });
+
+  it("does not advance when a real skipped-word pattern continues past the omission", () => {
+    const result = follow(at(2), "الحمد لله العالمين");
+
+    expect(result).toMatchObject({
+      currentAyah: 2,
+      expectedWordIndex: 3,
+      state: "correcting",
+      shouldAdvance: false,
+      reason: "mistake_to_correct",
+    });
+    expect(result.correctionFocus).toMatchObject({ wordIndex: 3, kind: "missing" });
   });
 
   it("continues from the expected word when the learner resumes mid-ayah", () => {

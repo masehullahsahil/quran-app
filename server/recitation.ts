@@ -17,21 +17,40 @@ export type RecitationAssessment = {
   fallbackNextStep: string;
 };
 
-const DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g;
+const DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u0640]/g;
 const PUNCTUATION = /[\u060C\u061B\u061F،؛؟.!,:;"'()\[\]{}]/g;
-const ARABIC_SCRIPT = /[\u0621-\u064A]/;
+const DIRECTIONAL_MARKS = /[\u200C-\u200F\u202A-\u202E\u2066-\u2069]/g;
+const SMALL_ALEF = /\u0670/g;
 
 export function hasArabicScript(text: string): boolean {
-  return ARABIC_SCRIPT.test(text);
+  for (const char of text.normalize("NFKC")) {
+    const code = char.codePointAt(0) ?? 0;
+    if (
+      (code >= 0x0600 && code <= 0x06ff) ||
+      (code >= 0x0750 && code <= 0x077f) ||
+      (code >= 0x08a0 && code <= 0x08ff) ||
+      (code >= 0xfb50 && code <= 0xfdff) ||
+      (code >= 0xfe70 && code <= 0xfeff)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function normaliseArabicToken(token: string): string {
   return token
     .normalize("NFKC")
+    .replace(DIRECTIONAL_MARKS, "")
     .replace(DIACRITICS, "")
+    .replace(/رحمٰن/g, "رحمن")
+    .replace(/اللٰه/g, "الله")
+    .replace(SMALL_ALEF, "ا")
     .replace(PUNCTUATION, "")
     .replace(/[أإآٱ]/g, "ا")
     .replace(/ى/g, "ي")
+    .replace(/گ/g, "ك")
+    .replace(/[یێ]/g, "ي")
     .trim();
 }
 
@@ -39,7 +58,7 @@ export function tokenizeArabic(text: string): string[] {
   return text
     .split(/\s+/)
     .map((word) => word.trim())
-    .filter(Boolean);
+    .filter((word) => Boolean(word) && Boolean(normaliseArabicToken(word)));
 }
 
 function equivalent(expected: string, heard: string): boolean {

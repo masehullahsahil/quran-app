@@ -12,6 +12,10 @@ describe("normaliseArabicToken", () => {
     ["آمَنَ", "امن"],
     ["هُدَى", "هدي"],
     ["الـحمد،", "الحمد"],
+    ["\u200fالْحَمْدُ", "الحمد"],
+    ["كِتَـٰبٌ", "كتاب"],
+    ["كیف", "كيف"],
+    ["گتاب", "كتاب"],
   ])("normalises supported Arabic variants in %s", (variant, plain) => {
     expect(normaliseArabicToken(variant)).toBe(normaliseArabicToken(plain));
   });
@@ -20,6 +24,7 @@ describe("normaliseArabicToken", () => {
 describe("hasArabicScript", () => {
   it("distinguishes Arabic transcript text from an unusable English translation", () => {
     expect(hasArabicScript("بِسْمِ اللَّهِ")).toBe(true);
+    expect(hasArabicScript("ﭐللّٰه")).toBe(true);
     expect(hasArabicScript("In the name of Allah")).toBe(false);
     expect(hasArabicScript("")).toBe(false);
   });
@@ -74,6 +79,21 @@ describe("assessRecitationTranscript", () => {
     ]);
     expect(result).toMatchObject({ matchedCount: 3, score: 75 });
     expect(result.fallbackNextStep).toContain("word 3");
+  });
+
+  it("ignores standalone punctuation tokens from speech transcripts", () => {
+    const result = assessRecitationTranscript(
+      expected,
+      "الحمد ، لله رب العالمين ؟"
+    );
+
+    expect(result.expectedWords.map(({ status }) => status)).toEqual([
+      "matched",
+      "matched",
+      "matched",
+      "matched",
+    ]);
+    expect(result.extraWords).toHaveLength(0);
   });
 
   it("aligns two consecutive omissions without cascading reviews", () => {
