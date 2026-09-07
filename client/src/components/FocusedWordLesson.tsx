@@ -27,6 +27,7 @@
 // a test under the classic JSX transform.
 import React, { useEffect, useRef } from "react";
 import { AlertCircle, ArrowRight, Check, Loader, Mic, Square, Volume2 } from "lucide-react";
+import type { WordAudioReference } from "@/lib/wordAudio";
 import { useLocale } from "@/contexts/LocaleContext";
 import type { CorrectionLesson } from "@/lib/correctionSession";
 
@@ -34,6 +35,18 @@ export type FocusedWordLessonProps = {
   lesson: CorrectionLesson;
   /** Replays the ayah slowly. The page owns the audio element. */
   onListen: () => void;
+  /**
+   * The recording of this one word, when a trustworthy one exists.
+   *
+   * Null is the ordinary case for an ayah the source served no word recordings
+   * for, and the lesson simply offers the reciter's ayah instead. It is never a
+   * reason to synthesise anything.
+   */
+  wordAudio?: WordAudioReference | null;
+  /** Plays that recording. The page owns the element. */
+  onHearWord?: () => void;
+  /** What the word recording is doing right now. */
+  wordAudioState?: { loading: boolean; playing: boolean; failed: boolean };
   /** Records one word. The page's existing recorder, scoped by the caller. */
   onRecordWord: () => void;
   /** Records the whole ayah. The same recorder. */
@@ -48,6 +61,9 @@ export type FocusedWordLessonProps = {
 export function FocusedWordLesson({
   lesson,
   onListen,
+  wordAudio = null,
+  onHearWord,
+  wordAudioState = { loading: false, playing: false, failed: false },
   onRecordWord,
   onRecordAyah,
   onStop,
@@ -160,15 +176,66 @@ export function FocusedWordLesson({
 
       <div className="lesson-actions">
         {primary()}
-        {/* Hearing the word is always available, at every step. There is no
-            word-level recitation in the Quran data — one file per ayah, no word
-            timings — so this replays the ayah slowly and the note says so.
-            Nothing here is synthesised. */}
-        <button type="button" className="lesson-listen" onClick={onListen} disabled={audioUnavailable}>
-          <Volume2 size={16} aria-hidden="true" /> {t("correction.listen")}
-        </button>
+        {/* Hearing the word is available at every step.
+
+            When the source serves a recording of this one word, that is what
+            this plays and the button names the word. When it does not, the
+            button honestly offers the reciter's ayah instead — nothing here is
+            ever synthesised, and a missing word recording is said out loud
+            rather than filled in. */}
+        {wordAudio ? (
+          <button
+            type="button"
+            className={`lesson-listen is-word${wordAudioState.playing ? " is-playing" : ""}${wordAudioState.loading ? " is-loading" : ""}`}
+            onClick={onHearWord}
+            aria-label={t("lesson.hearWord", { word: wordAudio.arabic })}
+          >
+            {wordAudioState.loading ? <Loader size={16} aria-hidden="true" /> : <Volume2 size={16} aria-hidden="true" />}{" "}
+            {wordAudioState.loading
+              ? t("lesson.wordLoading")
+              : t("lesson.hearWord", { word: wordAudio.arabic })}
+          </button>
+        ) : (
+          <button type="button" className="lesson-listen" onClick={onListen} disabled={audioUnavailable}>
+            <Volume2 size={16} aria-hidden="true" /> {t("correction.listen")}
+          </button>
+        )}
       </div>
-      <small className="lesson-note">{t("lesson.referenceNote")}</small>
+
+      {/* The ayah stays one press away whether or not the word played. */}
+      {wordAudio && (
+        <button type="button" className="lesson-ayah-listen" onClick={onListen} disabled={audioUnavailable}>
+          <Volume2 size={14} aria-hidden="true" /> {t("lesson.hearFullAyah")}
+        </button>
+      )}
+
+      {/* Playing and failing are said in words, not signalled by colour. */}
+      {wordAudio && wordAudioState.playing && (
+        <p className="lesson-status" role="status">
+          <Volume2 size={13} aria-hidden="true" /> {t("lesson.wordPlaying")}
+        </p>
+      )}
+      {wordAudio && wordAudioState.failed && (
+        <p className="lesson-word-failed" role="status">
+          <AlertCircle size={13} aria-hidden="true" /> {t("lesson.wordUnavailable")}
+          <button type="button" className="lesson-fallback" onClick={onListen} disabled={audioUnavailable}>
+            {t("lesson.playAyahInstead")}
+          </button>
+        </p>
+      )}
+
+      {/* Whose voice this is.
+
+          Quran.com's word-by-word audio is one recitation set with no reciter
+          parameter, so it is not the reciter chosen for the ayah — and the
+          learner is told that rather than left to assume the two voices are the
+          same person. When a source does supply the selected reciter, there is
+          nothing to explain and no note is shown. */}
+      {wordAudio ? (
+        wordAudio.matchesSelectedReciter ? null : <small className="lesson-note">{t("lesson.wordReferenceNote")}</small>
+      ) : (
+        <small className="lesson-note">{t("lesson.referenceNote")}</small>
+      )}
     </section>
   );
 }

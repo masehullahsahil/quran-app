@@ -262,10 +262,13 @@ the ayah for individual words to be reviewed.
 The same rule covers the score. A percentage under an unreviewed attempt reads
 as a mark for the recitation. It is not shown at all.
 
-**There is no word-level recitation to play.** The Quran data this app reads
-carries one audio file per ayah and no word timings, so the card replays the
-whole ayah slowly and says so in as many words. No Quranic Arabic is ever
-synthesised, by browser speech synthesis or anything else.
+**Hearing the word.** Where the source serves a recording of the word itself,
+the lesson's prominent control is *Hear {word}* and the full ayah sits beneath
+it; where it does not, the card replays the ayah slowly and says in as many
+words that no separate word recording exists. Either way no Quranic Arabic is
+ever synthesised, by browser speech synthesis or anything else — see
+[docs/quran-word-audio.md](./quran-word-audio.md) for the source, what it is
+verified to be, and what it is not.
 
 Whichever card is showing takes the teaching steps and the contextual button
 with it: NOW keeps the instruction, the place and the microphone, so the learner

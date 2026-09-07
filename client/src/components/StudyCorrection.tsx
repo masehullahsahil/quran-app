@@ -29,6 +29,7 @@ import { AlertCircle, ArrowRight, Check, HelpCircle, Mic, RotateCcw, Square, Vol
 import { useLocale } from "@/contexts/LocaleContext";
 import type { StudyCorrectionPanel, StudyOutcomePanel } from "@/lib/studyView";
 import type { CorrectionLesson } from "@/lib/correctionSession";
+import type { WordAudioReference } from "@/lib/wordAudio";
 import { FocusedWordLesson } from "./FocusedWordLesson";
 import type { TeachingStep } from "@/lib/teacherAction";
 import type { StringKey } from "@locales/index";
@@ -53,6 +54,12 @@ export type StudyCorrectionProps = {
   lesson?: CorrectionLesson | null;
   /** Records one word — the page's own recorder, scoped by the caller. */
   onRecordWord?: () => void;
+  /** The recording of the focus word, when the source served a trustworthy one. */
+  wordAudio?: WordAudioReference | null;
+  /** Plays that recording. */
+  onHearWord?: () => void;
+  /** What the word recording is doing right now. */
+  wordAudioState?: { loading: boolean; playing: boolean; failed: boolean };
   /** Stops an open recording. */
   onStop?: () => void;
   /** Replays the ayah slowly. The page owns the audio element. */
@@ -78,6 +85,9 @@ export function StudyCorrection({
   lesson = null,
   onRecordWord,
   onStop,
+  wordAudio = null,
+  onHearWord,
+  wordAudioState,
 }: StudyCorrectionProps) {
   const { t } = useLocale();
 
@@ -132,6 +142,9 @@ export function StudyCorrection({
       <FocusedWordLesson
         lesson={lesson}
         onListen={onListen}
+        wordAudio={wordAudio}
+        onHearWord={onHearWord}
+        wordAudioState={wordAudioState}
         onRecordWord={onRecordWord ?? onRecord}
         onRecordAyah={onRecord}
         onStop={onStop ?? onRecord}

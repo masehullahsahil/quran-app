@@ -306,6 +306,15 @@ export const strings = {
   "lesson.recognised": "Good — I heard the marked word this time.",
   "lesson.referenceNote": "This plays the whole ayah slowly: there is no separate recording of a single word.",
 
+  // The per-word reference recitation. `lesson.hearWord` above names the word
+  // itself; these are its states and the honest note about whose voice it is.
+  "lesson.hearFullAyah": "Hear the full ayah",
+  "lesson.wordLoading": "Loading the recording…",
+  "lesson.wordPlaying": "The reciter is playing this word",
+  "lesson.wordUnavailable": "That word recording could not be played.",
+  "lesson.playAyahInstead": "Hear the full ayah instead",
+  "lesson.wordReferenceNote": "A word-by-word reference recitation — a different reciter from the ayah above.",
+
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "This recording didn’t match enough of the current ayah",
   "outcome.unrelatedDetail": "Individual words were not reviewed. Hear the ayah, then record again.",

@@ -33,6 +33,22 @@ const verse = (surah: number, number: number) => ({
 });
 
 /**
+ * The word objects Quran.com serves for one verse.
+ *
+ * The trailing entry is the ayah-number marker, which the payload carries as a
+ * word and which is not one — the client has to drop it or every ayah gains a
+ * phantom final word.
+ */
+function defaultWords(surah: number, ayah: number) {
+  const key = `${String(surah).padStart(3, "0")}_${String(ayah).padStart(3, "0")}`;
+  return [
+    { position: 1, char_type_name: "word", text_uthmani: `word-${ayah}-1`, audio_url: `wbw/${key}_001.mp3` },
+    { position: 2, char_type_name: "word", text_uthmani: `word-${ayah}-2`, audio_url: `wbw/${key}_002.mp3` },
+    { position: 3, char_type_name: "end", text_uthmani: `\u06dd${ayah}`, audio_url: null },
+  ];
+}
+
+/**
  * Serves plausible Quran.com payloads and records every request, so a test can
  * assert both the reshaping and how many times the upstream was actually hit.
  */
@@ -50,6 +66,10 @@ function stubQuranApi(options: {
   failRecitations?: boolean;
   failTranslations?: boolean;
   failAudio?: boolean;
+  /** The word-by-word recording request fails; ayah text and audio must not. */
+  failWords?: boolean;
+  words?: unknown[];
+  wordsPerPage?: Record<number, unknown[][]>;
 } = {}) {
   const calls: string[] = [];
 
@@ -103,6 +123,22 @@ function stubQuranApi(options: {
     if (url.includes("/verses/by_chapter/")) {
       const surah = Number(url.match(/by_chapter\/(\d+)/)?.[1]);
       const page = Number(new URL(url).searchParams.get("page") ?? "1");
+
+      // The same path serves two different requests: the ayah text, and the
+      // word-by-word recordings Study uses. They are fetched and cached
+      // separately, so the stub answers them separately too.
+      if (new URL(url).searchParams.get("words") === "true") {
+        if (options.failWords) return new Response("nope", { status: 503 });
+        const wordPages = options.wordsPerPage?.[surah] ?? [[
+          { verse_key: `${surah}:1`, words: options.words ?? defaultWords(surah, 1) },
+          { verse_key: `${surah}:2`, words: options.words ?? defaultWords(surah, 2) },
+        ]];
+        return new Response(JSON.stringify({
+          verses: wordPages[page - 1] ?? [],
+          pagination: { next_page: page < wordPages.length ? page + 1 : null },
+        }));
+      }
+
       const pages = options.versesPerPage?.[surah] ?? [[verse(surah, 1), verse(surah, 2)]];
       const current = pages[page - 1] ?? [];
       return new Response(JSON.stringify({
@@ -137,6 +173,70 @@ function stubQuranApi(options: {
 }
 
 describe("getSurahContent", () => {
+  it("keeps the ayah-number marker out of the word recordings", async () => {
+    // Quran.com serves the verse-end marker as a word. Counting it would make
+    // every ayah one word longer than it is, and Study addresses words by
+    // position — so word 3 of a four-word ayah would point at the wrong place.
+    stubQuranApi();
+    const content = await getSurahContent(1, 7);
+
+    expect(content.ayahs[0].wordAudio.map((word) => word.position)).toEqual([1, 2]);
+    for (const word of content.ayahs[0].wordAudio) expect(word.arabic).not.toContain("\u06dd");
+  });
+
+  it("numbers word recordings by their place among the words", async () => {
+    // A word the source serves without audio is dropped, and the positions that
+    // survive are renumbered — otherwise a gap would shift every later word.
+    stubQuranApi({
+      words: [
+        { position: 1, char_type_name: "word", text_uthmani: "first", audio_url: null },
+        { position: 2, char_type_name: "word", text_uthmani: "second", audio_url: "wbw/x_002.mp3" },
+        { position: 3, char_type_name: "word", text_uthmani: "third", audio_url: "wbw/x_003.mp3" },
+      ],
+    });
+    const content = await getSurahContent(1, 7);
+
+    expect(content.ayahs[0].wordAudio).toEqual([
+      { position: 1, arabic: "second", url: "https://verses.quran.com/wbw/x_002.mp3" },
+      { position: 2, arabic: "third", url: "https://verses.quran.com/wbw/x_003.mp3" },
+    ]);
+  });
+
+  it("says what the word recordings are, and that they are not the chosen reciter", async () => {
+    stubQuranApi();
+    const content = await getSurahContent(1, 7);
+
+    // Quran.com's word audio is one recitation set with no reciter parameter,
+    // so it is not the reciter selected for the ayah and does not claim to be.
+    expect(content.wordAudioSource).toEqual({
+      provider: "quran.com",
+      kind: "word-file",
+      reciterName: null,
+      matchesSelectedReciter: false,
+    });
+  });
+
+  it("serves the ayah normally when no word recordings come back", async () => {
+    stubQuranApi({ failWords: true });
+    const content = await getSurahContent(1, 7);
+
+    // The reader's text and the reciter's ayah are what matter; word audio is
+    // an extra, and losing it must cost nothing else.
+    expect(content.ayahs[0].arabic).toBe("arabic-1-1");
+    expect(content.ayahs[0].audioUrl).toBe("https://verses.quran.com/Alafasy/mp3/001001.mp3");
+    expect(content.ayahs[0].wordAudio).toEqual([]);
+    expect(content.wordAudioSource).toBeNull();
+  });
+
+  it("fetches word recordings once per surah, whatever the reciter", async () => {
+    const calls = stubQuranApi();
+    await getSurahContent(1, 7);
+    await getSurahContent(1, 10);
+
+    // They do not vary by reciter, so switching reciter must not refetch them.
+    expect(calls.filter((url) => url.includes("words=true")).length).toBe(1);
+  });
+
   it("merges Arabic text, translations and per-ayah audio", async () => {
     stubQuranApi();
 
@@ -152,6 +252,10 @@ describe("getSurahContent", () => {
         translation: "meaning-1",
         transliteration: "translit-1",
         audioUrl: "https://verses.quran.com/Alafasy/mp3/001001.mp3",
+        wordAudio: [
+          { position: 1, arabic: "word-1-1", url: "https://verses.quran.com/wbw/001_001_001.mp3" },
+          { position: 2, arabic: "word-1-2", url: "https://verses.quran.com/wbw/001_001_002.mp3" },
+        ],
       },
       {
         number: 2,
@@ -160,6 +264,10 @@ describe("getSurahContent", () => {
         translation: "meaning-2",
         transliteration: "translit-2",
         audioUrl: "https://verses.quran.com/Alafasy/mp3/001002.mp3",
+        wordAudio: [
+          { position: 1, arabic: "word-2-1", url: "https://verses.quran.com/wbw/001_002_001.mp3" },
+          { position: 2, arabic: "word-2-2", url: "https://verses.quran.com/wbw/001_002_002.mp3" },
+        ],
       },
     ]);
   });
@@ -175,7 +283,7 @@ describe("getSurahContent", () => {
     const content = await getSurahContent(2, 7);
 
     expect(content.ayahs.map((ayah) => ayah.number)).toEqual([1, 2, 3]);
-    expect(calls.filter((url) => url.includes("/verses/by_chapter/2")).length).toBe(2);
+    expect(calls.filter((url) => url.includes("/verses/by_chapter/2") && !url.includes("words=true")).length).toBe(2);
   });
 
   it("leaves already-absolute audio URLs untouched", async () => {
@@ -205,7 +313,7 @@ describe("getSurahContent", () => {
     const content = await getSurahContent(1, 7, 97);
 
     expect(content.translationId).toBe(97);
-    const verseCall = calls.find((url) => url.includes("/verses/by_chapter/"));
+    const verseCall = calls.find((url) => url.includes("/verses/by_chapter/") && !url.includes("words=true"));
     // The transliteration rides along with whatever translation was chosen.
     expect(verseCall).toContain("translations=97%2C57");
   });
@@ -219,7 +327,7 @@ describe("getSurahContent", () => {
     await getSurahContent(1, 7, 97);
     await getSurahContent(1, 7, 131);
 
-    const textCalls = calls.filter((url) => url.includes("/verses/by_chapter/"));
+    const textCalls = calls.filter((url) => url.includes("/verses/by_chapter/") && !url.includes("words=true"));
     expect(textCalls).toHaveLength(2);
   });
 
@@ -230,7 +338,7 @@ describe("getSurahContent", () => {
     await getSurahContent(1, 7);
     await getSurahContent(1, 6);
 
-    const textCalls = calls.filter((url) => url.includes("/verses/by_chapter/"));
+    const textCalls = calls.filter((url) => url.includes("/verses/by_chapter/") && !url.includes("words=true"));
     const audioCalls = calls.filter((url) => url.includes("/quran/recitations/"));
     expect(textCalls.length).toBe(1);
     // One per reciter: the text is shared, the recitation is not.
