@@ -63,19 +63,22 @@ export type VerseFollowingState = (typeof VERSE_FOLLOWING_STATES)[number];
  * probability: the aligner reports word matches, and inventing a numeric
  * confidence from them would be fake precision.
  */
-export type VerseFollowingEvidence = "none" | "weak" | "partial" | "strong";
+export const VERSE_FOLLOWING_EVIDENCE = ["none", "weak", "partial", "strong"] as const;
+export type VerseFollowingEvidence = (typeof VERSE_FOLLOWING_EVIDENCE)[number];
 
 /** Why the tracker decided what it decided. Stable enough to branch UI copy on. */
-export type VerseFollowingReason =
-  | "no_transcript"
-  | "too_little_evidence"
-  | "noisy_transcript"
-  | "previous_ayah_repeated"
-  | "next_ayah_started_early"
-  | "partial_progress"
-  | "mistake_to_correct"
-  | "ayah_completed"
-  | "surah_completed";
+export const VERSE_FOLLOWING_REASONS = [
+  "no_transcript",
+  "too_little_evidence",
+  "noisy_transcript",
+  "previous_ayah_repeated",
+  "next_ayah_started_early",
+  "partial_progress",
+  "mistake_to_correct",
+  "ayah_completed",
+  "surah_completed",
+] as const;
+export type VerseFollowingReason = (typeof VERSE_FOLLOWING_REASONS)[number];
 
 /** The word the learner should return to before or during the next attempt. */
 export type VerseCorrectionFocus = {
