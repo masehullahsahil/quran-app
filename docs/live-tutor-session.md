@@ -31,21 +31,26 @@ Phases have these meanings:
 | `completed` | Strong verse-following evidence completed the last ayah of the surah. |
 | `stopped` | The learner ended the live session without creating progress. |
 
-`tutor.start` creates a server-owned session. `tutor.turn` accepts the exact
-session snapshot returned by the preceding turn and rejects stale or changed
-snapshots with `refresh-session`. The v1 store is an intentionally bounded,
-in-memory map. A process restart or serverless cold start loses live sessions;
-the client must re-establish the current lesson. This store is not a competing
+`tutor.start` creates a server-owned session. Public `tutor.turn` calls send
+only the opaque session id, expected revision, and a structured learner intent
+or timing event. The server loads the authoritative session and rejects stale
+revisions with `refresh-session`.
+
+The v1 store is an intentionally bounded, process-local map. A process restart,
+serverless cold start, or request routed to another instance can lose a live
+session. The server returns `lost-session` with no session or advancement and
+the client must safely re-establish the lesson from the existing Study state.
+It never silently recreates progress, and this store is not a competing
 progress database.
 
 ## Inputs and actions
 
-The engine consumes the structured learner intents exported by
+The public turn API consumes the structured learner intents exported by
 `shared/tutorConversation.ts` (`start`, `again`, `repeat-word`, `hear-word`,
 `hear-ayah`, `hint`, `from-beginning`, `continue`, `pause`, `resume`, and
-`stop`), future timing events, or a bounded recitation result. It does not parse
-open-ended Pashto, Dari, Urdu, Arabic, or English speech. A conversation layer
-must resolve language into one of these intents first.
+`stop`) or future timing events. It does not accept recitation evidence and it
+does not parse open-ended Pashto, Dari, Urdu, Arabic, or English speech. A
+conversation layer must resolve language into one of these intents first.
 
 Actions are structured commands such as `listen`, `play-target-word`,
 `ask-target-word`, `ask-full-ayah`, `show-hint`, `hold-uncertain`, and
@@ -60,7 +65,12 @@ interruption policy remain future work.
 
 ## Quran authority boundary
 
-The tutor consumes a small transcript-free subset of `recitation.evaluate`:
+`recitation.evaluateWithTutor` is the trusted audio handoff. The browser sends
+audio, MIME type, attempt scope, and a tutor session id/revision. The server
+loads the tutor's Quran position and active correction, loads canonical ayah
+and neighboring text, runs the same internal evaluation function used by
+ordinary `recitation.evaluate`, then applies this transcript-free subset to the
+tutor:
 
 - attempt scope and current surah/ayah
 - the existing `VerseFollowingResult`
@@ -75,10 +85,15 @@ the tutor. Uncertain or inconsistent evidence holds position or asks the client
 to refresh.
 
 The route validates every result against the trusted session position and
-active target. Callers must pass the result returned by the existing recitation
-evaluator directly; arbitrary client-derived progression is not a Quran
-correctness signal. A learner `continue` intent cannot change the Quran
-position and cannot bypass an active correction.
+active target. The integrated request schema rejects client-supplied Quran
+text, position, correction targets, and evaluation results. Public
+`tutor.turn` has no recitation event variant, so a browser cannot submit
+`shouldAdvance`, target recognition, or ayah completion. A learner `continue`
+intent cannot change the Quran position and cannot bypass an active correction.
+
+Ordinary `recitation.evaluate` remains available with its existing response
+contract. It and the Tutor integration call one evaluation implementation;
+there is no second correctness path.
 
 No tutor state or action claims tajwid, makhraj, madd, ghunnah, harakah, or
 pronunciation correctness. Diagnostics from `traceLiveTutorTurn()` contain only
@@ -87,7 +102,7 @@ not contain audio or transcripts.
 
 ## Remaining voice work
 
-Continuous conversation still needs a multilingual intent resolver, trusted
-wiring from each evaluator response into `tutor.turn`, VAD/stream event
-production, conversation wording, playback orchestration, reconnect handling,
-and durable or shared live-session storage for multi-instance deployment.
+Continuous conversation still needs client Study mounting, a multilingual
+intent resolver, VAD/stream event production, conversation wording, playback
+orchestration, reconnect handling, and durable or shared live-session storage
+for multi-instance deployment.

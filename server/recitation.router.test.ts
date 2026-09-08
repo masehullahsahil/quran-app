@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TrpcContext } from "./_core/context";
 import { resetRecitationRateLimitForTests } from "./recitationRateLimit";
+import { resetLiveTutorSessionsForTests } from "./tutorRouter";
 import { MAX_AUDIO_BYTES } from "@shared/recording";
 
 const originalFetch = global.fetch;
@@ -14,6 +15,15 @@ afterEach(() => {
 
 const AYAH = "بسم الله الرحمن الرحيم";
 const FATIHA_2 = "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ";
+const FATIHA = [
+  "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ",
+  FATIHA_2,
+  "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+  "مَـٰلِكِ يَوْمِ ٱلدِّينِ",
+  "إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ",
+  "ٱهْدِنَا ٱلصِّرَٰطَ ٱلْمُسْتَقِيمَ",
+  "صِرَٰطَ ٱلَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ ٱلْمَغْضُوبِ عَلَيْهِمْ وَلَا ٱلضَّآلِّينَ",
+];
 const RABBI_TARGET = { surah: 1, ayah: 2, targetWordIndex: 3, expectedArabic: "رَبِّ", attemptsOnTarget: 0 };
 
 const evaluateInput = {
@@ -25,6 +35,7 @@ const evaluateInput = {
 };
 
 beforeEach(() => {
+  resetLiveTutorSessionsForTests();
   vi.stubEnv("QURAN_EVALUATOR_URL", "");
   vi.stubEnv("QURAN_EVALUATOR_API_KEY", "");
   vi.stubEnv("RECITATION_RATE_LIMIT_REDIS_REST_URL", "");
@@ -44,6 +55,18 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
 
     if (options.failStorage && url.includes("/storage/")) {
       return new Response("bucket unavailable", { status: 503 });
+    }
+
+    if (url.includes("api.quran.com/api/v4/verses/by_chapter/1?")) {
+      return new Response(JSON.stringify({
+        verses: FATIHA.map((arabic, index) => ({
+          verse_number: index + 1,
+          verse_key: `1:${index + 1}`,
+          text_uthmani: arabic,
+          translations: [],
+        })),
+        pagination: { next_page: null },
+      }), { status: 200 });
     }
 
     if (url.includes("quran-evaluator") && options.quranEvaluator) {
@@ -709,6 +732,192 @@ describe("recitation.evaluate", () => {
     expect(serializedLogs).not.toContain(evaluateInput.audioBase64);
     expect(serializedLogs).not.toContain(AYAH);
     warn.mockRestore();
+  });
+});
+
+describe("recitation.evaluateWithTutor", () => {
+  const audioAttempt = {
+    audioBase64: evaluateInput.audioBase64,
+    mimeType: evaluateInput.mimeType,
+    learningLevel: "qaida" as const,
+    uiLanguage: "en" as const,
+    attemptScope: "ayah" as const,
+  };
+
+  async function startTutor(caller: ReturnType<typeof import("./routers")["appRouter"]["createCaller"]>) {
+    const turn = await caller.tutor.start({
+      mode: "guided-recitation",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learnerLanguage: "en",
+    });
+    return turn.session;
+  }
+
+  function reference(session: { sessionId: string; revision: number }) {
+    return { sessionId: session.sessionId, revision: session.revision };
+  }
+
+  it("drives the exact missing word, focused retry, and corrected ayah sequence from trusted evaluation", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const calls = stubServices({ transcript: ["الحمد لله العالمين", "ربي", "الحمد لله رب العالمين"] });
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.81"));
+    const initial = await startTutor(caller);
+
+    const missing = await caller.recitation.evaluateWithTutor({
+      session: reference(initial),
+      attempt: audioAttempt,
+    });
+    expect(missing.recitation).toMatchObject({
+      attemptScope: "ayah",
+      verseFollowing: { currentAyah: 2, shouldAdvance: false, reason: "mistake_to_correct" },
+      correctionSession: { targetWordIndex: 3, targetArabic: "رَبِّ", stage: "hear" },
+    });
+    expect(missing.tutor).toMatchObject({
+      status: "updated",
+      session: {
+        ayah: 2,
+        lastCompletedAyah: null,
+        phase: "correcting-word",
+        activeCorrection: { targetWordIndex: 3, targetArabic: "رَبِّ" },
+      },
+      action: { kind: "play-target-word", targetWordIndex: 3, targetArabic: "رَبِّ", canAdvance: false },
+    });
+    if (!missing.tutor.session) throw new Error("Expected the correction tutor session");
+
+    const focused = await caller.recitation.evaluateWithTutor({
+      session: reference(missing.tutor.session),
+      attempt: { ...audioAttempt, attemptScope: "word" },
+    });
+    expect(focused.recitation).toMatchObject({
+      attemptScope: "word",
+      recitationScoreScope: "word",
+      focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
+      correctionSession: {
+        targetWordIndex: 3,
+        targetArabic: "رَبِّ",
+        recognition: "recognised",
+        stage: "recite-ayah",
+      },
+      verseFollowing: { currentAyah: 2, lastCompletedAyah: null, shouldAdvance: false },
+    });
+    expect(focused.tutor).toMatchObject({
+      status: "updated",
+      session: { ayah: 2, lastCompletedAyah: null, phase: "recite-ayah" },
+      action: { kind: "ask-full-ayah", reason: "target-recognised", canAdvance: false },
+    });
+    if (!focused.tutor.session) throw new Error("Expected the full-ayah retry tutor session");
+
+    const complete = await caller.recitation.evaluateWithTutor({
+      session: reference(focused.tutor.session),
+      attempt: audioAttempt,
+    });
+    expect(complete.recitation).toMatchObject({
+      attemptScope: "ayah",
+      correctionSession: null,
+      verseFollowing: { currentAyah: 3, lastCompletedAyah: 2, shouldAdvance: true, reason: "ayah_completed" },
+    });
+    expect(complete.tutor).toMatchObject({
+      status: "updated",
+      session: { ayah: 3, lastCompletedAyah: 2, phase: "listening", activeCorrection: null },
+      action: { kind: "continue-recitation", reason: "ayah-completed", canAdvance: true },
+    });
+
+    expect(calls.filter(url => url.includes("/audio/transcriptions"))).toHaveLength(3);
+    expect(calls.filter(url => url.includes("/verses/by_chapter/1?"))).toHaveLength(1);
+  });
+
+  it("rejects client-supplied Quran context and correction targets at the schema boundary", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const calls = stubServices({ transcript: "رب" });
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.82"));
+    const initial = await startTutor(caller);
+
+    await expect(caller.recitation.evaluateWithTutor({
+      session: reference(initial),
+      attempt: {
+        ...audioAttempt,
+        expectedArabic: "forged",
+        correctionTarget: RABBI_TARGET,
+      },
+    } as never)).rejects.toThrow(/Unrecognized keys/);
+    expect(calls).toEqual([]);
+  });
+
+  it("rejects a stale tutor revision before transcription", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.83"));
+    const initial = await startTutor(caller);
+    await caller.tutor.turn({
+      session: reference(initial),
+      event: { type: "intent", intent: "start" },
+    });
+
+    const stale = await caller.recitation.evaluateWithTutor({
+      session: reference(initial),
+      attempt: audioAttempt,
+    });
+    expect(stale).toMatchObject({
+      recitation: null,
+      tutor: {
+        status: "stale",
+        accepted: false,
+        session: { revision: 1, ayah: 2, lastCompletedAyah: null },
+        action: { kind: "refresh-session", canAdvance: false },
+      },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("never recreates a lost tutor session or evaluates its recording", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.84"));
+    const initial = await startTutor(caller);
+    resetLiveTutorSessionsForTests();
+
+    const lost = await caller.recitation.evaluateWithTutor({
+      session: reference(initial),
+      attempt: audioAttempt,
+    });
+    expect(lost).toEqual({
+      recitation: null,
+      tutor: {
+        status: "lost",
+        accepted: false,
+        session: null,
+        action: { kind: "refresh-session", reason: "lost-session", canAdvance: false },
+      },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("holds the trusted Quran position when transcription evidence is uncertain", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    stubServices({ transcript: "background noise" });
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.85"));
+    const initial = await startTutor(caller);
+
+    const uncertain = await caller.recitation.evaluateWithTutor({
+      session: reference(initial),
+      attempt: audioAttempt,
+    });
+    expect(uncertain.recitation).toMatchObject({
+      reviewStatus: "unavailable",
+      verseFollowing: { currentAyah: 2, lastCompletedAyah: null, shouldAdvance: false, evidence: "none" },
+    });
+    expect(uncertain.tutor).toMatchObject({
+      status: "updated",
+      session: { ayah: 2, lastCompletedAyah: null, phase: "waiting" },
+      action: { kind: "hold-uncertain", canAdvance: false },
+    });
   });
 });
 

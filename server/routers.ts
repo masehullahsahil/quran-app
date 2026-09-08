@@ -2,6 +2,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
+import type { TrpcContext } from "./_core/context";
 import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
@@ -9,7 +10,13 @@ import { transcribeAudio } from "./_core/voiceTranscription";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, type SupportedLanguageCode } from "@shared/languages";
-import { DEFAULT_RECITER_ID, DEFAULT_TRANSLATION_ID, getQuranIndex, getSurahContent } from "./quranApi";
+import {
+  DEFAULT_RECITER_ID,
+  DEFAULT_TRANSLATION_ID,
+  getQuranAyahContext,
+  getQuranIndex,
+  getSurahContent,
+} from "./quranApi";
 import { assessRecitationTranscript, hasArabicScript, tokenizeArabic } from "./recitation";
 import {
   VERSE_FOLLOWING_STATES,
@@ -33,7 +40,14 @@ import { ingestRecitationChunk } from "./recitationSession";
 import { buildReviewQueue, deriveAyahMemory, findRecurringErrors } from "@shared/memorization";
 import { getQaidaLesson } from "@shared/qaidaCurriculum";
 import { getLearnerSnapshot, insertMemorizationAttempt, mergeQaidaProgress } from "./db";
-import { tutorRouter } from "./tutorRouter";
+import {
+  applyTrustedTutorRecitation,
+  getTrustedTutorSession,
+  rejectTrustedTutorRecitation,
+  tutorRouter,
+  tutorSessionReferenceSchema,
+} from "./tutorRouter";
+import type { LiveTutorSession } from "@shared/liveTutor";
 
 // Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
 // past 1,600 characters once Uthmani diacritics are counted. The old limit fit
@@ -83,6 +97,21 @@ const recitationInput = z.object({
   attemptScope: z.enum(RECITATION_ATTEMPT_SCOPES).default("ayah"),
   correctionTarget: correctionTargetInput.optional(),
 });
+
+type RecitationEvaluationInput = z.output<typeof recitationInput>;
+
+const tutorRecitationAttemptInput = recitationInput.pick({
+  audioBase64: true,
+  mimeType: true,
+  learningLevel: true,
+  uiLanguage: true,
+  attemptScope: true,
+}).strict();
+
+const tutorRecitationInput = z.object({
+  session: tutorSessionReferenceSchema,
+  attempt: tutorRecitationAttemptInput,
+}).strict();
 
 const correctionFocusInput = z.object({
   wordIndex: z.number().int().min(1).max(1000),
@@ -291,6 +320,42 @@ function ayahCorrectionSession(verseFollowing: VerseFollowingResult): Correction
   };
 }
 
+async function trustedTutorRecitationInput(
+  session: LiveTutorSession,
+  attempt: z.output<typeof tutorRecitationAttemptInput>,
+): Promise<RecitationEvaluationInput | null> {
+  if (session.phase === "paused" || session.phase === "completed" || session.phase === "stopped") return null;
+  if (attempt.attemptScope === "word" && !session.activeCorrection) return null;
+
+  const context = await getQuranAyahContext(session.surah, session.ayah);
+  if (context.totalAyahs !== session.totalAyahs) return null;
+
+  return {
+    ...attempt,
+    expectedArabic: context.expectedArabic,
+    surah: session.surah,
+    ayah: session.ayah,
+    totalAyahs: context.totalAyahs,
+    previousAyahArabic: context.previousAyahArabic ?? undefined,
+    nextAyahArabic: context.nextAyahArabic ?? undefined,
+    position: {
+      expectedWordIndex: session.expectedWordIndex,
+      lastCompletedAyah: session.lastCompletedAyah,
+      state: session.activeCorrection ? "correcting" : "following",
+      attemptsOnCurrentAyah: session.attemptsOnCurrentAyah,
+    },
+    correctionTarget: attempt.attemptScope === "word" && session.activeCorrection
+      ? {
+          surah: session.activeCorrection.surah,
+          ayah: session.activeCorrection.ayah,
+          targetWordIndex: session.activeCorrection.targetWordIndex,
+          expectedArabic: session.activeCorrection.targetArabic,
+          attemptsOnTarget: session.activeCorrection.attemptsOnTarget,
+        }
+      : undefined,
+  };
+}
+
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
@@ -370,11 +435,11 @@ export const appRouter = router({
       }),
   }),
 
-  recitation: router({
-    // Stateless, typed chunk orchestration. Clients carry the returned session
-    // into the next request; only finalized chunks can change its durable place.
-    ingestChunk: publicProcedure.input(recitationChunkInput).mutation(({ input }) => ingestRecitationChunk(input)),
-    evaluate: publicProcedure.input(recitationInput).mutation(async ({ ctx, input }) => {
+  recitation: (() => {
+    const evaluateRecitationAttempt = async ({ ctx, input }: {
+      ctx: TrpcContext;
+      input: RecitationEvaluationInput;
+    }) => {
       const learningPlan = getLearningCoachPlan(input.learningLevel);
       const learningPlanResult = {
         level: learningPlan.level,
@@ -690,8 +755,46 @@ export const appRouter = router({
           ? "Word recall is based on transcription. The additional acoustic observation is confidence-gated practice guidance, not certification of tajwid, makharij, melody, religious correctness, or a replacement for a qualified teacher."
           : "This is a word-recall aid based on speech transcription. It does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
       };
-    }),
-  }),
+    };
+
+    return router({
+      // Stateless, typed chunk orchestration. Clients carry the returned session
+      // into the next request; only finalized chunks can change its durable place.
+      ingestChunk: publicProcedure.input(recitationChunkInput).mutation(({ input }) => ingestRecitationChunk(input)),
+      evaluate: publicProcedure.input(recitationInput).mutation(evaluateRecitationAttempt),
+      evaluateWithTutor: publicProcedure.input(tutorRecitationInput).mutation(async ({ ctx, input }) => {
+        const lookup = getTrustedTutorSession(input.session);
+        if (lookup.status !== "current") return { recitation: null, tutor: lookup.handoff };
+
+        let trustedInput: RecitationEvaluationInput | null;
+        try {
+          trustedInput = await trustedTutorRecitationInput(lookup.session, input.attempt);
+        } catch (error) {
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message: "The tutor could not establish trusted Quran context for this recording.",
+            cause: error,
+          });
+        }
+        if (!trustedInput) {
+          return { recitation: null, tutor: rejectTrustedTutorRecitation(input.session) };
+        }
+
+        const recitation = await evaluateRecitationAttempt({ ctx, input: trustedInput });
+        const tutor = applyTrustedTutorRecitation(input.session, {
+          surah: lookup.session.surah,
+          ayah: lookup.session.ayah,
+          result: recitation,
+        });
+
+        // The session may change while transcription is in flight. Never hand a
+        // now-stale completion result to the browser as an accepted tutor turn.
+        return tutor.status === "updated"
+          ? { recitation, tutor }
+          : { recitation: null, tutor };
+      }),
+    });
+  })(),
 
   // TODO: add feature routers here, e.g.
   // todo: router({
