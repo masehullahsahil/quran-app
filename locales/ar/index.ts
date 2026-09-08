@@ -90,6 +90,9 @@ export const strings: TranslatableStrings = {
   // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
   "lesson.label": "تدريب على كلمة واحدة",
   "lesson.eyebrow": "تحتاج انتباهًا",
+  // The same card once the word has come through. See requirement 9 in
+  // docs/live-tutor.md: only the current step may dominate the screen.
+  "lesson.eyebrowResolved": "تمّت هذه الكلمة",
   "lesson.wordOf": "الكلمة {number} من {total}",
   "lesson.stepsLabel": "خطوات هذا التصحيح",
   "lesson.stageHear": "استمع",
@@ -124,6 +127,53 @@ export const strings: TranslatableStrings = {
   "lesson.wordUnavailable": "تعذَّر تشغيل تسجيل هذه الكلمة.",
   "lesson.playAyahInstead": "استمع إلى الآية كاملة بدلًا من ذلك",
   "lesson.wordReferenceNote": "تلاوة مرجعية كلمة بكلمة — قارئ غير قارئ الآية أعلاه.",
+
+  // -- Live Tutor: what the teacher says -----------------------------------
+  // One short sentence per state. A teacher listens far more than they talk,
+  // so none of these is a paragraph, and none of them claims anything about
+  // pronunciation, makhraj or tajwid — see shared/tutorConversation.ts.
+  "tutor.label": "معلّمك",
+  "tutor.ready": "ابدأ متى كنت مستعدًا.",
+  "tutor.listening": "أنا أستمع.",
+  "tutor.checking": "لحظة.",
+  "tutor.wordMissed": "فاتتك كلمة. استمع.",
+  "tutor.wordRecognised": "أحسنت — سمعت الكلمة المحددة.",
+  "tutor.reciteFullAyah": "الآن اقرأ الآية كاملة.",
+  "tutor.offerHint": "أتريد تلميحًا؟",
+  "tutor.hintGiven": "ابدأ من {word}.",
+  "tutor.uncertain": "لم أسمع ذلك بوضوح. أعد المحاولة مرة أخرى.",
+  "tutor.paused": "خذ وقتك. قل لي متى نتابع.",
+  "tutor.finished": "أحسنت. نقف هنا الآن.",
+
+  // The two or three things offered at a time. Never all of them at once.
+  "tutor.doStart": "ابدأ",
+  "tutor.doAgain": "أعد",
+  "tutor.doRepeatWord": "قل الكلمة",
+  "tutor.doHearWord": "استمع إلى الكلمة",
+  "tutor.doHearAyah": "استمع إلى الآية",
+  "tutor.doHint": "تلميح",
+  "tutor.doFromBeginning": "من البداية",
+  "tutor.doContinue": "تابع",
+  "tutor.doPause": "توقّف",
+  "tutor.doResume": "أكمل",
+  "tutor.doStop": "إنهاء",
+
+  // Whose turn it is, and what the teacher is doing — said in words, so the
+  // state does not depend on an animation or a colour.
+  "tutor.turnTeacher": "معلّمك يتحدث",
+  "tutor.turnLearner": "دورك",
+  "tutor.presenceListening": "يستمع",
+  "tutor.presenceThinking": "يتحقق",
+  "tutor.presenceSpeaking": "يتحدث",
+  "tutor.presenceWaiting": "بانتظارك",
+
+  // Speaking to the teacher. Honest about not listening yet.
+  "tutor.voiceOpen": "تحدّث إلى معلّمك",
+  "tutor.voiceTitle": "التحدث إلى معلّمك",
+  "tutor.voiceNotListening": "ليس بعد — لا يستمع المعلّم إلى الأوامر المنطوقة حاليًا. وحين يفعل، فهذه ما ستستطيع قوله. ولا تُعدّ تلاوتك أمرًا أبدًا.",
+  "tutor.voiceClose": "إغلاق",
+  "tutor.wordPosition": "الكلمة {number} من {total}",
+  "tutor.detailsSummary": "ماذا لاحظ المعلّم",
 
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "هذا التسجيل لم يطابق ما يكفي من الآية الحالية",

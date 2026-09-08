@@ -88,6 +88,9 @@ export const strings: TranslatableStrings = {
   // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
   "lesson.label": "د یوې کلمې تمرین",
   "lesson.eyebrow": "پاملرنې ته اړتیا",
+  // The same card once the word has come through. See requirement 9 in
+  // docs/live-tutor.md: only the current step may dominate the screen.
+  "lesson.eyebrowResolved": "هغه کلمه تېره شوه",
   "lesson.wordOf": "کلمه {number} له {total} څخه",
   "lesson.stepsLabel": "د دې سمون پړاوونه",
   "lesson.stageHear": "واورئ",
@@ -122,6 +125,53 @@ export const strings: TranslatableStrings = {
   "lesson.wordUnavailable": "د دې کلمې ثبت و نه غږول شو.",
   "lesson.playAyahInstead": "پر ځای یې ټول آیت واورئ",
   "lesson.wordReferenceNote": "دا د کلمه په کلمه یو مرجع تلاوت دی — پورتني آیت څخه بل قاري.",
+
+  // -- Live Tutor: what the teacher says -----------------------------------
+  // One short sentence per state. A teacher listens far more than they talk,
+  // so none of these is a paragraph, and none of them claims anything about
+  // pronunciation, makhraj or tajwid — see shared/tutorConversation.ts.
+  "tutor.label": "ستاسو ښوونکی",
+  "tutor.ready": "کله چې چمتو یاست، پیل وکړئ.",
+  "tutor.listening": "اورم دې.",
+  "tutor.checking": "یوه شېبه.",
+  "tutor.wordMissed": "یوه کلمه مو پرېښوده. واورئ.",
+  "tutor.wordRecognised": "ښه دي — نښه شوې کلمه مې واورېده.",
+  "tutor.reciteFullAyah": "اوس ټول آیت ولولئ.",
+  "tutor.offerHint": "لارښوونه غواړئ؟",
+  "tutor.hintGiven": "له {word} څخه پیل وکړئ.",
+  "tutor.uncertain": "دا مې په څرګنده توګه وا نه اورېده. بیا یې هڅه وکړئ.",
+  "tutor.paused": "خپل وخت واخلئ. کله چې مخته ځو، راته ووایاست.",
+  "tutor.finished": "ښه دي. اوس به دلته ودریږو.",
+
+  // The two or three things offered at a time. Never all of them at once.
+  "tutor.doStart": "پیل",
+  "tutor.doAgain": "بیا هڅه",
+  "tutor.doRepeatWord": "کلمه ووایاست",
+  "tutor.doHearWord": "کلمه واورئ",
+  "tutor.doHearAyah": "آیت واورئ",
+  "tutor.doHint": "لارښوونه",
+  "tutor.doFromBeginning": "له سره",
+  "tutor.doContinue": "مخته",
+  "tutor.doPause": "درول",
+  "tutor.doResume": "مخته لاړ شئ",
+  "tutor.doStop": "پای",
+
+  // Whose turn it is, and what the teacher is doing — said in words, so the
+  // state does not depend on an animation or a colour.
+  "tutor.turnTeacher": "ستاسو ښوونکی خبرې کوي",
+  "tutor.turnLearner": "ستاسو وار",
+  "tutor.presenceListening": "اورېدل",
+  "tutor.presenceThinking": "کتنه",
+  "tutor.presenceSpeaking": "خبرې",
+  "tutor.presenceWaiting": "ستاسو په تمه",
+
+  // Speaking to the teacher. Honest about not listening yet.
+  "tutor.voiceOpen": "له ښوونکي سره خبرې",
+  "tutor.voiceTitle": "له ښوونکي سره خبرې کول",
+  "tutor.voiceNotListening": "لا نه — ښوونکی اوس مهال د غږیزو لارښوونو اورېدنه نه کوي. کله چې وکړي، دا هغه څه دي چې تاسو به یې ویلی شئ. ستاسو لوستل هېڅکله لارښوونه نه ګڼل کېږي.",
+  "tutor.voiceClose": "بندول",
+  "tutor.wordPosition": "کلمه {number} له {total} څخه",
+  "tutor.detailsSummary": "ښوونکي څه ولیدل",
 
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "دا ثبت د اوسني آیت سره بس دومره ونه لګېد",

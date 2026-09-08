@@ -329,6 +329,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .word-lesson.is-continue { background: #eef6f0; border-color: #b6d0bc; border-left-color: #2e7857; }
 .lesson-eyebrow { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 7px; color: #8a6a33; font-size: 9px; font-weight: 900; letter-spacing: .16em; text-transform: uppercase; }
 .word-lesson.is-recite-ayah .lesson-eyebrow, .word-lesson.is-continue .lesson-eyebrow { color: #2e7857; }
+.lesson-eyebrow.is-resolved { color: #2e7857; }
 /* Nothing else in the lesson comes near this size. */
 .lesson-word { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(38px, 8vw, 56px); line-height: 1.7; }
 .lesson-position { margin: 2px 0 0; color: #7c867e; font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
@@ -384,6 +385,82 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .lesson-fallback { min-height: 44px; padding: 10px 14px; color: #174d42; border: 1px solid #aac5b2; background: #f6faf7; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
 .lesson-fallback:hover { background: #e8f2eb; }
 .lesson-fallback:disabled { opacity: .55; cursor: not-allowed; }
+
+/* ---------------------------------------------------------------------------
+   The Live Tutor.
+
+   A lesson, not a dashboard. Three things carry the screen — the ayah, the one
+   sentence the teacher said, and the one thing to do now — and everything else
+   is either quiet or behind a disclosure.
+
+   The palette is deliberately still. Presence changes tone rather than
+   flashing: listening is a soft green, checking a neutral grey, speaking the
+   ink colour. Nothing here communicates state by motion or by colour alone —
+   every state is also a word on screen.
+--------------------------------------------------------------------------- */
+.live-tutor { padding: 20px; background: #fffdf8; border: 1px solid #e0dccf; border-left: 3px solid #174d42; border-radius: 4px; }
+.live-tutor.turn-teacher { border-left-color: #174d42; }
+.live-tutor.turn-learner { border-left-color: #b38748; }
+.live-tutor.is-word-recognised, .live-tutor.is-complete { background: #f4f9f5; border-color: #bcd4c3; border-left-color: #2e7857; }
+.live-tutor.is-paused { background: #f7f7f5; border-color: #d9d7d1; border-left-color: #8d8f8a; }
+
+/* Presence: what the app is doing, in a word. Never a claim that a person is
+   on the other end of it. */
+.tutor-presence { display: flex; align-items: center; gap: 7px; margin: 0; color: #6b7a70; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+.tutor-presence small { margin-inline-start: auto; color: #97a29a; font-size: 9px; letter-spacing: .08em; }
+.tutor-presence.is-listening { color: #2e7857; }
+.tutor-presence.is-thinking { color: #7a8079; }
+.tutor-presence.is-speaking { color: #174d42; }
+.tutor-presence.is-listening svg { animation: tutor-breathe 2.4s ease-in-out infinite; }
+.tutor-presence.is-thinking svg { animation: tutor-turn 1.6s linear infinite; }
+@keyframes tutor-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+@keyframes tutor-turn { to { transform: rotate(360deg); } }
+
+/* The Quran. Its own text, its own direction, whatever the interface is doing. */
+.tutor-ayah { margin-top: 14px; padding: 14px 16px; background: rgba(255,255,255,.7); border: 1px solid #e6e0d2; border-radius: 10px; text-align: center; }
+.tutor-ayah p { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(24px, 5vw, 32px); line-height: 2; }
+.tutor-ayah small { display: block; margin-top: 6px; color: #97a29a; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+
+/* What the teacher just said. The largest words in the interface after the
+   Quran, because it is the thing a learner reads from arm's length. */
+.tutor-message { margin: 16px 0 0; color: #22312a; font-size: clamp(19px, 4.4vw, 23px); font-weight: 700; line-height: 1.4; }
+.tutor-message:focus-visible { outline: 2px solid #174d42; outline-offset: 5px; }
+
+/* The word under correction. Amber while it is the problem, green once the
+   teacher has said they heard it — the card never contradicts the sentence. */
+.tutor-target { display: inline-flex; align-items: center; gap: 10px; margin-top: 12px; padding: 8px 14px; border: 1px solid #ddd9cf; border-radius: 999px; background: #f7f7f5; }
+.tutor-target.is-attention { border-color: #e6d3ae; background: #fdf6e8; }
+.tutor-target.is-resolved { border-color: #b6d0bc; background: #eef6f0; }
+.tutor-target p { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(24px, 5vw, 30px); line-height: 1.6; }
+.tutor-target small { color: #6b7a70; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.tutor-target.is-attention small { color: #8a6a33; }
+.tutor-target.is-resolved small { color: #2e7857; }
+.tutor-target-tick { color: #2e7857; }
+
+/* Two or three things, the first of them obvious. */
+.tutor-controls { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 18px; }
+.tutor-control { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 46px; padding: 12px 18px; color: #21453a; border: 1px solid #c6d5ca; background: #f6faf7; border-radius: 999px; cursor: pointer; font-size: 12px; font-weight: 800; }
+.tutor-control:hover { background: #e9f2ec; }
+.tutor-control:active { transform: scale(.985); }
+.tutor-control:focus-visible { outline: 2px solid #174d42; outline-offset: 3px; }
+.tutor-control.is-primary { min-height: 50px; padding: 13px 24px; color: #fffdf8; border-color: #174d42; background: #174d42; font-size: 13px; }
+.tutor-control.is-primary:hover { background: #103e34; }
+
+/* Speaking to the teacher: preparation, kept quiet, and honest about itself. */
+.tutor-voice-open { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; margin-top: 12px; padding: 10px 2px; color: #6b7a70; border: 0; background: none; cursor: pointer; font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.tutor-voice-open:hover { color: #174d42; }
+.tutor-voice { margin-top: 8px; padding: 13px 15px; background: #f7f7f5; border: 1px solid #ddd9cf; border-radius: 10px; }
+.tutor-voice p { margin: 0; color: #5b5e58; font-size: 11px; line-height: 1.6; }
+.tutor-voice ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; padding: 0; list-style: none; }
+.tutor-voice li { padding: 5px 11px; color: #4c5c52; background: #fffdf8; border: 1px solid #ddd9cf; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.tutor-voice-close { min-height: 44px; margin-top: 10px; padding: 10px 16px; color: #21453a; border: 1px solid #c6d5ca; background: #fffdf8; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
+
+/* Everything else the teacher noticed. Collapsed, and secondary by design. */
+.tutor-details { margin-top: 14px; border-top: 1px solid #eceadf; }
+.tutor-details > summary { padding: 12px 0 0; color: #8b938a; cursor: pointer; font-size: 11px; font-weight: 700; list-style: none; }
+.tutor-details > summary::-webkit-details-marker { display: none; }
+.tutor-details > summary:hover { color: #174d42; }
+.tutor-details > summary:focus-visible { outline: 2px solid #174d42; outline-offset: 3px; }
 .now-surah { color: #174d42; }
 .now-place > span + span::before { content: "·"; margin: 0 6px; color: #b6bdb5; }
 .now-steps { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; counter-reset: step; }
@@ -541,6 +618,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 [dir="rtl"] .lesson-primary svg,
 [dir="rtl"] .lesson-listen svg,
 [dir="rtl"] .lesson-ayah-listen svg,
+[dir="rtl"] .tutor-control svg,
 [dir="rtl"] .listen-inline svg { transform: none; }
 /* Numbered strips and progress meters fill from the reading edge. */
 [dir="rtl"] .now-steps, [dir="rtl"] .fix-steps, [dir="rtl"] .lesson-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
@@ -552,7 +630,8 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
    scopes the bidi algorithm to the element and leaves the sentence alone. Latin
    digits inside RTL text are handled by the algorithm itself and must not be
    forced, which is why nothing here sets `direction` on a number. */
-.now-word, .fix-word, .lesson-word, .lesson-context p span, .correction-word, .course-example span,
+.now-word, .fix-word, .lesson-word, .lesson-context p span, .tutor-ayah p, .tutor-target p,
+.correction-word, .course-example span,
 .course-subject span, .course-choice span, .acoustic-finding small,
 .chapter-arabic span, .brand-arabic { unicode-bidi: isolate; }
 /* A word in the learner's own script beside Arabic keeps the sentence's flow. */
@@ -643,6 +722,17 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .lesson-context p { gap: 0 8px; font-size: clamp(18px, 5.5vw, 22px); }
   .lesson-actions { flex-direction: column; align-items: stretch; }
   .lesson-primary, .lesson-listen { width: 100%; min-height: 48px; }
+  /* The tutor on a phone, which is where a learner props it up and recites.
+     The sentence and the primary action carry the screen; the ways round it
+     sit under them rather than crowding the same row. */
+  .live-tutor { padding: 16px 14px; }
+  .tutor-message { font-size: clamp(18px, 5.6vw, 22px); }
+  .tutor-ayah { padding: 12px 10px; }
+  .tutor-ayah p { font-size: clamp(22px, 6.4vw, 28px); }
+  .tutor-controls { flex-direction: column; align-items: stretch; }
+  .tutor-control { width: 100%; min-height: 50px; }
+  .tutor-control.is-primary { min-height: 54px; }
+  .tutor-target { width: 100%; justify-content: center; }
   .lesson-ayah-listen, .lesson-fallback { width: 100%; justify-content: center; min-height: 46px; }
   .lesson-word-failed { flex-direction: column; align-items: stretch; }
   .now-place { row-gap: 2px; }

@@ -1351,7 +1351,14 @@ export default function Home() {
                   <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording("ayah")} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
                 </div>
                 {studyTiers.now.cta && <button type="button" className="now-action" onClick={runTeacherAction}>{studyTiers.now.cta.command === "next-ayah" ? <>{t(studyTiers.now.cta.labelKey, studyTiers.now.cta.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(studyTiers.now.cta.labelKey, studyTiers.now.cta.params)}</>}</button>}
-                <p className="loop-message" role="status">{recorderMessage ?? t("recorder.intro")}</p>
+                {/* The recorder's own line — "your word-recall review is ready"
+                    and friends. While a focused lesson is running, the lesson
+                    below is already saying what happened, in the teacher's
+                    voice; leaving this here put a second, blunter status beside
+                    it, so a learner read "Good — I heard the marked word" and
+                    "your review is ready" at once. One teaching state at a
+                    time. Nothing about the correction engine changes. */}
+                {!correctionLesson && <p className="loop-message" role="status">{recorderMessage ?? t("recorder.intro")}</p>}
                 {/* A failed source used to leave a dead play button. The message
                   names what happened in the learner's language and offers the
                   retry, which reloads the element before trying again. */}

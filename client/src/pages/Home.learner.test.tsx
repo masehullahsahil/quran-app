@@ -1173,3 +1173,65 @@ describe("hearing the exact Quran word", () => {
     expect(played).toEqual([FAKE_AYAHS[0].audioUrl]);
   });
 });
+
+describe("the correction card never contradicts itself", () => {
+  const firstAyahWords = FAKE_AYAHS[0].arabic.split(" ");
+
+  const correctionOnWord = (wordIndex: number, patch: Record<string, unknown> = {}) =>
+    wordCorrectionReview({
+      corrections: [{ expected: firstAyahWords[wordIndex - 1], heard: null, status: "missing", wordIndex }],
+      verseFollowing: {
+        currentSurah: 112, currentAyah: 1, expectedWordIndex: wordIndex, lastCompletedAyah: null,
+        state: "correcting", attemptsOnCurrentAyah: 1, evidence: "partial", shouldAdvance: false,
+        nextAyah: 2, correctionFocus: { wordIndex, expectedArabic: firstAyahWords[wordIndex - 1], kind: "missing" },
+        reason: "mistake_to_correct",
+      },
+      ...patch,
+    });
+
+  it("drops the recorder's own status while a lesson is running", async () => {
+    // Reported from production: "Good — I heard the marked word this time"
+    // standing beside "Your word-recall review is ready". The lesson is already
+    // saying what happened, in the teacher's voice.
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnWord(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(container.querySelector(".word-lesson")).toBeTruthy();
+    expect(container.querySelector(".loop-message")).toBeNull();
+    expect(text()).not.toContain(en.strings["recorder.reviewReady"]);
+  });
+
+  it("stops calling the word a problem once it has come through", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnWord(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    // While it is still the problem, it says so.
+    expect(container.querySelector(".lesson-eyebrow")?.textContent).toContain(en.strings["lesson.eyebrow"]);
+
+    // The focused attempt goes through.
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOnWord(3, { corrections: [], matchedCount: 5, score: 100 }));
+    await recordOnce(".lesson-primary");
+
+    const lesson = container.querySelector(".word-lesson")!;
+    expect(lesson.textContent).toContain("I heard the marked word this time");
+    // And the heading above it agrees, rather than still reading "Needs attention".
+    expect(lesson.querySelector(".lesson-eyebrow")?.textContent).toContain(en.strings["lesson.eyebrowResolved"]);
+    expect(lesson.textContent).not.toContain(en.strings["lesson.eyebrow"]);
+    // The original finding is history now, not a live error under a green heading.
+    expect(lesson.textContent).not.toContain(en.strings["correction.notHeard"]);
+    // The whole ayah is the dominant next action.
+    expect(container.querySelector(".lesson-primary")?.textContent).toContain(en.strings["lesson.reciteAyah"]);
+  });
+
+  it("keeps the recorder's status when no lesson is running", async () => {
+    await mount();
+    await openStudy();
+    // Nothing to correct yet, so the recorder's own line is the only thing
+    // there is to say — this change suppresses a duplicate, not the status.
+    expect(container.querySelector(".loop-message")).toBeTruthy();
+  });
+});
