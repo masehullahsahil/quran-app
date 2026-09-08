@@ -9,15 +9,13 @@
  *
  * **It invents no progress.** Every verdict here comes from a backend result:
  * whether the target word was heard is read from the newest attempt's own
- * corrections list, never from a counter this module keeps. The only local
- * input is `lastAttemptScope` — which of the two record buttons the learner
- * pressed — because the app has to know whether the recording it just sent was
- * one word or a whole ayah in order to read the answer correctly. That is the
- * learner's action, not a judgement about their recitation.
+ * corrections list, never from a counter this module keeps. `lastAttemptScope`
+ * remains as a compatibility fallback for older responses; new focused
+ * responses provide the server-owned session below.
  *
  * **Codex's session wins.** `deriveCorrectionLesson` accepts an optional
- * `session` in the shape the recitation service will supply once the server
- * holds the correction session itself. When it is present, its `stage` and
+ * `session` in the shape supplied by the recitation service. When it is present,
+ * its `stage` and
  * `recognition` are used as given and nothing below is consulted. The
  * derivation exists so this screen works against the contract that ships today,
  * and so swapping in the server's own state is a one-field change.
@@ -25,6 +23,12 @@
 import type { StringKey } from "@locales/index";
 import type { TeacherAction } from "./teacherAction";
 import type { TextCorrection } from "@shared/teacherDecision";
+import type {
+  CorrectionSessionSnapshot,
+  CorrectionStage,
+  RecitationAttemptScope,
+  TargetRecognition,
+} from "@shared/wordCorrection";
 import { sameQuranWord } from "./quranWordMatch";
 
 /**
@@ -33,7 +37,7 @@ import { sameQuranWord } from "./quranWordMatch";
  * Not a wizard: at most one of these is ever "current", the strip is four short
  * words, and the learner can leave at any point by simply reciting the ayah.
  */
-export type CorrectionStage = "hear" | "say-word" | "recite-ayah" | "continue";
+export type { CorrectionSessionSnapshot, CorrectionStage, TargetRecognition } from "@shared/wordCorrection";
 
 export const CORRECTION_STAGES: readonly CorrectionStage[] = ["hear", "say-word", "recite-ayah", "continue"];
 
@@ -52,25 +56,8 @@ export const STAGE_LABEL_KEYS: Record<CorrectionStage, StringKey> = {
  * reviewed says nothing about the word, and must not be reported as either
  * success or failure.
  */
-export type TargetRecognition = "recognised" | "not-recognised" | "unknown";
-
 /** Which control the learner pressed to make the recording being judged. */
-export type AttemptScope = "word" | "ayah";
-
-/**
- * The correction session as the recitation service will supply it.
- *
- * Kept as a separate type from the derived lesson on purpose: this is a wire
- * shape to agree on, and the renderer never sees it directly.
- */
-export type CorrectionSessionSnapshot = {
-  targetWordIndex: number;
-  targetArabic: string;
-  stage: CorrectionStage;
-  recognition: TargetRecognition;
-  /** How many focused attempts have been made on this word. Display only. */
-  attemptsOnTarget?: number;
-};
+export type AttemptScope = RecitationAttemptScope;
 
 /**
  * The word the lesson is about, as the page remembers it.
@@ -128,7 +115,7 @@ export type CorrectionLessonInput = {
   isRecording: boolean;
   /** An attempt is with the reviewer. */
   isChecking: boolean;
-  /** The server's own session, once it supplies one. Takes precedence entirely. */
+  /** The server's own session. Takes precedence entirely. */
   session?: CorrectionSessionSnapshot | null;
 };
 
@@ -190,6 +177,7 @@ const NOT_RECOGNISED_DETAIL: StringKey = "lesson.notRecognisedDetail";
  */
 export function deriveCorrectionLesson(input: CorrectionLessonInput): CorrectionLesson | null {
   const { action, session } = input;
+  if (session && (session.surah !== input.surah || session.ayah !== input.ayah)) return null;
   const named =
     action.kind === "repeat-word" && action.focusArabic && action.focusWordIndex !== null
       ? { wordIndex: action.focusWordIndex, arabic: action.focusArabic, observationKey: input.observationKey ?? "correction.notHeard" }

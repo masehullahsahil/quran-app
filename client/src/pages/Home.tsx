@@ -54,6 +54,12 @@ import { resolveTeacherAction, traceTeacherAction, type TeacherAction, type Teac
 import { describeStudyTiers } from "@/lib/studyView";
 import { StudyCorrection } from "@/components/StudyCorrection";
 import { deriveCorrectionLesson, type AttemptScope, type RetainedTarget } from "@/lib/correctionSession";
+import type {
+  CorrectionSessionSnapshot,
+  CorrectionTarget,
+  FocusedWordResult,
+  RecitationScoreScope,
+} from "@shared/wordCorrection";
 import { findWordAudio } from "@/lib/wordAudio";
 import { useRecordingAudio } from "@/hooks/useRecordingAudio";
 import type { MasteryState } from "@shared/memorization";
@@ -69,6 +75,10 @@ type LessonStage = "listen" | "repeat" | "review";
 type ExerciseResult = "correct" | "retry" | null;
 
 type RecitationFeedback = {
+  attemptScope: AttemptScope;
+  recitationScoreScope: RecitationScoreScope;
+  focusedWordResult: FocusedWordResult | null;
+  correctionSession: CorrectionSessionSnapshot | null;
   expectedWords: Array<{ expected: string; heard: string | null; status: "matched" | "review" | "missing" | "extra"; wordIndex: number | null }>;
   extraWords: Array<{ expected: string; heard: string | null; status: "matched" | "review" | "missing" | "extra"; wordIndex: number | null }>;
   matchedCount: number;
@@ -279,6 +289,11 @@ function storedNumberList(key: string): number[] {
 function reviewFitsAyah(review: RecitationFeedback, arabic: string): boolean {
   const words = arabic.split(/\s+/).filter(Boolean).length;
   if (words === 0) return false;
+  if (review.correctionSession && (
+    review.correctionSession.surah < 1 ||
+    review.correctionSession.ayah < 1 ||
+    review.correctionSession.targetWordIndex > words
+  )) return false;
   return review.corrections.every((correction) => correction.wordIndex === null || (correction.wordIndex >= 1 && correction.wordIndex <= words));
 }
 
@@ -309,6 +324,7 @@ export default function Home() {
   // correctionSession.ts: it keeps the lesson on screen across one attempt, and
   // is only ever a copy of what the decision last named.
   const [correctionTarget, setCorrectionTarget] = useState<RetainedTarget | null>(null);
+  const [correctionSession, setCorrectionSession] = useState<CorrectionSessionSnapshot | null>(null);
   // The focus word's own recording. Its own element: the ayah player is busy
   // with the ayah, and the two must never fight over one <audio>.
   const wordRecording = useRecordingAudio();
@@ -803,7 +819,7 @@ export default function Home() {
     } catch { /* an existing browser recognition session may still be closing */ }
   };
 
-  const reviewRecording = async (blob: Blob) => {
+  const reviewRecording = async (blob: Blob, attemptScope: AttemptScope, correctionTargetAtStart?: CorrectionTarget) => {
     if (!activeVerse) return;
     setLessonStage("review");
     // Checked before encoding: base64 inflates the payload by a third, and a
@@ -841,6 +857,8 @@ export default function Home() {
         mimeType: blob.type === "audio/ogg" ? "audio/ogg" : blob.type === "audio/wav" ? "audio/wav" : blob.type === "audio/mp4" ? "audio/mp4" : "audio/webm",
         surah: surahNumber,
         ayah: activeVerse.number,
+        attemptScope,
+        ...(correctionTargetAtStart ? { correctionTarget: correctionTargetAtStart } : {}),
         learningLevel,
         // The coach's encouragement follows the interface language. It is
         // wording only — the instruction and the advancement decision are
@@ -859,12 +877,20 @@ export default function Home() {
           attemptsOnCurrentAyah: position.attemptsOnCurrentAyah,
         },
       });
-      const review = result as RecitationFeedback;
+      const rawReview = result as RecitationFeedback;
+      const review: RecitationFeedback = {
+        ...rawReview,
+        attemptScope: rawReview.attemptScope ?? attemptScope,
+        recitationScoreScope: rawReview.recitationScoreScope ?? (attemptScope === "ayah" ? "ayah" : "none"),
+        focusedWordResult: rawReview.focusedWordResult ?? null,
+        correctionSession: rawReview.correctionSession ?? null,
+      };
       setReviewedAttempt({ surah: surahNumber, ayah: activeVerse.number, review });
-      setPosition(toVerseFollowingPosition(review.verseFollowing));
+      setCorrectionSession(review.correctionSession);
+      if (attemptScope === "ayah") setPosition(toVerseFollowingPosition(review.verseFollowing));
       // This is the sole history write point: the recorder's finalized server
       // assessment must be usable. Live/interim chunks only guide position.
-      if (review.wordReviewAvailable) {
+      if (attemptScope === "ayah" && review.recitationScoreScope === "ayah" && review.wordReviewAvailable) {
         const eventuallyAdvanced = review.verseFollowing.reason === "ayah_completed" || review.verseFollowing.reason === "surah_completed";
         const errors = review.corrections.map((item) => ({
           type: item.status === "missing" ? "omission" as const : item.status === "review" ? "substitution_review" as const : "extra" as const,
@@ -919,6 +945,15 @@ export default function Home() {
       return;
     }
     setLastAttemptScope(scope);
+    const correctionTargetAtStart: CorrectionTarget | undefined = scope === "word" && correctionLesson
+      ? {
+          surah: surahNumber,
+          ayah: activeVerse?.number ?? selectedVerse,
+          targetWordIndex: correctionLesson.targetWordIndex,
+          expectedArabic: correctionLesson.targetArabic,
+          attemptsOnTarget: correctionSession?.attemptsOnTarget ?? 0,
+        }
+      : undefined;
     try {
       audioRef.current?.pause();
       setReviewedAttempt(null);
@@ -942,7 +977,7 @@ export default function Home() {
         const nextUrl = URL.createObjectURL(blob);
         recordingUrlRef.current = nextUrl;
         setRecordingUrl(nextUrl);
-        void reviewRecording(blob);
+        void reviewRecording(blob, scope, correctionTargetAtStart);
       };
       recorder.start(250);
       setIsRecording(true);
@@ -1056,10 +1091,8 @@ export default function Home() {
    * The guided lesson for the word, when the decision named one.
    *
    * Nothing about the learner's progress is decided here: the stage is a
-   * function of the newest review's own word-by-word result and of which of the
-   * two record buttons was pressed. `session` is where the recitation service's
-   * own correction session plugs in once it ships — it overrides the whole
-   * derivation, so this stays a one-field change.
+   * supplied by the recitation service. The local derivation remains only as a
+   * compatibility fallback for responses from before the server-owned session.
    */
   const correctionLesson = deriveCorrectionLesson({
     action: teacherAction,
@@ -1075,7 +1108,7 @@ export default function Home() {
     lastAttemptScope,
     isRecording,
     isChecking: evaluateRecitation.isPending,
-    session: null,
+    session: correctionSession,
   });
 
   /**
@@ -1141,6 +1174,7 @@ export default function Home() {
   // cannot linger behind that guard either.
   useEffect(() => {
     setCorrectionTarget(null);
+    setCorrectionSession(null);
     setLastAttemptScope(null);
   }, [surahNumber, selectedVerse]);
 
@@ -1393,13 +1427,13 @@ export default function Home() {
                 {/* Suppressed when the engine abstained: one row per expected
                     word under an attempt it declined to judge reads as a list
                     of specific mistakes nobody claimed. */}
-                {studyTiers.notes.includes("corrections") && feedback && feedback.corrections.length > 0 && <div className="notes-block">
+                {studyTiers.notes.includes("corrections") && feedback?.recitationScoreScope === "ayah" && feedback.corrections.length > 0 && <div className="notes-block">
                   <div><span className="eyebrow">{t("feedback.available")}</span></div>
                   <div className="correction-list">{feedback.corrections.slice(0, 4).map((item, index) => <div key={`${item.expected}-${index}`} className="correction-row"><span className="correction-index">{item.wordIndex ? t("feedback.wordIndex", { number: item.wordIndex }) : t("feedback.extra")}</span><span className="correction-word" lang="ar" dir="rtl">{item.expected || item.heard}</span><span className={`correction-state is-${item.status}`}>{item.status === "missing" ? t("feedback.missing") : item.status === "review" ? t("feedback.review") : t("feedback.extra")}</span></div>)}</div>
                 </div>}
-                {studyTiers.notes.includes("corrections") && feedback && feedback.corrections.length === 0 && <p className="notes-block all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
+                {studyTiers.notes.includes("corrections") && feedback?.recitationScoreScope === "ayah" && feedback.corrections.length === 0 && <p className="notes-block all-matched"><Check size={16} /> {t("feedback.allMatched")}</p>}
 
-                {studyTiers.notes.includes("score") && feedback && <div className="notes-block">
+                {studyTiers.notes.includes("score") && feedback?.recitationScoreScope === "ayah" && <div className="notes-block">
                   <div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div>
                   <p className="coach-copy">{feedback.encouragement}</p>
                   <p className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></p>

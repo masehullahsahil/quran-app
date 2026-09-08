@@ -16,8 +16,17 @@ import {
   createVerseFollowingPosition,
   followRecitation,
   type VerseFollowingPosition,
+  type VerseFollowingResult,
 } from "@shared/verseFollowing";
 import { evaluateQuranAwareAudio } from "./quranEvaluator";
+import { EMPTY_QURAN_AWARE_REVIEW } from "@shared/quranEvaluation";
+import {
+  RECITATION_ATTEMPT_SCOPES,
+  type CorrectionSessionSnapshot,
+  type FocusedWordResult,
+  type TargetRecognition,
+} from "@shared/wordCorrection";
+import { evaluateFocusedWordTranscript, validateCorrectionTarget, type ValidatedCorrectionTarget } from "./focusedWordEvaluation";
 import { checkRecitationEvaluateRateLimit, logRecitationRateLimit } from "./recitationRateLimit";
 import { isStorageConfigured, storagePut } from "./storage";
 import { ingestRecitationChunk } from "./recitationSession";
@@ -44,6 +53,14 @@ const verseFollowingInput = z.object({
   attemptsOnCurrentAyah: z.number().int().min(0).max(1000).default(0),
 });
 
+const correctionTargetInput = z.object({
+  surah: z.number().int().min(1).max(114),
+  ayah: z.number().int().min(1).max(286),
+  targetWordIndex: z.number().int().min(1).max(1000),
+  expectedArabic: z.string().min(1).max(MAX_AYAH_CHARS),
+  attemptsOnTarget: z.number().int().min(0).max(1000).optional(),
+});
+
 const recitationInput = z.object({
   expectedArabic: z.string().min(1).max(MAX_AYAH_CHARS),
   audioBase64: z.string().min(20).max(MAX_AUDIO_BASE64_LENGTH),
@@ -62,6 +79,8 @@ const recitationInput = z.object({
   previousAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
   nextAyahArabic: z.string().max(MAX_AYAH_CHARS).optional(),
   position: verseFollowingInput.optional(),
+  attemptScope: z.enum(RECITATION_ATTEMPT_SCOPES).default("ayah"),
+  correctionTarget: correctionTargetInput.optional(),
 });
 
 const correctionFocusInput = z.object({
@@ -210,6 +229,67 @@ async function createCoachSummary(input: {
   }
 }
 
+function focusedVerseFollowing(input: {
+  surah: number;
+  ayah: number;
+  totalAyahs: number;
+  position: VerseFollowingPosition;
+  target: ValidatedCorrectionTarget | null;
+  recognition: TargetRecognition;
+}): VerseFollowingResult {
+  const wordIndex = input.target?.targetWordIndex ?? input.position.expectedWordIndex;
+  const reason = input.recognition === "not-recognised"
+    ? "mistake_to_correct" as const
+    : input.recognition === "recognised"
+      ? "partial_progress" as const
+      : "too_little_evidence" as const;
+
+  return {
+    currentSurah: input.surah,
+    currentAyah: input.ayah,
+    expectedWordIndex: wordIndex,
+    lastCompletedAyah: input.position.lastCompletedAyah,
+    state: "correcting",
+    attemptsOnCurrentAyah: input.position.attemptsOnCurrentAyah,
+    evidence: input.recognition === "unknown" ? "none" : "partial",
+    shouldAdvance: false,
+    nextAyah: input.ayah < input.totalAyahs ? input.ayah + 1 : null,
+    correctionFocus: input.recognition === "not-recognised" && input.target
+      ? { wordIndex, expectedArabic: input.target.canonicalArabic, kind: "review" }
+      : null,
+    reason,
+  };
+}
+
+function focusedCorrectionSession(
+  target: ValidatedCorrectionTarget,
+  recognition: TargetRecognition,
+): CorrectionSessionSnapshot {
+  return {
+    surah: target.surah,
+    ayah: target.ayah,
+    targetWordIndex: target.targetWordIndex,
+    targetArabic: target.canonicalArabic,
+    stage: recognition === "recognised" ? "recite-ayah" : "say-word",
+    recognition,
+    attemptsOnTarget: (target.attemptsOnTarget ?? 0) + 1,
+  };
+}
+
+function ayahCorrectionSession(verseFollowing: VerseFollowingResult): CorrectionSessionSnapshot | null {
+  const focus = verseFollowing.reason === "mistake_to_correct" ? verseFollowing.correctionFocus : null;
+  if (!focus) return null;
+  return {
+    surah: verseFollowing.currentSurah,
+    ayah: verseFollowing.currentAyah,
+    targetWordIndex: focus.wordIndex,
+    targetArabic: focus.expectedArabic,
+    stage: "hear",
+    recognition: "not-recognised",
+    attemptsOnTarget: 0,
+  };
+}
+
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
@@ -294,6 +374,13 @@ export const appRouter = router({
     ingestChunk: publicProcedure.input(recitationChunkInput).mutation(({ input }) => ingestRecitationChunk(input)),
     evaluate: publicProcedure.input(recitationInput).mutation(async ({ ctx, input }) => {
       const learningPlan = getLearningCoachPlan(input.learningLevel);
+      const learningPlanResult = {
+        level: learningPlan.level,
+        title: learningPlan.title,
+        focus: learningPlan.focus,
+        practiceLoop: learningPlan.practiceLoop,
+        boundary: learningPlan.boundary,
+      };
       // The tracker never advances past the end of the surah. Without a
       // `totalAyahs` from the client there is no end to know, so assume one more
       // ayah exists: reporting "surah complete" from a guess would be worse than
@@ -303,6 +390,53 @@ export const appRouter = router({
         ...createVerseFollowingPosition(input.surah, input.ayah),
         ...(input.position ?? {}),
       };
+      const focusedTarget = input.attemptScope === "word"
+        ? validateCorrectionTarget({
+            expectedArabic: input.expectedArabic,
+            surah: input.surah,
+            ayah: input.ayah,
+            target: input.correctionTarget,
+          })
+        : null;
+
+      // A focused request without the exact canonical target is stale or
+      // malformed. Fail closed before transcription, storage, acoustic review,
+      // or any alignment against a different word.
+      if (input.attemptScope === "word" && !focusedTarget) {
+        const focusedWordResult: FocusedWordResult = { recognition: "unknown", reason: "invalid_target" };
+        return {
+          attemptScope: input.attemptScope,
+          recitationScoreScope: "none" as const,
+          focusedWordResult,
+          correctionSession: null,
+          reviewMessageCode: null,
+          verseFollowing: focusedVerseFollowing({
+            surah: input.surah,
+            ayah: input.ayah,
+            totalAyahs,
+            position,
+            target: null,
+            recognition: "unknown",
+          }),
+          expectedWords: [],
+          extraWords: [],
+          matchedCount: 0,
+          totalWords: 0,
+          score: 0,
+          corrections: [],
+          fallbackNextStep: "Return to the current ayah and select its marked word again.",
+          transcript: "",
+          encouragement: "This focused attempt could not be connected to the marked word.",
+          nextStep: "Return to the current ayah and select its marked word again.",
+          spokenGuidance: "The marked word could not be verified. Return to the current ayah and try again.",
+          wordReviewAvailable: false,
+          reviewStatus: "unavailable" as const,
+          reviewMessage: "The correction target did not match the current ayah.",
+          quranAwareReview: EMPTY_QURAN_AWARE_REVIEW,
+          learningPlan: learningPlanResult,
+          note: "No audio, transcript, acoustic finding, or ayah score was evaluated because the focused correction target was invalid.",
+        };
+      }
       const rawBase64 = input.audioBase64.includes(",")
         ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
         : input.audioBase64;
@@ -376,14 +510,16 @@ export const appRouter = router({
       // Start them together to avoid adding serial latency: a configured acoustic
       // service can return confidence-gated sound observations while transcription
       // remains the reliable fallback for word recall and place-keeping.
-      const quranAwareReviewPromise = evaluateQuranAwareAudio({
-        audioBase64: rawBase64,
-        mimeType: input.mimeType,
-        expectedArabic: input.expectedArabic,
-        surah: input.surah,
-        ayah: input.ayah,
-        learningLevel: input.learningLevel,
-      });
+      const quranAwareReviewPromise = input.attemptScope === "ayah"
+        ? evaluateQuranAwareAudio({
+            audioBase64: rawBase64,
+            mimeType: input.mimeType,
+            expectedArabic: input.expectedArabic,
+            surah: input.surah,
+            ayah: input.ayah,
+            learningLevel: input.learningLevel,
+          })
+        : Promise.resolve(EMPTY_QURAN_AWARE_REVIEW);
       const transcription = await transcribeAudio({
         audio: audioBuffer,
         mimeType: input.mimeType,
@@ -397,10 +533,30 @@ export const appRouter = router({
        * Study view renders `reviewMessageCode` through its locale pack.
        */
       const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string, reviewMessageCode: "transcription_failed" | "no_arabic_returned") => ({
+        attemptScope: input.attemptScope,
+        recitationScoreScope: "none" as const,
+        focusedWordResult: input.attemptScope === "word"
+          ? {
+              recognition: "unknown" as const,
+              reason: reviewMessageCode === "transcription_failed" ? "transcription_failed" as const : "no_arabic_returned" as const,
+            }
+          : null,
+        correctionSession: input.attemptScope === "word" && focusedTarget
+          ? focusedCorrectionSession(focusedTarget, "unknown")
+          : null,
         reviewMessageCode,
         // No usable transcript means no evidence, so the tracker holds the
         // learner exactly where they were rather than guessing.
-        verseFollowing: followRecitation({ position, totalAyahs, alignment: null, transcriptUsable: false }),
+        verseFollowing: input.attemptScope === "word"
+          ? focusedVerseFollowing({
+              surah: input.surah,
+              ayah: input.ayah,
+              totalAyahs,
+              position,
+              target: focusedTarget,
+              recognition: "unknown",
+            })
+          : followRecitation({ position, totalAyahs, alignment: null, transcriptUsable: false }),
         expectedWords: [],
         extraWords: [],
         matchedCount: 0,
@@ -416,14 +572,10 @@ export const appRouter = router({
         reviewStatus: "unavailable" as const,
         reviewMessage,
         quranAwareReview,
-        learningPlan: {
-          level: learningPlan.level,
-          title: learningPlan.title,
-          focus: learningPlan.focus,
-          practiceLoop: learningPlan.practiceLoop,
-          boundary: learningPlan.boundary,
-        },
-        note: "No word score was calculated for this attempt. The app will preserve the recording controls so you can retry immediately.",
+        learningPlan: learningPlanResult,
+        note: input.attemptScope === "word"
+          ? "The focused target remains active. No ayah score was calculated, and no acoustic or pronunciation claim was made."
+          : "No word score was calculated for this attempt. The app will preserve the recording controls so you can retry immediately.",
       });
 
       if ("error" in transcription) {
@@ -442,6 +594,59 @@ export const appRouter = router({
           "Try the ayah again in a quiet place. Keep the microphone close and recite one ayah at a calm pace.",
           "no_arabic_returned",
         );
+      }
+
+      if (input.attemptScope === "word" && focusedTarget) {
+        const focusedWordResult = evaluateFocusedWordTranscript(focusedTarget, transcription.text);
+        const recognition = focusedWordResult.recognition;
+        const heard = tokenizeArabic(transcription.text)[0] ?? null;
+        const reviewedWord = {
+          expected: focusedTarget.canonicalArabic,
+          heard,
+          status: recognition === "recognised" ? "matched" as const : "review" as const,
+          wordIndex: focusedTarget.targetWordIndex,
+        };
+        const reviewable = recognition !== "unknown";
+        const nextStep = recognition === "recognised"
+          ? "The expected target word was recognised in the transcript. Now recite the full ayah."
+          : recognition === "not-recognised"
+            ? "The expected target word was not recognised. Listen to the marked word, then say only that word again."
+            : "The focused transcript was unclear. Keep the marked word and try that word again.";
+
+        return {
+          attemptScope: input.attemptScope,
+          recitationScoreScope: reviewable ? "word" as const : "none" as const,
+          focusedWordResult,
+          correctionSession: focusedCorrectionSession(focusedTarget, recognition),
+          reviewMessageCode: null,
+          verseFollowing: focusedVerseFollowing({
+            surah: input.surah,
+            ayah: input.ayah,
+            totalAyahs,
+            position,
+            target: focusedTarget,
+            recognition,
+          }),
+          expectedWords: reviewable ? [reviewedWord] : [],
+          extraWords: [],
+          matchedCount: recognition === "recognised" ? 1 : 0,
+          totalWords: reviewable ? 1 : 0,
+          score: recognition === "recognised" ? 100 : 0,
+          corrections: recognition === "not-recognised" ? [reviewedWord] : [],
+          fallbackNextStep: nextStep,
+          transcript: transcription.text,
+          encouragement: recognition === "recognised"
+            ? "The expected word was recognised."
+            : "Keep the correction focused on the marked word.",
+          nextStep,
+          spokenGuidance: nextStep,
+          wordReviewAvailable: reviewable,
+          reviewStatus: "available" as const,
+          reviewMessage: recognition === "unknown" ? "The focused transcript did not provide clear evidence about the target word." : null,
+          quranAwareReview: EMPTY_QURAN_AWARE_REVIEW,
+          learningPlan: learningPlanResult,
+          note: "This focused result checks only whether the expected word was recognised in transcription. It does not calculate an ayah score or assess pronunciation, tajwid, makhraj, madd, ghunnah, or harakah acoustically.",
+        };
       }
 
       const assessment = assessRecitationTranscript(input.expectedArabic, transcription.text);
@@ -464,16 +669,14 @@ export const appRouter = router({
 
       return {
         ...assessment,
+        attemptScope: input.attemptScope,
+        recitationScoreScope: "ayah" as const,
+        focusedWordResult: null,
+        correctionSession: ayahCorrectionSession(verseFollowing),
         reviewMessageCode: null,
         verseFollowing,
         quranAwareReview,
-        learningPlan: {
-          level: learningPlan.level,
-          title: learningPlan.title,
-          focus: learningPlan.focus,
-          practiceLoop: learningPlan.practiceLoop,
-          boundary: learningPlan.boundary,
-        },
+        learningPlan: learningPlanResult,
         transcript: transcription.text,
         encouragement: coach.encouragement,
         nextStep: coach.nextStep,

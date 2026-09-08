@@ -90,7 +90,7 @@ describe("there is a lesson only when the decision named a word", () => {
 describe("the four steps", () => {
   it("always names the same four, with exactly one current", () => {
     for (const stage of CORRECTION_STAGES) {
-      const lesson = lessonFor({ session: { targetWordIndex: 3, targetArabic: TARGET, stage, recognition: "unknown" } })!;
+      const lesson = lessonFor({ session: { surah: 1, ayah: 2, targetWordIndex: 3, targetArabic: TARGET, stage, recognition: "unknown" } })!;
       expect(lesson.steps.map((step) => step.stage)).toEqual([...CORRECTION_STAGES]);
       expect(lesson.steps.filter((step) => step.state === "current")).toHaveLength(1);
       expect(lesson.steps.find((step) => step.state === "current")!.stage).toBe(stage);
@@ -98,7 +98,7 @@ describe("the four steps", () => {
   });
 
   it("marks everything before the current step as done", () => {
-    const lesson = lessonFor({ session: { targetWordIndex: 3, targetArabic: TARGET, stage: "recite-ayah", recognition: "recognised" } })!;
+    const lesson = lessonFor({ session: { surah: 1, ayah: 2, targetWordIndex: 3, targetArabic: TARGET, stage: "recite-ayah", recognition: "recognised" } })!;
     expect(lesson.steps.map((step) => step.state)).toEqual(["done", "done", "current", "upcoming"]);
   });
 
@@ -231,7 +231,7 @@ describe("the service's own session, when it ships, wins outright", () => {
     const lesson = lessonFor({
       // Everything derivable points at "say-word"; the session says otherwise.
       lastAttemptScope: "word",
-      session: { targetWordIndex: 3, targetArabic: TARGET, stage: "continue", recognition: "recognised" },
+      session: { surah: 1, ayah: 2, targetWordIndex: 3, targetArabic: TARGET, stage: "continue", recognition: "recognised" },
     })!;
     expect(lesson.stage).toBe("continue");
     expect(lesson.recognition).toBe("recognised");
@@ -240,7 +240,7 @@ describe("the service's own session, when it ships, wins outright", () => {
 
   it("uses the word the session names", () => {
     const lesson = lessonFor({
-      session: { targetWordIndex: 1, targetArabic: AYAH_WORDS[0], stage: "hear", recognition: "unknown" },
+      session: { surah: 1, ayah: 2, targetWordIndex: 1, targetArabic: AYAH_WORDS[0], stage: "hear", recognition: "unknown" },
     })!;
     expect(lesson.targetArabic).toBe(AYAH_WORDS[0]);
     expect(lesson.targetWordIndex).toBe(1);
@@ -321,12 +321,12 @@ describe("a target the ayah on screen cannot support is never rendered", () => {
 
   it("refuses index zero and a negative index", () => {
     for (const wordIndex of [0, -1]) {
-      expect(lessonFor({ session: { targetWordIndex: wordIndex, targetArabic: TARGET, stage: "hear", recognition: "unknown" } }), String(wordIndex)).toBeNull();
+      expect(lessonFor({ session: { surah: 1, ayah: 2, targetWordIndex: wordIndex, targetArabic: TARGET, stage: "hear", recognition: "unknown" } }), String(wordIndex)).toBeNull();
     }
   });
 
   it("refuses a word that is not the one standing at that position", () => {
-    expect(lessonFor({ session: { targetWordIndex: 1, targetArabic: TARGET, stage: "hear", recognition: "unknown" } })).toBeNull();
+    expect(lessonFor({ session: { surah: 1, ayah: 2, targetWordIndex: 1, targetArabic: TARGET, stage: "hear", recognition: "unknown" } })).toBeNull();
   });
 
   it("refuses everything while the ayah text has not arrived", () => {
@@ -334,11 +334,17 @@ describe("a target the ayah on screen cannot support is never rendered", () => {
   });
 
   it("applies the check to the service's own session too", () => {
-    const session = { targetWordIndex: 3, targetArabic: TARGET, stage: "say-word" as const, recognition: "recognised" as const };
+    const session = { surah: 1, ayah: 2, targetWordIndex: 3, targetArabic: TARGET, stage: "say-word" as const, recognition: "recognised" as const };
     expect(lessonFor({ session })).not.toBeNull();
     // The session says word 3; this ayah has two. The session does not get to
     // put a word on screen that the ayah does not have.
     expect(lessonFor({ session, ayahWords: AYAH_3 })).toBeNull();
+  });
+
+  it("refuses a service session scoped to another ayah", () => {
+    expect(lessonFor({
+      session: { surah: 1, ayah: 3, targetWordIndex: 3, targetArabic: TARGET, stage: "say-word", recognition: "unknown" },
+    })).toBeNull();
   });
 
   it("still renders when the spellings differ only in harakat or which alif is written", () => {
@@ -347,7 +353,7 @@ describe("a target the ayah on screen cannot support is never rendered", () => {
     // correction. The comparison folds them; neither string is rewritten.
     const lesson = lessonFor({
       ayahWords: ["قُلْ", "هُوَ", "ٱللَّهُ", "أَحَدٌ"],
-      session: { targetWordIndex: 3, targetArabic: "اللَّهُ", stage: "hear", recognition: "unknown" },
+      session: { surah: 1, ayah: 2, targetWordIndex: 3, targetArabic: "اللَّهُ", stage: "hear", recognition: "unknown" },
     })!;
     expect(lesson.targetArabic).toBe("اللَّهُ");
     // The ayah keeps its own spelling, untouched.
