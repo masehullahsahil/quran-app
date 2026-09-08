@@ -13,6 +13,8 @@ afterEach(() => {
 });
 
 const AYAH = "بسم الله الرحمن الرحيم";
+const FATIHA_2 = "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ";
+const RABBI_TARGET = { surah: 1, ayah: 2, targetWordIndex: 3, expectedArabic: "رَبِّ", attemptsOnTarget: 0 };
 
 const evaluateInput = {
   expectedArabic: AYAH,
@@ -31,8 +33,10 @@ beforeEach(() => {
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
-function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcript?: string } = {}) {
+function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcript?: string | string[] } = {}) {
   const calls: string[] = [];
+  const transcripts = Array.isArray(options.transcript) ? [...options.transcript] : null;
+  const defaultTranscript = typeof options.transcript === "string" ? options.transcript : AYAH;
 
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -58,7 +62,7 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
         task: "transcribe",
         language: "ar",
         duration: 2,
-        text: options.transcript ?? AYAH,
+        text: transcripts?.shift() ?? defaultTranscript,
         segments: [],
       }), { status: 200 });
     }
@@ -323,6 +327,210 @@ describe("recitation.evaluate", () => {
       evidence: "none",
       shouldAdvance: false,
       reason: "no_transcript",
+    });
+  });
+
+  it("runs missing word, focused target, then full ayah without advancing from the word attempt", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const calls = stubServices({ transcript: ["الحمد لله العالمين", "ربي", "الحمد لله رب العالمين"] });
+    const { appRouter } = await import("./routers");
+    const caller = appRouter.createCaller(contextForClient("203.0.113.80"));
+
+    const missing = await caller.recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      totalAyahs: 7,
+      attemptScope: "ayah",
+    });
+    expect(missing.verseFollowing).toMatchObject({ shouldAdvance: false, reason: "mistake_to_correct" });
+    expect(missing.correctionSession).toMatchObject({
+      surah: 1,
+      ayah: 2,
+      targetWordIndex: 3,
+      targetArabic: "رَبِّ",
+      stage: "hear",
+    });
+    const heldPosition = {
+      expectedWordIndex: missing.verseFollowing.expectedWordIndex,
+      lastCompletedAyah: missing.verseFollowing.lastCompletedAyah,
+      state: missing.verseFollowing.state,
+      attemptsOnCurrentAyah: missing.verseFollowing.attemptsOnCurrentAyah,
+    };
+
+    const focused = await caller.recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      totalAyahs: 7,
+      attemptScope: "word",
+      correctionTarget: RABBI_TARGET,
+      position: heldPosition,
+    });
+    expect(focused).toMatchObject({
+      attemptScope: "word",
+      recitationScoreScope: "word",
+      focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
+      matchedCount: 1,
+      totalWords: 1,
+      corrections: [],
+      correctionSession: {
+        surah: 1,
+        ayah: 2,
+        targetWordIndex: 3,
+        targetArabic: "رَبِّ",
+        recognition: "recognised",
+        stage: "recite-ayah",
+        attemptsOnTarget: 1,
+      },
+      verseFollowing: {
+        currentAyah: 2,
+        lastCompletedAyah: null,
+        shouldAdvance: false,
+      },
+    });
+    expect(focused.note).toMatch(/does not calculate an ayah score/i);
+
+    const complete = await caller.recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      totalAyahs: 7,
+      attemptScope: "ayah",
+      position: heldPosition,
+    });
+    expect(complete).toMatchObject({
+      attemptScope: "ayah",
+      recitationScoreScope: "ayah",
+      correctionSession: null,
+      verseFollowing: { shouldAdvance: true, currentAyah: 3, reason: "ayah_completed" },
+    });
+    expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(2);
+  });
+
+  it("keeps the target when a focused transcript contains a different word", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    stubServices({ transcript: "الرحمن" });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      attemptScope: "word",
+      correctionTarget: RABBI_TARGET,
+    });
+
+    expect(result).toMatchObject({
+      focusedWordResult: { recognition: "not-recognised", reason: "different_word" },
+      correctionSession: { targetWordIndex: 3, stage: "say-word", attemptsOnTarget: 1 },
+      verseFollowing: { shouldAdvance: false, lastCompletedAyah: null },
+    });
+  });
+
+  it.each([
+    ["transcription failure", { failTranscription: true }, "transcription_failed"],
+    ["no Arabic", { transcript: "background noise" }, "no_arabic_returned"],
+  ] as const)("keeps the focused target uncertain after %s", async (_name, services, reason) => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    stubServices(services);
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      attemptScope: "word",
+      correctionTarget: RABBI_TARGET,
+    });
+
+    expect(result).toMatchObject({
+      recitationScoreScope: "none",
+      focusedWordResult: { recognition: "unknown", reason },
+      correctionSession: { targetWordIndex: 3, recognition: "unknown", stage: "say-word" },
+      verseFollowing: { shouldAdvance: false, lastCompletedAyah: null },
+    });
+  });
+
+  it.each([
+    ["stale ayah", { ...RABBI_TARGET, ayah: 3 }],
+    ["invalid word index", { ...RABBI_TARGET, targetWordIndex: 9 }],
+  ])("rejects a focused %s before any provider call", async (_name, correctionTarget) => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const calls = stubServices({ transcript: "رب" });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      attemptScope: "word",
+      correctionTarget,
+    });
+
+    expect(result).toMatchObject({
+      focusedWordResult: { recognition: "unknown", reason: "invalid_target" },
+      correctionSession: null,
+      verseFollowing: { shouldAdvance: false },
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("abstains when the target appears with unrelated extra words", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    stubServices({ transcript: "رب الرحمن" });
+    const { appRouter } = await import("./routers");
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      attemptScope: "word",
+      correctionTarget: RABBI_TARGET,
+    });
+
+    expect(result).toMatchObject({
+      recitationScoreScope: "none",
+      focusedWordResult: { recognition: "unknown", reason: "ambiguous_transcript" },
+      correctionSession: { stage: "say-word", recognition: "unknown" },
+      verseFollowing: { shouldAdvance: false },
+    });
+  });
+
+  it("increments focused attempts and never lets the acoustic evaluator clear the target", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+    const calls = stubServices({ quranEvaluator: true, transcript: "رب" });
+    const { appRouter } = await import("./routers");
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      attemptScope: "word",
+      correctionTarget: { ...RABBI_TARGET, attemptsOnTarget: 2 },
+    });
+
+    expect(result.correctionSession).toMatchObject({ recognition: "recognised", attemptsOnTarget: 3 });
+    expect(result.quranAwareReview.status).toBe("not_configured");
+    expect(calls.some(url => url.includes("quran-evaluator"))).toBe(false);
+  });
+
+  it("preserves full-ayah abstention for an unrelated ayah", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    stubServices({ transcript: "إياك نعبد وإياك نستعين" });
+    const { appRouter } = await import("./routers");
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+      ...evaluateInput,
+      expectedArabic: FATIHA_2,
+      ayah: 2,
+      totalAyahs: 7,
+      attemptScope: "ayah",
+    });
+
+    expect(result).toMatchObject({
+      attemptScope: "ayah",
+      recitationScoreScope: "ayah",
+      correctionSession: null,
+      verseFollowing: { state: "uncertain", shouldAdvance: false, reason: "too_little_evidence" },
     });
   });
 

@@ -745,6 +745,9 @@ describe("Study recitation correction", () => {
     await openStudy();
     await recordOnce();
 
+    expect(mutationMocks.recitationEvaluate).toHaveBeenCalledWith(expect.objectContaining({ attemptScope: "ayah" }));
+    expect(mutationMocks.recitationEvaluate.mock.calls[0]?.[0]).not.toHaveProperty("correctionTarget");
+
     // Step one: hear it. The primary action asks for the word, not the ayah.
     const steps = Array.from(container.querySelectorAll(".lesson-steps li")).map((node) => node.textContent ?? "");
     expect(steps).toHaveLength(4);
@@ -765,8 +768,36 @@ describe("Study recitation correction", () => {
     await recordOnce();
 
     expect(container.querySelector(".lesson-primary"), "the lesson offers a primary action").toBeTruthy();
-    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview({ corrections: [], matchedCount: 5, score: 100 }));
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview({
+      attemptScope: "word",
+      recitationScoreScope: "word",
+      focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
+      correctionSession: {
+        surah: 1,
+        ayah: 1,
+        targetWordIndex: 3,
+        targetArabic: "اللَّهُ",
+        stage: "recite-ayah",
+        recognition: "recognised",
+        attemptsOnTarget: 1,
+      },
+      corrections: [],
+      matchedCount: 1,
+      totalWords: 1,
+      score: 100,
+    }));
     await recordOnce(".lesson-primary");
+
+    expect(mutationMocks.recitationEvaluate).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      attemptScope: "word",
+      correctionTarget: {
+        surah: 1,
+        ayah: 1,
+        targetWordIndex: 3,
+        expectedArabic: "اللَّهُ",
+        attemptsOnTarget: 0,
+      },
+    }));
 
     const lesson = container.querySelector(".word-lesson");
     expect(lesson?.textContent).toContain("I heard the marked word this time");
@@ -775,6 +806,9 @@ describe("Study recitation correction", () => {
       expect((lesson?.textContent ?? "").toLowerCase(), claim).not.toContain(claim);
     }
     expect(container.querySelector(".lesson-primary")?.textContent).toContain("Recite the full ayah");
+    expect(container.querySelector(".feedback-score")).toBeNull();
+    expect(container.querySelector(".correction-row")).toBeNull();
+    expect(container.querySelector(".all-matched")).toBeNull();
   });
 });
 
