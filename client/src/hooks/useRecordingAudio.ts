@@ -119,6 +119,18 @@ export function useRecordingAudio() {
   return { ...state, play, stop, preload };
 }
 
+/**
+ * Whether a state field refers to the recording at `src`.
+ *
+ * `state.playingSrc === src` looks like the obvious test and is wrong the moment
+ * `src` can be null: nothing is playing and nothing is available, so both sides
+ * are null, and a control renders as playing — or, worse, as permanently
+ * loading. A recording with no path is never the one in any of these states.
+ */
+export function isRecording(stateSrc: string | null, src: string | null): boolean {
+  return src !== null && stateSrc === src;
+}
+
 /** The Qaida letter player. Same hook, named for its first caller. */
 export const useLetterAudio = useRecordingAudio;
 export type LetterAudioState = RecordingAudioState;

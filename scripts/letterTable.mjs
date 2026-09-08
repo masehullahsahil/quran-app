@@ -1,5 +1,5 @@
 /**
- * Reads the letter table out of client/src/lib/arabicLetters.ts for the build
+ * Reads the letter table out of shared/arabicLetters.ts for the build
  * scripts.
  *
  * The table is TypeScript and the scripts are plain node, so this parses the
@@ -22,7 +22,7 @@ export const HARAKAT = [
 const FIELDS = ["letter", "name", "slug", "transliteration", "sound", "arabicName"];
 
 export function readLetters() {
-  const source = fs.readFileSync(path.join(ROOT, "client/src/lib/arabicLetters.ts"), "utf-8");
+  const source = fs.readFileSync(path.join(ROOT, "shared/arabicLetters.ts"), "utf-8");
   const body = source.match(/ARABIC_LETTERS: ArabicLetter\[\] = \[([\s\S]*?)\n\];/)?.[1];
   if (!body) throw new Error("Could not find ARABIC_LETTERS in arabicLetters.ts — has the table changed shape?");
 
@@ -58,7 +58,7 @@ export function everyRecording() {
 
 /**
  * The Arabic text a speech engine is given for one recording. Mirrors
- * letterSpeechText() in client/src/lib/arabicLetters.ts — a test pins the two
+ * letterSpeechText() in shared/arabicLetters.ts — a test pins the two
  * together so a change on one side cannot silently regenerate different audio.
  */
 export function speechText(letter, harakat) {

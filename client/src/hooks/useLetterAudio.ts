@@ -5,4 +5,4 @@
  * `useRecordingAudio`. This module is kept so the letter code reads as being
  * about letters.
  */
-export { useLetterAudio, useRecordingAudio, type LetterAudioState, type RecordingAudioState } from "./useRecordingAudio";
+export { useLetterAudio, useRecordingAudio, isRecording, type LetterAudioState, type RecordingAudioState } from "./useRecordingAudio";
