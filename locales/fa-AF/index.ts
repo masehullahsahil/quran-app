@@ -89,6 +89,9 @@ export const strings: TranslatableStrings = {
   // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
   "lesson.label": "تمرین یک کلمه",
   "lesson.eyebrow": "نیاز به توجه",
+  // The same card once the word has come through. See requirement 9 in
+  // docs/live-tutor.md: only the current step may dominate the screen.
+  "lesson.eyebrowResolved": "آن کلمه گذشت",
   "lesson.wordOf": "کلمهٔ {number} از {total}",
   "lesson.stepsLabel": "مرحله‌های این اصلاح",
   "lesson.stageHear": "بشنوید",
@@ -123,6 +126,53 @@ export const strings: TranslatableStrings = {
   "lesson.wordUnavailable": "ثبت این کلمه پخش نشد.",
   "lesson.playAyahInstead": "به جای آن تمام آیت را بشنوید",
   "lesson.wordReferenceNote": "یک تلاوت مرجع کلمه‌به‌کلمه — قاری آن با آیت بالا فرق دارد.",
+
+  // -- Live Tutor: what the teacher says -----------------------------------
+  // One short sentence per state. A teacher listens far more than they talk,
+  // so none of these is a paragraph, and none of them claims anything about
+  // pronunciation, makhraj or tajwid — see shared/tutorConversation.ts.
+  "tutor.label": "استاد شما",
+  "tutor.ready": "هر وقت آماده بودید شروع کنید.",
+  "tutor.listening": "می‌شنوم.",
+  "tutor.checking": "یک لحظه.",
+  "tutor.wordMissed": "یک کلمه را جا انداختید. بشنوید.",
+  "tutor.wordRecognised": "خوب است — کلمهٔ نشانی‌شده را شنیدم.",
+  "tutor.reciteFullAyah": "حالا تمام آیت را بخوانید.",
+  "tutor.offerHint": "راهنمایی می‌خواهید؟",
+  "tutor.hintGiven": "از {word} شروع کنید.",
+  "tutor.uncertain": "این را واضح نشنیدم. یک بار دیگر کوشش کنید.",
+  "tutor.paused": "وقت بگیرید. هر وقت خواستید بگویید ادامه بدهیم.",
+  "tutor.finished": "خوب است. فعلاً همین‌جا بس می‌کنیم.",
+
+  // The two or three things offered at a time. Never all of them at once.
+  "tutor.doStart": "شروع",
+  "tutor.doAgain": "دوباره",
+  "tutor.doRepeatWord": "کلمه را بگویید",
+  "tutor.doHearWord": "کلمه را بشنوید",
+  "tutor.doHearAyah": "آیت را بشنوید",
+  "tutor.doHint": "راهنمایی",
+  "tutor.doFromBeginning": "از اول",
+  "tutor.doContinue": "ادامه",
+  "tutor.doPause": "توقف",
+  "tutor.doResume": "ادامه بدهید",
+  "tutor.doStop": "پایان",
+
+  // Whose turn it is, and what the teacher is doing — said in words, so the
+  // state does not depend on an animation or a colour.
+  "tutor.turnTeacher": "استاد شما صحبت می‌کند",
+  "tutor.turnLearner": "نوبت شماست",
+  "tutor.presenceListening": "در حال شنیدن",
+  "tutor.presenceThinking": "در حال بررسی",
+  "tutor.presenceSpeaking": "در حال گفتن",
+  "tutor.presenceWaiting": "منتظر شما",
+
+  // Speaking to the teacher. Honest about not listening yet.
+  "tutor.voiceOpen": "با استاد صحبت کنید",
+  "tutor.voiceTitle": "صحبت با استاد",
+  "tutor.voiceNotListening": "هنوز نه — استاد فعلاً به دستورهای گفتاری گوش نمی‌دهد. وقتی گوش داد، این‌ها چیزهایی است که خواهید توانست بگویید. خواندن شما هرگز دستور شمرده نمی‌شود.",
+  "tutor.voiceClose": "بستن",
+  "tutor.wordPosition": "کلمهٔ {number} از {total}",
+  "tutor.detailsSummary": "استاد چه دید",
 
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "این ثبت به اندازهٔ کافی با آیت کنونی نخورد",

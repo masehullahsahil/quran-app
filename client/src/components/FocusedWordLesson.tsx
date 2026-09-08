@@ -72,6 +72,8 @@ export function FocusedWordLesson({
 }: FocusedWordLessonProps) {
   const { t } = useLocale();
   const headlineRef = useRef<HTMLParagraphElement | null>(null);
+  /** The word went through; the ayah is what is left. */
+  const resolved = lesson.recognition === "recognised" && lesson.stage !== "say-word";
 
   /**
    * When the lesson moves on, put the reader at the top of it.
@@ -117,9 +119,21 @@ export function FocusedWordLesson({
 
   return (
     <section className={`word-lesson is-${lesson.stage}`} aria-label={t("lesson.label")}>
-      <p className="lesson-eyebrow">
-        <AlertCircle size={13} aria-hidden="true" /> {t("lesson.eyebrow")}
-      </p>
+      {/* The eyebrow follows the lesson, not the fact that a correction exists.
+          Once the engine reports the word came through, the card said "Good — I
+          heard the marked word this time" *under* a heading still reading
+          "Needs attention", which is two things at once: technically each was
+          true, and together they told the learner nothing. The step that
+          succeeded now says so. */}
+      {resolved ? (
+        <p className="lesson-eyebrow is-resolved">
+          <Check size={13} aria-hidden="true" /> {t("lesson.eyebrowResolved")}
+        </p>
+      ) : (
+        <p className="lesson-eyebrow">
+          <AlertCircle size={13} aria-hidden="true" /> {t("lesson.eyebrow")}
+        </p>
+      )}
 
       {/* The word, larger than anything else on the screen. Exactly the Arabic
           the decision named — no normalisation, no stripped harakat. */}
@@ -127,7 +141,10 @@ export function FocusedWordLesson({
         {lesson.targetArabic}
       </p>
       <p className="lesson-position">{t("lesson.wordOf", { number: lesson.targetWordIndex, total: lesson.totalWords })}</p>
-      <p className="lesson-observed">{t(lesson.observationKey)}</p>
+      {/* What was observed is why the learner was sent here. Once the word has
+          come through it is history, and leaving it under a resolved heading
+          reads as an error that is still standing. */}
+      {!resolved && <p className="lesson-observed">{t(lesson.observationKey)}</p>}
 
       {/* Four steps, one current. Marked with `aria-current` so a screen reader
           reaches the same conclusion a sighted learner does from the highlight. */}

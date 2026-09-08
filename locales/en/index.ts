@@ -281,6 +281,9 @@ export const strings = {
   // docs/ai-teacher-decisions.md for why that distinction is load-bearing.
   "lesson.label": "Practising one word",
   "lesson.eyebrow": "Needs attention",
+  // The same card once the word has come through. See requirement 9 in
+  // docs/live-tutor.md: only the current step may dominate the screen.
+  "lesson.eyebrowResolved": "That word is through",
   "lesson.wordOf": "Word {number} of {total}",
   "lesson.stepsLabel": "Steps in this correction",
   "lesson.stageHear": "Hear",
@@ -315,6 +318,53 @@ export const strings = {
   "lesson.wordUnavailable": "That word recording could not be played.",
   "lesson.playAyahInstead": "Hear the full ayah instead",
   "lesson.wordReferenceNote": "A word-by-word reference recitation — a different reciter from the ayah above.",
+
+  // -- Live Tutor: what the teacher says -----------------------------------
+  // One short sentence per state. A teacher listens far more than they talk,
+  // so none of these is a paragraph, and none of them claims anything about
+  // pronunciation, makhraj or tajwid — see shared/tutorConversation.ts.
+  "tutor.label": "Your teacher",
+  "tutor.ready": "Start when you’re ready.",
+  "tutor.listening": "I’m listening.",
+  "tutor.checking": "One moment.",
+  "tutor.wordMissed": "You missed one word. Listen.",
+  "tutor.wordRecognised": "Good — I heard the marked word.",
+  "tutor.reciteFullAyah": "Now recite the whole ayah.",
+  "tutor.offerHint": "Would you like a hint?",
+  "tutor.hintGiven": "Start from {word}.",
+  "tutor.uncertain": "I couldn’t hear that clearly. Try once more.",
+  "tutor.paused": "Take your time. Tell me when to carry on.",
+  "tutor.finished": "Good. We’ll stop here for now.",
+
+  // The two or three things offered at a time. Never all of them at once.
+  "tutor.doStart": "Start",
+  "tutor.doAgain": "Try again",
+  "tutor.doRepeatWord": "Say the word",
+  "tutor.doHearWord": "Hear the word",
+  "tutor.doHearAyah": "Hear the ayah",
+  "tutor.doHint": "Hint",
+  "tutor.doFromBeginning": "Start over",
+  "tutor.doContinue": "Continue",
+  "tutor.doPause": "Pause",
+  "tutor.doResume": "Carry on",
+  "tutor.doStop": "Finish",
+
+  // Whose turn it is, and what the teacher is doing — said in words, so the
+  // state does not depend on an animation or a colour.
+  "tutor.turnTeacher": "Your teacher is speaking",
+  "tutor.turnLearner": "Your turn",
+  "tutor.presenceListening": "Listening",
+  "tutor.presenceThinking": "Checking",
+  "tutor.presenceSpeaking": "Speaking",
+  "tutor.presenceWaiting": "Waiting for you",
+
+  // Speaking to the teacher. Honest about not listening yet.
+  "tutor.voiceOpen": "Talk to your teacher",
+  "tutor.voiceTitle": "Speaking to your teacher",
+  "tutor.voiceNotListening": "Not yet — the teacher does not listen for spoken instructions at the moment. When it does, these are what you will be able to say. Your recitation is never treated as an instruction.",
+  "tutor.voiceClose": "Close",
+  "tutor.wordPosition": "Word {number} of {total}",
+  "tutor.detailsSummary": "What the teacher noticed",
 
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "This recording didn’t match enough of the current ayah",
