@@ -85,8 +85,8 @@ Nothing in this list is verified by code. Each item needs a qualified Qari or Qa
 
 | Area | What to check | Where |
 |---|---|---|
-| **Letter names** | The English names and transliterations used throughout — "Haa" for both ح and ه, "Taa" for both ت and ط, and the choice of Baa/Bā, Thaa/Thā | `client/src/lib/arabicLetters.ts`, Level 1 lessons |
-| **Makhraj descriptions** | The `sound` hints and the articulation text shown in the letter reference; the curriculum deliberately makes no makhraj claims, so confirm nothing implies one | `client/src/lib/arabicLetters.ts`, `locales/en` letter lessons |
+| **Letter names** | The English names and transliterations used throughout — "Haa" for both ح and ه, "Taa" for both ت and ط, and the choice of Baa/Bā, Thaa/Thā | `shared/arabicLetters.ts`, Level 1 lessons |
+| **Makhraj descriptions** | The `sound` hints and the articulation text shown in the letter reference; the curriculum deliberately makes no makhraj claims, so confirm nothing implies one | `shared/arabicLetters.ts`, `locales/en` letter lessons |
 | **Letter grouping and order** | Whether the teaching order and the groups in Level 1 match the Qaida this app should follow (Noorani, Baghdadi, or another) | `LETTER_GROUPS` |
 | **Similar-letter pairs** | Whether ه/ح and ك/ق are the right pairs to contrast, and whether any group is missing | `SIMILAR_DOTS`, `SIMILAR_SHAPES` |
 | **Madd explanations** | The wording for long vowels, and the description of the wavy madd sign as "held longer than usual" without naming a count | Level 5, `symbols-madd-sign` |

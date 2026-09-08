@@ -1,6 +1,6 @@
 /**
  * Regenerates docs/letter-recordings.md from the letter table in
- * client/src/lib/arabicLetters.ts, so the list handed to the reciter always
+ * shared/arabicLetters.ts, so the list handed to the reciter always
  * matches the filenames the app actually requests.
  *
  *   node scripts/generate-letter-recording-list.mjs

@@ -109,6 +109,14 @@ vi.mock("@/lib/trpc", () => {
 
 /** Every source the page asked to play, in order. */
 const played: string[] = [];
+/**
+ * Anything the page tries to say out loud.
+ *
+ * A Qaida with no approved recordings must stay silent rather than fall back to
+ * a speech engine — an English voice handed Arabic says something else, and no
+ * synthesised voice models Quranic Arabic here.
+ */
+const speechCalls: string[] = [];
 /** Aliases for the tests that vary the word-audio source. */
 const surahData = FAKE_SURAH;
 const ORIGINAL_WORD_SOURCE = FAKE_SURAH.wordAudioSource;
@@ -384,55 +392,97 @@ describe("Quranic Arabic is not translated or mirrored", () => {
   });
 });
 
-describe("the letter audio is a visible control that plays the right file", () => {
-  it("plays the letter's own recording from the main listen button", async () => {
+/**
+ * The Qaida's letter audio, with an empty approval ledger.
+ *
+ * The course teaches Quranic Arabic, so the only voice a learner may be played
+ * as a model is a qualified teacher's — approved by a named, qualified
+ * reviewer. Nothing has been recorded yet, so nothing plays, and the interface
+ * says that instead of reaching for the machine-generated clips that are still
+ * in the repository.
+ */
+describe("the letter audio waits for a teacher's recording", () => {
+  it("offers the control, plays nothing, and says why", async () => {
     await mount();
     await openLearn();
     const button = container.querySelector<HTMLButtonElement>(".letter-play")!;
 
+    // The control is still there and still labelled — a learner can see that
+    // hearing the letter is the intended thing, and that it is not ready.
     expect(button.textContent).toContain(en.strings["qaida.listenLetter"]);
+    expect(button.disabled).toBe(true);
+
     await act(async () => {
       button.click();
     });
     await settle();
 
-    expect(played).toEqual(["/audio/letters/alif.mp3"]);
+    expect(played).toEqual([]);
+    expect(speechCalls).toEqual([]);
   });
 
-  it("marks every letter tile as playable and plays that letter when tapped", async () => {
+  it("never renders a stuck loading or playing state when nothing is available", async () => {
     await mount();
     await openLearn();
+
+    // A null path once compared equal to a null state field, so every control
+    // rendered as loading and every tile as playing.
+    expect(container.querySelector(".letter-play")!.className).not.toContain("is-loading");
+    expect(container.querySelector(".letter-play")!.className).not.toContain("is-playing");
+    expect(container.querySelector(".letter-play")!.textContent).not.toContain(en.strings["qaida.audioLoading"]);
+    for (const tile of Array.from(container.querySelectorAll(".alphabet-grid button"))) {
+      expect(tile.className).not.toContain("is-playing");
+    }
+    for (const harakat of Array.from(container.querySelectorAll(".harakat-play"))) {
+      expect(harakat.className).not.toContain("is-loading");
+    }
+  });
+
+  it("plays nothing from any letter tile or harakat control", async () => {
+    await mount();
+    await openLearn();
+
     const tiles = Array.from(container.querySelectorAll<HTMLButtonElement>(".alphabet-grid button"));
     expect(tiles).toHaveLength(28);
-    // A speaker mark on each tile, so the audio is visible before it is pressed.
     for (const tile of tiles.slice(0, 5)) expect(tile.querySelector(".tile-speaker")).toBeTruthy();
 
-    await act(async () => {
-      tiles[1].click(); // Baa
-    });
-    await settle();
-
-    expect(played).toEqual(["/audio/letters/ba.mp3"]);
-  });
-
-  it("plays the right file for fatha, kasra and damma", async () => {
-    await mount();
-    await openLearn();
     const harakat = Array.from(container.querySelectorAll<HTMLButtonElement>(".harakat-play"));
     expect(harakat).toHaveLength(3);
 
-    for (const button of harakat) {
+    for (const button of [tiles[1], ...harakat]) {
       await act(async () => {
         button.click();
       });
       await settle();
     }
 
-    expect(played).toEqual([
-      "/audio/letters/alif-fatha.mp3",
-      "/audio/letters/alif-kasra.mp3",
-      "/audio/letters/alif-damma.mp3",
-    ]);
+    // Not one request, and above all not a synthesised voice reading Arabic.
+    expect(played).toEqual([]);
+    expect(speechCalls).toEqual([]);
+  });
+
+  it("never reaches for the machine-generated clips still in the repository", async () => {
+    await mount();
+    await openLearn();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".letter-play")!.click();
+      for (const tile of Array.from(container.querySelectorAll<HTMLButtonElement>(".alphabet-grid button"))) tile.click();
+    });
+    await settle();
+
+    expect(played.filter((src) => src.startsWith("/audio/letters/"))).toEqual([]);
+  });
+
+  it("tells the learner a recording has not been added yet", async () => {
+    await mount();
+    await openLearn();
+
+    const status = container.querySelector(".letter-audio-status")!;
+    expect(status.textContent?.trim().length).toBeGreaterThan(0);
+    // No URL, no error code, no stack — and no claim that a voice is a reciter.
+    expect(status.textContent).not.toContain("/audio/letters");
+    expect(status.textContent).not.toContain("NotSupportedError");
+    expect(status.textContent).not.toContain(en.strings["qaida.audioPlaying"]);
   });
 
   it("names the audio controls in the learner's language", async () => {
@@ -445,40 +495,15 @@ describe("the letter audio is a visible control that plays the right file", () =
     expect(button.getAttribute("aria-label")).toContain(ar.strings["qaida.playLetterLabel"]!.split("{")[0].trim());
   });
 
-  it("shows a learner-facing message when a recording cannot be played", async () => {
-    failing.add("/audio/letters/alif.mp3");
+  it.each(SUPPORTED_LANGUAGE_CODES.map((code) => [code]))("says the recording is not ready in %s", async (code) => {
     await mount();
     await openLearn();
-
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".letter-play")!.click();
-    });
-    await settle();
+    if (code !== "en") await chooseLanguage(code);
 
     const status = container.querySelector(".letter-audio-status")!;
-    expect(status.textContent).toContain(en.strings["qaida.audioUnavailablePlaceholder"]);
-    // No URL, no error code, no stack — the learner is told what happened, not
-    // where the file lives.
-    expect(status.textContent).not.toContain("/audio/letters");
-    expect(status.textContent).not.toContain("NotSupportedError");
-    // And the button offers another go.
-    expect(container.querySelector(".letter-play")!.textContent).toContain(en.strings["qaida.audioRetry"]);
-  });
-
-  it("reports a failed recording in the learner's language", async () => {
-    failing.add("/audio/letters/alif.mp3");
-    await mount();
-    await openLearn();
-    await chooseLanguage("ps");
-
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>(".letter-play")!.click();
-    });
-    await settle();
-
-    expect(container.querySelector(".letter-audio-status")!.textContent).toContain(
-      ps.strings["qaida.audioUnavailablePlaceholder"],
-    );
+    expect(status.textContent?.trim().length, code).toBeGreaterThan(0);
+    expect(container.querySelector<HTMLButtonElement>(".letter-play")!.disabled, code).toBe(true);
+    expect(played, code).toEqual([]);
   });
 });
 

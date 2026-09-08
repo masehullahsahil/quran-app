@@ -22,12 +22,21 @@ import { emptyQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
 import { QAIDA_LESSONS } from "@shared/qaidaCurriculum";
 import { localizedExercise, localizedLesson } from "@shared/qaidaText";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
+import { letterAudioPath } from "@/lib/arabicLetters";
 import { loadLocale } from "@locales/index";
 import en from "@locales/en";
 import ps from "@locales/ps";
 import ar from "@locales/ar";
 
 const played: string[] = [];
+/**
+ * Anything the page tries to say out loud.
+ *
+ * A Qaida with no recordings must stay silent, not fall back to a speech
+ * engine: an English voice handed Arabic says something else entirely, and a
+ * synthesised voice has no business modelling Quranic Arabic at all.
+ */
+const speechCalls: string[] = [];
 
 class FakeAudio {
   src = "";
@@ -92,6 +101,12 @@ async function mount(locale = "en") {
 
 beforeEach(() => {
   played.length = 0;
+  speechCalls.length = 0;
+  (globalThis as { speechSynthesis?: unknown }).speechSynthesis = {
+    speak: (utterance: { text?: string }) => speechCalls.push(utterance?.text ?? ""),
+    cancel: () => {},
+    getVoices: () => [],
+  };
   window.localStorage.clear();
   (globalThis as { Audio?: unknown }).Audio = FakeAudio;
 });
@@ -114,7 +129,10 @@ describe("the course speaks the learner's language", () => {
     expect(text()).toContain(lesson.title);
     expect(text()).toContain(lesson.teaching);
     expect(text()).toContain(lesson.objective);
-    expect(text()).toContain(en.strings["course.playAudio"]);
+    // No recording has been approved for this letter yet, so the lesson says so
+    // rather than offering a control that would play a machine voice.
+    expect(text()).toContain(en.strings["course.audioUnavailable"]);
+    expect(container.querySelector(".course-audio")).toBeNull();
   });
 
   it.each([
@@ -151,28 +169,25 @@ describe("the course speaks the learner's language", () => {
   });
 });
 
-describe("a lesson step with a recording offers a control that plays it", () => {
-  it("plays the reference recording for the exercise on screen", async () => {
+describe("a lesson step whose recording has not been made yet", () => {
+  it("offers no control, and plays nothing", async () => {
     await mount("en");
     const exercise = firstLesson.practice[0];
-    // The first lesson's first item carries the letter's own recording.
+    // The item names a letter recording; no qualified teacher has recorded it.
     expect(exercise.audio?.letterSlug).toBeTruthy();
+    expect(letterAudioPath(exercise.audio!.letterSlug)).toBeNull();
 
-    const button = container.querySelector<HTMLButtonElement>(".course-audio");
-    expect(button, "the lesson shows an audio control").toBeTruthy();
-    expect(button!.textContent).toContain(en.strings["course.playAudio"]);
-
-    await act(async () => {
-      button!.click();
-    });
-    await settle();
-
-    expect(played).toEqual([`/audio/letters/${exercise.audio!.letterSlug}.mp3`]);
+    expect(container.querySelector(".course-audio")).toBeNull();
+    expect(text()).toContain(en.strings["course.audioUnavailable"]);
+    // Nothing was reached for in its place — no file, and no speech synthesis.
+    expect(played).toEqual([]);
+    expect(speechCalls).toEqual([]);
   });
 
-  it("names that control in the learner's language", async () => {
+  it("says so in the learner's language", async () => {
     await mount("ar");
-    expect(container.querySelector(".course-audio")!.textContent).toContain(ar.strings["course.playAudio"]);
+    expect(text()).toContain(ar.strings["course.audioUnavailable"]);
+    expect(text()).not.toContain(en.strings["course.audioUnavailable"]);
   });
 
   it("shows the lesson's Listen → Repeat → Check stages", async () => {

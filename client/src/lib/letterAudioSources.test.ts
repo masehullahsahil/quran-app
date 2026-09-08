@@ -7,11 +7,20 @@ import {
   letterSpeechText,
 } from "./arabicLetters";
 import en from "@locales/en";
-import { ACTIVE_LETTER_AUDIO_SOURCE, HAFIZ_RECORDINGS, LETTER_AUDIO_SOURCES, OPENAI_TTS } from "./letterAudioSources";
+import {
+  ACTIVE_LETTER_AUDIO_SOURCE,
+  APPROVED_RECORDINGS,
+  HAFIZ_RECORDINGS,
+  LETTER_AUDIO_SOURCES,
+  OPENAI_TTS,
+} from "./letterAudioSources";
+import { approvedAudioPath, letterTargetId, PLACEHOLDER_LETTER_AUDIO } from "@shared/qaidaAudioManifest";
 
-describe("the local sources", () => {
+describe("the file-layout sources", () => {
   it("define a URL for every letter and every harakat", () => {
-    for (const source of LETTER_AUDIO_SOURCES) {
+    // The two sources that describe a *file layout* — the naming a reciter
+    // delivers to, and the generated clips sitting at those names.
+    for (const source of [HAFIZ_RECORDINGS, OPENAI_TTS]) {
       for (const letter of ARABIC_LETTERS) {
         expect(source.url(letter.slug), `${source.id}/${letter.slug}`).toBeTruthy();
         for (const harakat of HARAKAT) {
@@ -69,6 +78,48 @@ describe("the active source", () => {
   it("is what letterAudioPath resolves through", () => {
     expect(letterAudioPath("alif")).toBe(ACTIVE_LETTER_AUDIO_SOURCE.url("alif"));
     expect(letterAudioPath("ba", "fatha")).toBe(ACTIVE_LETTER_AUDIO_SOURCE.url("ba", "fatha"));
+  });
+
+  it("is the approval ledger, and is not the synthesised set", () => {
+    // The whole point: what a learner hears is decided by whether a qualified
+    // teacher approved a recording, not by whether a file happens to exist.
+    expect(ACTIVE_LETTER_AUDIO_SOURCE).toBe(APPROVED_RECORDINGS);
+    expect(ACTIVE_LETTER_AUDIO_SOURCE.isPlaceholder).toBe(false);
+    expect(ACTIVE_LETTER_AUDIO_SOURCE.id).not.toBe(OPENAI_TTS.id);
+  });
+
+  it("offers nothing while no recording has been approved", () => {
+    // The ledger is empty today, so every letter and every vowelled form is
+    // unavailable — and the interface says so instead of playing a machine
+    // voice reading Quranic Arabic.
+    for (const letter of ARABIC_LETTERS) {
+      expect(letterAudioPath(letter.slug), letter.slug).toBeNull();
+      for (const harakat of HARAKAT) {
+        expect(letterAudioPath(letter.slug, harakat.id), `${letter.slug}-${harakat.id}`).toBeNull();
+      }
+    }
+  });
+
+  it("never resolves to the synthesised directory", () => {
+    // Belt and braces: even if a path were somehow produced, it may not be one
+    // of the generated clips.
+    for (const letter of ARABIC_LETTERS) {
+      const path = letterAudioPath(letter.slug);
+      if (path) expect(path.startsWith(PLACEHOLDER_LETTER_AUDIO.directory), letter.slug).toBe(false);
+    }
+  });
+
+  it("plays a letter the moment its recording is approved", () => {
+    const approved = [{
+      targetId: letterTargetId("ba"),
+      audioPath: "/audio/qaida/letters/ba.mp3",
+      status: "approved" as const,
+      provenance: { speaker: "A. Teacher", qualification: "ijazah in hafs", source: "studio session", recordedOn: "2026-01-01" },
+      review: { reviewer: "B. Reviewer", qualification: "qualified teacher", reviewedOn: "2026-01-02", verdict: "correct" },
+    }];
+    expect(approvedAudioPath(letterTargetId("ba"), approved)).toBe("/audio/qaida/letters/ba.mp3");
+    // And its neighbours stay silent, because nobody approved those.
+    expect(approvedAudioPath(letterTargetId("ta"), approved)).toBeNull();
   });
 
   /**
@@ -139,9 +190,11 @@ describe("the text a voice is given", () => {
 });
 
 /**
- * A synthesised voice must not be described to the learner as a reciter's.
- * Home.tsx picks the wording from `isPlaceholder`; these are the strings it
- * chooses between.
+ * The wording that exists for a synthesised voice.
+ *
+ * These strings are no longer reachable in production — nothing synthesised is
+ * served — but they are kept, and kept honest, because a developer who switches
+ * to the generated set locally must still see it described as what it is.
  */
 describe("how a synthesised voice is described", () => {
   it("has its own wording for idle, playing and missing", () => {
