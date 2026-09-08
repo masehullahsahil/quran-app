@@ -33,6 +33,7 @@ import { ingestRecitationChunk } from "./recitationSession";
 import { buildReviewQueue, deriveAyahMemory, findRecurringErrors } from "@shared/memorization";
 import { getQaidaLesson } from "@shared/qaidaCurriculum";
 import { getLearnerSnapshot, insertMemorizationAttempt, mergeQaidaProgress } from "./db";
+import { tutorRouter } from "./tutorRouter";
 
 // Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
 // past 1,600 characters once Uthmani diacritics are counted. The old limit fit
@@ -293,6 +294,7 @@ function ayahCorrectionSession(verseFollowing: VerseFollowingResult): Correction
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
+  tutor: tutorRouter,
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
