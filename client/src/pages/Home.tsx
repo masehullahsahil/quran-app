@@ -54,6 +54,8 @@ import { resolveTeacherAction, traceTeacherAction, type TeacherAction, type Teac
 import { describeStudyTiers } from "@/lib/studyView";
 import { StudyCorrection } from "@/components/StudyCorrection";
 import { deriveCorrectionLesson, type AttemptScope, type RetainedTarget } from "@/lib/correctionSession";
+import { findWordAudio } from "@/lib/wordAudio";
+import { useRecordingAudio } from "@/hooks/useRecordingAudio";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -307,6 +309,9 @@ export default function Home() {
   // correctionSession.ts: it keeps the lesson on screen across one attempt, and
   // is only ever a copy of what the decision last named.
   const [correctionTarget, setCorrectionTarget] = useState<RetainedTarget | null>(null);
+  // The focus word's own recording. Its own element: the ayah player is busy
+  // with the ayah, and the two must never fight over one <audio>.
+  const wordRecording = useRecordingAudio();
   const [recordingUrl, setRecordingUrl] = useState<string | null>(null);
   /**
    * The last reviewed attempt, with the ayah it was an attempt at.
@@ -1073,6 +1078,42 @@ export default function Home() {
     session: null,
   });
 
+  /**
+   * The recording of the focus word, when the source served a trustworthy one.
+   *
+   * Resolved from the canonical ayah on screen, so it carries the same
+   * protections the lesson has: a recording for another ayah, an index the ayah
+   * has no room for, or a word that is not the one standing at that position
+   * all resolve to null and the lesson falls back to the reciter's ayah.
+   */
+  const focusWordAudio = correctionLesson
+    ? findWordAudio(
+        {
+          surah: surahNumber,
+          ayah: activeVerse?.number ?? selectedVerse,
+          wordIndex: correctionLesson.targetWordIndex,
+          arabic: correctionLesson.targetArabic,
+        },
+        {
+          surah: surahNumber,
+          ayah: activeVerse?.number ?? selectedVerse,
+          ayahWords: expectedWords,
+          wordAudio: activeVerse?.wordAudio ?? [],
+          source: surahQuery.data?.wordAudioSource ?? null,
+        },
+      )
+    : null;
+
+  // Only the word in front of the learner is warmed, never a surah's worth — a
+  // learner on a metered connection should not pay for recordings of words they
+  // were never sent back to. The hook's `preload` is stable, so this runs when
+  // the target word changes and not on every render.
+  const preloadWord = wordRecording.preload;
+  useEffect(() => {
+    preloadWord(focusWordAudio?.url ?? null);
+  }, [focusWordAudio?.url, preloadWord]);
+
+
   useEffect(() => {
     // The decision names a word: remember it. It stops naming one either
     // because an attempt is in flight, or because the word went through — the
@@ -1297,6 +1338,13 @@ export default function Home() {
                 lesson={correctionLesson}
                 onRecordWord={() => void startRecording("word")}
                 onStop={stopRecording}
+                wordAudio={focusWordAudio}
+                onHearWord={() => { if (focusWordAudio) { audioRef.current?.pause(); void wordRecording.play(focusWordAudio.url); } }}
+                wordAudioState={{
+                  loading: wordRecording.loadingSrc === focusWordAudio?.url,
+                  playing: wordRecording.playingSrc === focusWordAudio?.url,
+                  failed: wordRecording.unavailableSrc === focusWordAudio?.url,
+                }}
                 onCta={runTeacherAction}
                 isRecording={isRecording}
                 isReviewing={evaluateRecitation.isPending}

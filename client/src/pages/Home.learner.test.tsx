@@ -22,6 +22,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
 import { loadLocale } from "@locales/index";
+import type { SurahContent } from "@shared/quran";
 import en from "@locales/en";
 import ps from "@locales/ps";
 import faAF from "@locales/fa-AF";
@@ -38,15 +39,35 @@ import ar from "@locales/ar";
  */
 /** Two ayat of al-Ikhlas, enough to test playback and moving between ayat. */
 export const FAKE_AYAHS = [
-  { number: 1, verseKey: "112:1", arabic: "قُلْ هُوَ اللَّهُ أَحَدٌ", translation: "Say, He is Allah, One", transliteration: null, audioUrl: "https://audio.example/112001.mp3" },
-  { number: 2, verseKey: "112:2", arabic: "اللَّهُ الصَّمَدُ", translation: "Allah, the Eternal", transliteration: null, audioUrl: "https://audio.example/112002.mp3" },
+  {
+    number: 1, verseKey: "112:1", arabic: "قُلْ هُوَ اللَّهُ أَحَدٌ",
+    translation: "Say, He is Allah, One", transliteration: null,
+    audioUrl: "https://audio.example/112001.mp3",
+    // The word-by-word recordings Quran.com serves alongside the ayah.
+    wordAudio: "قُلْ هُوَ اللَّهُ أَحَدٌ".split(" ").map((arabic, index) => ({
+      position: index + 1, arabic, url: `https://audio.qurancdn.example/wbw/112_001_00${index + 1}.mp3`,
+    })),
+  },
+  {
+    number: 2, verseKey: "112:2", arabic: "اللَّهُ الصَّمَدُ",
+    translation: "Allah, the Eternal", transliteration: null,
+    audioUrl: "https://audio.example/112002.mp3",
+    wordAudio: "اللَّهُ الصَّمَدُ".split(" ").map((arabic, index) => ({
+      position: index + 1, arabic, url: `https://audio.qurancdn.example/wbw/112_002_00${index + 1}.mp3`,
+    })),
+  },
 ];
 
+/**
+ * The surah payload, held as a mutable object so a test can take the word
+ * recordings away and check the honest fallback without rebuilding the mock.
+ */
 const FAKE_SURAH = {
   surah: { number: 112, nameSimple: "Al-Ikhlas", nameArabic: "الإخلاص", versesCount: 4, revelationPlace: "makkah", translatedName: "Sincerity" },
   reciterId: 7,
   translationId: 131,
   ayahs: FAKE_AYAHS,
+  wordAudioSource: { provider: "quran.com", kind: "word-file", reciterName: null, matchesSelectedReciter: false } as SurahContent["wordAudioSource"],
 };
 
 const FAKE_INDEX = {
@@ -88,6 +109,9 @@ vi.mock("@/lib/trpc", () => {
 
 /** Every source the page asked to play, in order. */
 const played: string[] = [];
+/** Aliases for the tests that vary the word-audio source. */
+const surahData = FAKE_SURAH;
+const ORIGINAL_WORD_SOURCE = FAKE_SURAH.wordAudioSource;
 /** Sources the fake audio element should fail on, to test error reporting. */
 const failing = new Set<string>();
 
@@ -965,5 +989,128 @@ describe("the surah progress meter is not a mark for the recitation", () => {
     expect(card?.textContent).toContain("Ayah 1 of 2");
     expect(card?.textContent).not.toContain("%");
     expect(card?.textContent).toContain("not a score");
+  });
+});
+
+describe("hearing the exact Quran word", () => {
+  const firstAyahWords = FAKE_AYAHS[0].arabic.split(" ");
+
+  const correctionOn = (wordIndex: number) =>
+    wordCorrectionReview({
+      corrections: [{ expected: firstAyahWords[wordIndex - 1], heard: null, status: "missing", wordIndex }],
+      verseFollowing: {
+        currentSurah: 112, currentAyah: 1, expectedWordIndex: wordIndex, lastCompletedAyah: null,
+        state: "correcting", attemptsOnCurrentAyah: 1, evidence: "partial", shouldAdvance: false,
+        nextAyah: 2, correctionFocus: { wordIndex, expectedArabic: firstAyahWords[wordIndex - 1], kind: "missing" },
+        reason: "mistake_to_correct",
+      },
+    });
+
+  it("requests the recording of that exact word, from the reciter source", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOn(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    const listen = container.querySelector<HTMLButtonElement>(".lesson-listen.is-word");
+    expect(listen?.getAttribute("aria-label")).toContain(firstAyahWords[2]);
+
+    played.length = 0;
+    await act(async () => {
+      listen!.click();
+    });
+    await settle();
+
+    // Word 3 of 112:1, and nothing else — not the ayah recording, and nothing
+    // generated.
+    expect(played).toEqual(["https://audio.qurancdn.example/wbw/112_001_003.mp3"]);
+  });
+
+  it("shows the canonical Quran word unchanged beside the control", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOn(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    const word = container.querySelector(".lesson-word")!;
+    // The review named `اللَّهُ`; the ayah spells it `اللَّهُ` too here, and what is
+    // rendered is the ayah's own text either way.
+    expect(word.textContent).toBe(firstAyahWords[2]);
+    expect(word.getAttribute("lang")).toBe("ar");
+    expect(word.getAttribute("dir")).toBe("rtl");
+  });
+
+  it("falls back to the ayah when the source served no word recordings", async () => {
+    surahData.wordAudioSource = null;
+    try {
+      mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOn(3));
+      await mount();
+      await openStudy();
+      await recordOnce();
+
+      expect(container.querySelector(".lesson-listen.is-word")).toBeNull();
+      const listen = container.querySelector<HTMLButtonElement>(".lesson-listen");
+      expect(listen?.textContent).toContain(en.strings["correction.listen"]);
+      expect(text()).toContain(en.strings["lesson.referenceNote"]);
+
+      played.length = 0;
+      await act(async () => {
+        listen!.click();
+      });
+      await settle();
+      // The reciter's ayah — never a synthesised stand-in for the word.
+      expect(played).toEqual([FAKE_AYAHS[0].audioUrl]);
+    } finally {
+      surahData.wordAudioSource = ORIGINAL_WORD_SOURCE;
+    }
+  });
+
+  it("offers no word recording for a position the ayah cannot have", async () => {
+    // Word 9 of a four-word ayah: the review is dropped whole, so there is no
+    // lesson and certainly no audio addressed to a word that does not exist.
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(
+      wordCorrectionReview({ corrections: [{ expected: "لا", heard: null, status: "missing", wordIndex: 9 }] }),
+    );
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(container.querySelector(".lesson-listen.is-word")).toBeNull();
+    expect(container.querySelector(".word-lesson")).toBeNull();
+  });
+
+  it("drops the word recording the moment the learner changes ayah", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOn(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+    expect(container.querySelector(".lesson-listen.is-word")).toBeTruthy();
+
+    await act(async () => {
+      container.querySelectorAll<HTMLButtonElement>(".study-pagination .dot")[1].click();
+    });
+    await settle();
+
+    // No control, and so no way to play 112:1's third word over 112:2.
+    expect(container.querySelector(".lesson-listen.is-word")).toBeNull();
+    expect(container.querySelector(".word-lesson")).toBeNull();
+  });
+
+  it("plays the ayah from the selected reciter while the word comes from the reference set", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(correctionOn(3));
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    // The two voices are different, and the interface says so rather than
+    // letting the learner assume otherwise.
+    expect(text()).toContain(en.strings["lesson.wordReferenceNote"]);
+
+    played.length = 0;
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".lesson-ayah-listen")!.click();
+    });
+    await settle();
+    expect(played).toEqual([FAKE_AYAHS[0].audioUrl]);
   });
 });

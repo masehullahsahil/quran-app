@@ -115,6 +115,15 @@ export const strings: TranslatableStrings = {
   "lesson.recognised": "خوب است — این بار کلمهٔ نشانی‌شده را شنیدم.",
   "lesson.referenceNote": "این تمام آیت را آهسته پخش می‌کند: ثبت جداگانهٔ یک کلمه وجود ندارد.",
 
+  // The per-word reference recitation. `lesson.hearWord` above names the word
+  // itself; these are its states and the honest note about whose voice it is.
+  "lesson.hearFullAyah": "تمام آیت را بشنوید",
+  "lesson.wordLoading": "ثبت در راه است…",
+  "lesson.wordPlaying": "قاری این کلمه را می‌خواند",
+  "lesson.wordUnavailable": "ثبت این کلمه پخش نشد.",
+  "lesson.playAyahInstead": "به جای آن تمام آیت را بشنوید",
+  "lesson.wordReferenceNote": "یک تلاوت مرجع کلمه‌به‌کلمه — قاری آن با آیت بالا فرق دارد.",
+
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "این ثبت به اندازهٔ کافی با آیت کنونی نخورد",
   "outcome.unrelatedDetail": "کلمه‌ها جداگانه بررسی نشدند. آیت را بشنوید، سپس دوباره ثبت کنید.",

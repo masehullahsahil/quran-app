@@ -367,6 +367,23 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .lesson-listen:hover { background: #e8f2eb; }
 .lesson-listen:disabled { opacity: .55; cursor: not-allowed; }
 .lesson-note { display: block; margin-top: 9px; color: #7c867e; font-size: 10px; line-height: 1.45; }
+/* The word's own recording, when the source serves one. It is the prominent
+   listen control — larger than the ayah fallback beneath it — and its loading,
+   playing and failed states are all said in words as well as shown. */
+/* Outlined, not filled: "Say the word" is the one primary action at any step,
+   and a second solid pill beside it would make the learner choose between two
+   things that look equally like the next thing to do. */
+.lesson-listen.is-word { color: #1d5a41; border-color: #2e7857; border-width: 2px; background: #f2f8f4; }
+.lesson-listen.is-word:hover { background: #e3f0e8; }
+.lesson-listen.is-word.is-playing { color: #fffdf8; border-color: #1d5a41; background: #1d5a41; }
+.lesson-listen.is-word.is-loading { color: #4c5c52; border-color: #b9c9bf; background: #eef2ef; cursor: progress; }
+.lesson-ayah-listen { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 11px 14px; margin-top: 8px; color: #3e6554; border: 1px solid transparent; background: none; cursor: pointer; font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 3px; }
+.lesson-ayah-listen:hover { color: #174d42; }
+.lesson-ayah-listen:disabled { opacity: .55; cursor: not-allowed; text-decoration: none; }
+.lesson-word-failed { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 9px 0 0; color: #7a4a41; font-size: 11px; font-weight: 700; }
+.lesson-fallback { min-height: 44px; padding: 10px 14px; color: #174d42; border: 1px solid #aac5b2; background: #f6faf7; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
+.lesson-fallback:hover { background: #e8f2eb; }
+.lesson-fallback:disabled { opacity: .55; cursor: not-allowed; }
 .now-surah { color: #174d42; }
 .now-place > span + span::before { content: "·"; margin: 0 6px; color: #b6bdb5; }
 .now-steps { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 0; padding: 0; list-style: none; counter-reset: step; }
@@ -523,6 +540,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 [dir="rtl"] .fix-cta svg,
 [dir="rtl"] .lesson-primary svg,
 [dir="rtl"] .lesson-listen svg,
+[dir="rtl"] .lesson-ayah-listen svg,
 [dir="rtl"] .listen-inline svg { transform: none; }
 /* Numbered strips and progress meters fill from the reading edge. */
 [dir="rtl"] .now-steps, [dir="rtl"] .fix-steps, [dir="rtl"] .lesson-steps, [dir="rtl"] .course-levels, [dir="rtl"] .loop-steps { direction: rtl; }
@@ -625,6 +643,8 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .lesson-context p { gap: 0 8px; font-size: clamp(18px, 5.5vw, 22px); }
   .lesson-actions { flex-direction: column; align-items: stretch; }
   .lesson-primary, .lesson-listen { width: 100%; min-height: 48px; }
+  .lesson-ayah-listen, .lesson-fallback { width: 100%; justify-content: center; min-height: 46px; }
+  .lesson-word-failed { flex-direction: column; align-items: stretch; }
   .now-place { row-gap: 2px; }
   .study-arabic { min-height: 115px; font-size: 40px; }
   .learning-layout { min-height: 520px; padding: 21px 20px 28px; }

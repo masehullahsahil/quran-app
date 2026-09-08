@@ -86,6 +86,7 @@ function lessonFor(patch: Partial<CorrectionLessonInput> = {}): CorrectionLesson
 let container: HTMLDivElement;
 let root: Root;
 const onListen = vi.fn();
+const onHearWord = vi.fn();
 const onRecordWord = vi.fn();
 const onRecordAyah = vi.fn();
 const onStop = vi.fn();
@@ -103,7 +104,21 @@ async function settle() {
   }
 }
 
-function Harness({ lesson, locale }: { lesson: CorrectionLesson; locale: LocaleCode }) {
+/** The word-by-word recording Quran.com serves for the target. */
+const WORD_AUDIO = {
+  url: "https://verses.quran.com/wbw/001_002_003.mp3",
+  arabic: TARGET,
+  wordIndex: 3,
+  matchesSelectedReciter: false,
+  reciterName: null,
+};
+
+type Extras = {
+  wordAudio?: typeof WORD_AUDIO | null;
+  wordAudioState?: { loading: boolean; playing: boolean; failed: boolean };
+};
+
+function Harness({ lesson, locale, extras }: { lesson: CorrectionLesson; locale: LocaleCode; extras: Extras }) {
   const { setLocale } = useLocale();
   React.useEffect(() => {
     setLocale(locale);
@@ -111,6 +126,9 @@ function Harness({ lesson, locale }: { lesson: CorrectionLesson; locale: LocaleC
   return (
     <FocusedWordLesson
       lesson={lesson}
+      wordAudio={extras.wordAudio ?? null}
+      onHearWord={onHearWord}
+      wordAudioState={extras.wordAudioState}
       onListen={onListen}
       onRecordWord={onRecordWord}
       onRecordAyah={onRecordAyah}
@@ -121,11 +139,11 @@ function Harness({ lesson, locale }: { lesson: CorrectionLesson; locale: LocaleC
   );
 }
 
-async function show(lesson: CorrectionLesson, locale: LocaleCode = "en") {
+async function show(lesson: CorrectionLesson, locale: LocaleCode = "en", extras: Extras = {}) {
   await act(async () => {
     root.render(
       <LocaleProvider>
-        <Harness lesson={lesson} locale={locale} />
+        <Harness lesson={lesson} locale={locale} extras={extras} />
       </LocaleProvider>,
     );
   });
@@ -136,7 +154,7 @@ beforeEach(() => {
   window.localStorage.clear();
   document.documentElement.dir = "ltr";
   document.documentElement.lang = "en";
-  for (const spy of [onListen, onRecordWord, onRecordAyah, onStop, onContinue]) spy.mockClear();
+  for (const spy of [onListen, onHearWord, onRecordWord, onRecordAyah, onStop, onContinue]) spy.mockClear();
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -376,5 +394,125 @@ describe("every language the app carries", () => {
     expect(text()).toContain(ar.strings["lesson.reciteHeadline"]);
     expect(document.documentElement.dir).toBe("rtl");
     expect(word()?.getAttribute("dir")).toBe("rtl");
+  });
+});
+
+describe("hearing the word itself", () => {
+  const heard = { wordAudio: WORD_AUDIO };
+  const listen = () => container.querySelector<HTMLButtonElement>(".lesson-listen");
+  const ayahListen = () => container.querySelector<HTMLButtonElement>(".lesson-ayah-listen");
+
+  it("names the word on the listen control and plays that word's recording", async () => {
+    await show(lessonFor(), "en", heard);
+
+    expect(listen()?.className).toContain("is-word");
+    expect(listen()?.textContent).toContain(TARGET);
+    expect(listen()?.getAttribute("aria-label")).toContain(TARGET);
+
+    await act(async () => {
+      listen()!.click();
+    });
+    expect(onHearWord).toHaveBeenCalledTimes(1);
+    // Not the ayah: that is the separate control below.
+    expect(onListen).not.toHaveBeenCalled();
+  });
+
+  it("keeps the full ayah one press away", async () => {
+    await show(lessonFor(), "en", heard);
+
+    expect(ayahListen()?.textContent).toContain(en.strings["lesson.hearFullAyah"]);
+    await act(async () => {
+      ayahListen()!.click();
+    });
+    expect(onListen).toHaveBeenCalledTimes(1);
+  });
+
+  it("says whose recitation the word is, since it is not the ayah's reciter", async () => {
+    await show(lessonFor(), "en", heard);
+    expect(text()).toContain(en.strings["lesson.wordReferenceNote"]);
+    // The honest note about there being no word recording is gone: there is one.
+    expect(text()).not.toContain(en.strings["lesson.referenceNote"]);
+  });
+
+  it("says nothing about the reciter when the recording is the selected one", async () => {
+    await show(lessonFor(), "en", { wordAudio: { ...WORD_AUDIO, matchesSelectedReciter: true } });
+    expect(text()).not.toContain(en.strings["lesson.wordReferenceNote"]);
+  });
+
+  it("shows loading and playing in words, not only in colour", async () => {
+    await show(lessonFor(), "en", { ...heard, wordAudioState: { loading: true, playing: false, failed: false } });
+    expect(listen()?.textContent).toContain(en.strings["lesson.wordLoading"]);
+
+    await show(lessonFor(), "en", { ...heard, wordAudioState: { loading: false, playing: true, failed: false } });
+    const status = Array.from(container.querySelectorAll('[role="status"]')).map((node) => node.textContent ?? "");
+    expect(status.join(" ")).toContain(en.strings["lesson.wordPlaying"]);
+  });
+
+  it("says so and offers the ayah when the word recording will not play", async () => {
+    await show(lessonFor(), "en", { ...heard, wordAudioState: { loading: false, playing: false, failed: true } });
+
+    const failure = container.querySelector(".lesson-word-failed");
+    expect(failure?.textContent).toContain(en.strings["lesson.wordUnavailable"]);
+    expect(failure?.getAttribute("role")).toBe("status");
+    // No URL, no error code, no stack.
+    for (const leak of ["http", ".mp3", "error", "404"]) {
+      expect((failure?.textContent ?? "").toLowerCase(), leak).not.toContain(leak);
+    }
+
+    const fallback = container.querySelector<HTMLButtonElement>(".lesson-fallback");
+    expect(fallback?.textContent).toContain(en.strings["lesson.playAyahInstead"]);
+    await act(async () => {
+      fallback!.click();
+    });
+    expect(onListen).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back honestly when there is no word recording at all", async () => {
+    await show(lessonFor(), "en", { wordAudio: null });
+
+    expect(listen()?.className).not.toContain("is-word");
+    expect(listen()?.textContent).toContain(en.strings["correction.listen"]);
+    expect(text()).toContain(en.strings["lesson.referenceNote"]);
+    expect(ayahListen()).toBeNull();
+  });
+
+  it("offers no synthesised alternative on any path", async () => {
+    for (const extras of [heard, { wordAudio: null }, { ...heard, wordAudioState: { loading: false, playing: false, failed: true } }]) {
+      await show(lessonFor(), "en", extras);
+      const labels = Array.from(container.querySelectorAll("button")).map((node) => node.textContent?.toLowerCase() ?? "");
+      for (const label of labels) {
+        for (const fake of ["speech", "synth", "text to speech", "tts", "robot", "computer voice"]) {
+          expect(label, fake).not.toContain(fake);
+        }
+      }
+    }
+  });
+
+  it("keeps the touch targets big enough to press", async () => {
+    await show(lessonFor(), "en", { ...heard, wordAudioState: { loading: false, playing: false, failed: true } });
+    // The stylesheet sets the heights; what is asserted here is that each
+    // control is a real button rather than an icon glyph with a click handler.
+    for (const selector of [".lesson-listen", ".lesson-ayah-listen", ".lesson-fallback"]) {
+      const button = container.querySelector<HTMLButtonElement>(selector);
+      expect(button?.tagName, selector).toBe("BUTTON");
+      expect((button?.textContent ?? "").trim().length, selector).toBeGreaterThan(0);
+    }
+  });
+
+  it.each(SUPPORTED_LANGUAGE_CODES.map((code) => [code]))("offers the word recording in %s", async (code) => {
+    await show(lessonFor(), code, heard);
+
+    expect(container.querySelector(".lesson-listen.is-word"), code).toBeTruthy();
+    // The word inside the label is the Quran's own, in every interface language.
+    expect(listen()?.getAttribute("aria-label"), code).toContain(TARGET);
+    expect(ayahListen()?.textContent?.trim().length, code).toBeGreaterThan(0);
+    expect(document.documentElement.dir, code).toBe(directionFor(code));
+  });
+
+  it("names the controls in Arabic rather than falling back to English", async () => {
+    await show(lessonFor(), "ar", heard);
+    expect(ayahListen()?.textContent).toContain(ar.strings["lesson.hearFullAyah"]);
+    expect(text()).toContain(ar.strings["lesson.wordReferenceNote"]);
+    expect(text()).not.toContain(en.strings["lesson.hearFullAyah"]);
   });
 });

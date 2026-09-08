@@ -114,6 +114,15 @@ export const strings: TranslatableStrings = {
   "lesson.recognised": "ښه دي — دا ځل مې نښه شوې کلمه واورېده.",
   "lesson.referenceNote": "دا ټول آیت ورو غږوي: د یوې کلمې جلا ثبت نشته.",
 
+  // The per-word reference recitation. `lesson.hearWord` above names the word
+  // itself; these are its states and the honest note about whose voice it is.
+  "lesson.hearFullAyah": "ټول آیت واورئ",
+  "lesson.wordLoading": "ثبت راځي…",
+  "lesson.wordPlaying": "قاري دا کلمه وايي",
+  "lesson.wordUnavailable": "د دې کلمې ثبت و نه غږول شو.",
+  "lesson.playAyahInstead": "پر ځای یې ټول آیت واورئ",
+  "lesson.wordReferenceNote": "دا د کلمه په کلمه یو مرجع تلاوت دی — پورتني آیت څخه بل قاري.",
+
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "دا ثبت د اوسني آیت سره بس دومره ونه لګېد",
   "outcome.unrelatedDetail": "جلا جلا کلمې ونه کتل شوې. آیت واورئ، بیا یې ثبت کړئ.",

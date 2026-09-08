@@ -25,6 +25,7 @@
 import type { StringKey } from "@locales/index";
 import type { TeacherAction } from "./teacherAction";
 import type { TextCorrection } from "@shared/teacherDecision";
+import { sameQuranWord } from "./quranWordMatch";
 
 /**
  * The four things a learner does, in order.
@@ -248,35 +249,6 @@ export function deriveCorrectionLesson(input: CorrectionLessonInput): Correction
 function targetFitsAyah(wordIndex: number, arabic: string, ayahWords: readonly string[]): boolean {
   if (!Number.isInteger(wordIndex) || wordIndex < 1 || wordIndex > ayahWords.length) return false;
   return sameQuranWord(ayahWords[wordIndex - 1], arabic);
-}
-
-/** Marks and joiners that distinguish two spellings of the same word. */
-const COMPARISON_NOISE = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u0640\u0670\u200C-\u200F\u202A-\u202E\u2066-\u2069]/g;
-
-/**
- * Whether two spellings are the same Quranic word.
- *
- * The reviewer's `expectedArabic` and the ayah text on screen can differ in
- * harakat and in which alif is written — `اللَّهُ` against `ٱللَّهُ` is the same word
- * in the same place — and treating those as different words would hide a
- * correction that is perfectly valid.
- *
- * This compares; it never rewrites. Both arguments are thrown away and the
- * ayah is always rendered exactly as the content gives it. The rules mirror the
- * equivalences in `server/recitation.ts` — that module belongs to the server and
- * is deliberately not imported into the browser bundle — and any drift between
- * them can only change whether the lesson is *shown*, never what it says.
- */
-function sameQuranWord(left: string, right: string): boolean {
-  const fold = (word: string) =>
-    word
-      .normalize("NFKC")
-      .replace(COMPARISON_NOISE, "")
-      .replace(/[أإآٱ]/g, "ا")
-      .replace(/ى/g, "ي")
-      .trim();
-  const folded = fold(left);
-  return folded.length > 0 && folded === fold(right);
 }
 
 /**

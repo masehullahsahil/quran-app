@@ -12,13 +12,23 @@
  */
 import { ENV } from "./_core/env";
 import { TtlCache } from "./quranCache";
-import type { Ayah, JuzSummary, QuranIndex, Reciter, SurahContent, SurahSummary, Translation } from "@shared/quran";
+import type { Ayah, JuzSummary, QuranIndex, Reciter, SurahContent, SurahSummary, Translation, WordAudio, WordAudioSource } from "@shared/quran";
 
 /**
  * Ayah audio URLs come back relative to this host (e.g. "Alafasy/mp3/001001.mp3").
  * Some resources already carry an absolute URL, so absoluteAudioUrl() handles both.
  */
 const AUDIO_CDN_BASE = "https://verses.quran.com/";
+
+/**
+ * Word recordings come from a different host to the ayah recordings.
+ *
+ * `word.audio_url` is a relative asset — "wbw/001_001_001.mp3" — and the Quran
+ * Foundation documentation resolves it against audio.qurancdn.com, not against
+ * the verses host the ayah files use. They are two asset stores, and reusing
+ * the ayah base here would build URLs that happen to look right and 404.
+ */
+const WORD_AUDIO_CDN_BASE = "https://audio.qurancdn.com/";
 
 /**
  * The translation shown under each ayah is chosen by the reader from the list
@@ -392,7 +402,7 @@ function stripMarkup(text: string): string {
     .trim();
 }
 
-type VerseText = Omit<Ayah, "audioUrl">;
+type VerseText = Omit<Ayah, "audioUrl" | "wordAudio">;
 
 async function listVerseText(surah: number, translationId: number): Promise<VerseText[]> {
   // The translation is part of the cache key: the Arabic is the same either way,
@@ -437,12 +447,106 @@ async function listVerseText(surah: number, translationId: number): Promise<Vers
   });
 }
 
+/**
+ * Word-by-word recordings for one surah.
+ *
+ * Quran.com serves these on the verse objects themselves: asking for
+ * `words=true` returns a `words` array per verse, each entry carrying its
+ * `position`, its `text_uthmani`, and an `audio_url` relative to the same CDN
+ * the ayah recordings come from.
+ *
+ * Fetched separately from the ayah text on purpose. The text request is the one
+ * a reader cannot do without, and it is cached per translation; folding word
+ * fields into it would make every reader pay for a payload only Study uses, and
+ * would put the text behind a field that may not be served. This request can
+ * fail on its own and cost nothing but the word recordings.
+ *
+ * Two things are dropped rather than trusted: entries whose `char_type_name` is
+ * not `word` — the ayah-number marker at the end of each verse is a "word" in
+ * the payload and is not a word of the Quran — and entries with no audio.
+ *
+ * Dropping a word with no audio drops the *recording*, never the position. The
+ * count runs over every word of the ayah, so word 3 is the third word whether
+ * or not words 1 and 2 were recorded. Compressing the numbering around a gap
+ * would make "hear word 3" play word 4, against a correction that named a
+ * canonical position.
+ */
+type WordResponse = {
+  verses: Array<{
+    verse_key?: string;
+    words?: Array<{
+      position?: number;
+      char_type_name?: string;
+      text_uthmani?: string | null;
+      text?: string | null;
+      audio_url?: string | null;
+    }>;
+  }>;
+  pagination?: { next_page?: number | null };
+};
+
+async function listWordAudioByVerseKey(surah: number): Promise<Record<string, WordAudio[]>> {
+  return cache.fetch(`words:${surah}`, DAY_MS, async () => {
+    const byVerseKey: Record<string, WordAudio[]> = {};
+    let page: number | null = 1;
+
+    while (page !== null && page <= MAX_VERSE_PAGES) {
+      // `words=true` and the text field are the two things this endpoint is
+      // documented to accept. `audio_url` is modelled as word *audio* rather
+      // than as another text field, and asking for it as one risks a legacy
+      // endpoint rejecting the whole request — so it is parsed when the word
+      // objects carry it and simply absent when they do not.
+      const query = new URLSearchParams({
+        words: "true",
+        word_fields: "text_uthmani",
+        per_page: String(VERSES_PER_PAGE),
+        page: String(page),
+      });
+      const payload: WordResponse = await fetchJson<WordResponse>(
+        `/verses/by_chapter/${surah}?${query.toString()}`,
+      );
+
+      for (const verse of payload.verses ?? []) {
+        if (!verse.verse_key) continue;
+        const words: WordAudio[] = [];
+        // Counts every word of the ayah, recorded or not. The correction engine
+        // addresses canonical Quran positions, so a word the source served no
+        // recording for still occupies its place: numbering the recordings
+        // 1, 2, 3… around a gap would silently shift every later word, and
+        // "hear word 3" would play word 4.
+        let canonicalPosition = 0;
+        for (const word of verse.words ?? []) {
+          // The verse-end marker is served as a word and is not one.
+          if (word.char_type_name && word.char_type_name !== "word") continue;
+          const arabic = (word.text_uthmani ?? word.text ?? "").trim();
+          if (!arabic) continue;
+          canonicalPosition += 1;
+          const url = word.audio_url?.trim();
+          // No recording: the position is still spent, and nothing is emitted.
+          if (!url) continue;
+          words.push({ position: canonicalPosition, arabic, url: absoluteWordAudioUrl(url) });
+        }
+        if (words.length) byVerseKey[verse.verse_key] = words;
+      }
+
+      page = payload.pagination?.next_page ?? null;
+    }
+
+    return byVerseKey;
+  });
+}
+
 type AudioResponse = {
   audio_files: Array<{ verse_key?: string; url?: string | null }>;
 };
 
 function absoluteAudioUrl(url: string): string {
   return /^https?:\/\//i.test(url) ? url : `${AUDIO_CDN_BASE}${url.replace(/^\/+/, "")}`;
+}
+
+/** The same rule for word recordings, against their own host. */
+export function absoluteWordAudioUrl(url: string): string {
+  return /^https?:\/\//i.test(url) ? url : `${WORD_AUDIO_CDN_BASE}${url.replace(/^\/+/, "")}`;
 }
 
 async function listAudioByVerseKey(surah: number, reciterId: number): Promise<Record<string, string>> {
@@ -497,10 +601,43 @@ export async function getSurahContent(
     console.warn(`[quran] Audio unavailable for surah ${surah} (reciter ${reciterId})`, error);
   }
 
+  // Word recordings are an extra, not a requirement. Losing them costs Study
+  // its per-word reference and nothing else, so a failure here is a warning and
+  // an empty map — never an error the reader sees.
+  let wordAudio: Record<string, WordAudio[]> = {};
+  try {
+    wordAudio = await listWordAudioByVerseKey(surah);
+  } catch (error) {
+    console.warn(`[quran] Word audio unavailable for surah ${surah}`, error);
+  }
+
+  const servedWordAudio = Object.keys(wordAudio).length > 0;
+
   return {
     surah: summary,
     reciterId,
     translationId,
-    ayahs: verses.map((verse) => ({ ...verse, audioUrl: audio[verse.verseKey] ?? null })),
+    ayahs: verses.map((verse) => ({
+      ...verse,
+      audioUrl: audio[verse.verseKey] ?? null,
+      wordAudio: wordAudio[verse.verseKey] ?? [],
+    })),
+    wordAudioSource: servedWordAudio ? WORD_AUDIO_SOURCE : null,
   };
 }
+
+/**
+ * What Quran.com's word recordings are.
+ *
+ * They are one recitation set, served on the word objects themselves with no
+ * reciter parameter and no reciter named in the response — so they are not the
+ * reciter the learner picked for the ayah, and this app does not claim they
+ * are. `matchesSelectedReciter: false` is what the interface reads to say
+ * "word-by-word reference recitation" beside the selected reciter's ayah.
+ */
+const WORD_AUDIO_SOURCE: WordAudioSource = {
+  provider: "quran.com",
+  kind: "word-file",
+  reciterName: null,
+  matchesSelectedReciter: false,
+};

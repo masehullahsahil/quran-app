@@ -116,6 +116,15 @@ export const strings: TranslatableStrings = {
   "lesson.recognised": "أحسنت — سمعت الكلمة المحددة هذه المرة.",
   "lesson.referenceNote": "هذا يشغّل الآية كاملة ببطء: لا يوجد تسجيل منفصل لكلمة واحدة.",
 
+  // The per-word reference recitation. `lesson.hearWord` above names the word
+  // itself; these are its states and the honest note about whose voice it is.
+  "lesson.hearFullAyah": "استمع إلى الآية كاملة",
+  "lesson.wordLoading": "يجري تحميل التسجيل…",
+  "lesson.wordPlaying": "القارئ يتلو هذه الكلمة",
+  "lesson.wordUnavailable": "تعذَّر تشغيل تسجيل هذه الكلمة.",
+  "lesson.playAyahInstead": "استمع إلى الآية كاملة بدلًا من ذلك",
+  "lesson.wordReferenceNote": "تلاوة مرجعية كلمة بكلمة — قارئ غير قارئ الآية أعلاه.",
+
   // A recording that matched too little of the ayah for any word to be judged.
   "outcome.unrelatedHeadline": "هذا التسجيل لم يطابق ما يكفي من الآية الحالية",
   "outcome.unrelatedDetail": "لم تُراجَع الكلمات فرادى. استمع إلى الآية، ثم سجِّل مرة أخرى.",
