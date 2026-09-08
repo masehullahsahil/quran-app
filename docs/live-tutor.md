@@ -119,28 +119,94 @@ stays behind #52's approved-teacher ledger. **No Quranic Arabic is synthesised
 anywhere**, and there is no speech-synthesis fallback: `hear-word` is simply not
 offered when no trustworthy recording of the word exists.
 
-## Wiring it to the tutor engine
+## How it is wired into Study
 
-The panel is complete and tested against its props; it is not yet mounted in
-`Home.tsx`, because the state it renders is Codex's to produce. To connect it:
+Three pieces, in a line, and no state machine among them:
 
-1. produce a `TutorSessionView` from the session state — `state`, `target`,
-   `canHearWord`, `canHearAyah`, `hintAvailable`, `hintShown`;
-2. render `<LiveTutorPanel session={…} ayah={…} onIntent={…} />`;
-3. map the eleven `TutorIntent`s onto the existing handlers — `again` and
-   `repeat-word` to the recorder, `hear-word`/`hear-ayah` to the Quran audio
-   already wired in Study, `pause`/`resume`/`stop` to the session;
-4. pass anything worth keeping as `details`, which renders collapsed.
+```
+tutor.start / tutor.turn      useLiveTutor      liveTutorView       LiveTutorPanel
+  (server owns the lesson) →  (the wire) →  (one vocabulary → another) → (markup)
+```
 
-`CorrectionStage` and `TargetRecognition` in `shared/wordCorrection.ts` map onto
-`TutorState` directly: `hear`/`say-word` → `correction`, a `recognised`
-recognition → `word-recognised` then `recite-ayah`, `continue` → `complete`.
+**`client/src/hooks/useLiveTutor.ts`** is the only place the app talks to the
+engine. It opens one session per ayah, posts events against the exact snapshot
+the server last returned, and stores the turn that comes back. It never advances
+a phase or chooses an action. When the tutor is unreachable, `active` stays
+false and Study renders the surfaces it had before — which still work.
+
+**`client/src/lib/liveTutorView.ts`** maps the engine's vocabulary onto the
+panel's. It reads a phase and an action kind, and nothing else: no transcript,
+no score, no alignment.
+
+| Engine | Panel |
+|---|---|
+| `ready` | `ready` |
+| `listening` | `listening` |
+| `correcting-word` | `correction`, or `hint` when the action is `offer-hint` / `show-hint` |
+| `recite-ayah` + reason `target-recognised` | `word-recognised` |
+| `recite-ayah`, any later turn | `recite-ayah` |
+| `waiting` + reason `recitation-uncertain` | `uncertain` |
+| `waiting`, otherwise | `listening` |
+| `paused` | `paused` |
+| `completed` / `stopped` | `complete` |
+| the microphone is open | `listening`, whatever the phase |
+| an attempt is with the reviewer | `checking`, whatever the phase |
+
+An unrecognised phase falls back to `listening` rather than inventing a lesson
+state. The target is the engine's `activeCorrection` and is dropped when it
+names another ayah or a position the ayah on screen has no room for — the same
+rule the focused lesson gained in #50.
+
+**`Home.tsx`** holds the microphone, the audio and the words, and asks the tutor
+what to say. `runTutorIntent` sends the intent and does the local half: open the
+recorder, play a file, step to another ayah. Nothing there decides a lesson
+state; the turn that comes back is what renders.
+
+### The recording scope
+
+`attemptScopeFor` reads the session phase, not the current action: a correction
+is a word attempt through the whole of it — "listen to it" and "now say it"
+alike — and reading only the action kind would submit a word attempt as an ayah
+attempt on every turn but one, which is exactly what #53 exists to prevent.
+
+### Ending a turn
+
+`FINISH_TURN` ("Done") is a panel control and deliberately **not** one of the
+engine's intents. The gap showed the moment the panel was first mounted: a
+learner could open the microphone and had no way to close it. But closing it is
+a recorder action — the engine learns what happened from the recitation evidence
+that follows, not from being told the learner stopped talking. So the teaching
+vocabulary stays exactly the eleven the engine knows.
+
+### What the tutor replaces while it runs
+
+Not deleted, and all still exactly what Study shows without a tutor:
+
+| Surface | With a tutor running |
+|---|---|
+| `teacher-now` instruction block | hidden — the tutor says it, once |
+| `StudyCorrection` / the focused lesson | hidden — same |
+| the recorder's own status line | hidden — same |
+| the live word guide | shown; it is the microphone's feedback, not a second instruction |
+| Teacher notes, score, corrections table | shown, collapsed, as before |
+| the developer diagnostics panel | unchanged, still behind its flag |
+
+### What awaits the trusted handoff
+
+`sendRecitation` in `useLiveTutor` is the single call site. Today the page posts
+the bounded evidence from the review it received — scope, position, the verse
+tracker's result, the correction snapshot and the focused-word result, with no
+transcript and no score. When the server hands the tutor its own evidence
+directly, that one call goes away and neither the adapter nor the panel moves.
 
 ## Limitations
 
-- **Not yet mounted.** Study still renders the focused-word lesson from #49–#53.
-  This PR is independently mergeable and changes nothing about that flow beyond
-  the two contradictory-state fixes above.
+- **The client posts the recitation evidence.** Until the trusted handoff
+  lands, the page tells the tutor what the reviewer found. The evidence is the
+  server's own output, and the tutor still decides the lesson from it — but a
+  client that can be tampered with is between the two.
+- **One session per ayah, in memory.** The engine's store is bounded and
+  in-process; a cold start loses live sessions and Study re-establishes one.
 - **The hint is a shape, not a curriculum.** `tutor.hintGiven` says "Start from
   *{word}*", which is the only hint the current data supports. A real hint
   ladder is a content question for a teacher.

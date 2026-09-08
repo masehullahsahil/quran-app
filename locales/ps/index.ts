@@ -145,6 +145,8 @@ export const strings: TranslatableStrings = {
 
   // The two or three things offered at a time. Never all of them at once.
   "tutor.doStart": "پیل",
+  // The end of the learner's turn — not pausing, and not stopping.
+  "tutor.doDone": "بس دی",
   "tutor.doAgain": "بیا هڅه",
   "tutor.doRepeatWord": "کلمه ووایاست",
   "tutor.doHearWord": "کلمه واورئ",

@@ -81,6 +81,25 @@ export const TUTOR_INTENTS = [
 export type TutorIntent = (typeof TUTOR_INTENTS)[number];
 
 /**
+ * "I have finished reciting."
+ *
+ * Not one of the engine's intents, and deliberately so. The gap showed the
+ * moment the panel was first mounted in Study: a learner could open the
+ * microphone and had no way to close it. But closing it is a *recorder*
+ * action — the engine learns what happened from the recitation evidence that
+ * follows, not from being told the learner stopped talking. So this is a
+ * control the panel offers and the page acts on, and the teaching vocabulary
+ * stays exactly the eleven the engine knows.
+ *
+ * It is not `stop`, which ends the session, and not `pause`, which keeps the
+ * place: it is the end of one turn.
+ */
+export const FINISH_TURN = "done" as const;
+
+/** What a control can ask for: a teaching intent, or the end of a turn. */
+export type TutorControlIntent = TutorIntent | typeof FINISH_TURN;
+
+/**
  * Who is doing something, and what.
  *
  * Presence is how the interface says "I am listening" without a face and
@@ -93,7 +112,7 @@ export type TutorPresence = "listening" | "thinking" | "speaking" | "waiting";
 export type TutorTurn = "teacher" | "learner";
 
 export type TutorControl = {
-  intent: TutorIntent;
+  intent: TutorControlIntent;
   labelKey: StringKey;
   /** The one thing to do next. Exactly one control per state has this. */
   primary: boolean;
@@ -112,6 +131,14 @@ export type TutorSessionView = {
   hintAvailable?: boolean;
   /** True once the learner has asked for the hint and it is on screen. */
   hintShown?: boolean;
+  /**
+   * The microphone is open.
+   *
+   * Distinct from the engine's `listening` phase, which is about the lesson.
+   * This is about the recorder, and it is what decides whether the learner is
+   * offered a way to end their turn or a way to step away from the lesson.
+   */
+  micOpen?: boolean;
 };
 
 export type TutorView = {
@@ -193,8 +220,9 @@ const TURN: Record<TutorState, TutorTurn> = {
 };
 
 /** The learner-facing name of each intent. Exported so nothing builds a key. */
-export const TUTOR_INTENT_LABEL_KEYS: Record<TutorIntent, StringKey> = {
+export const TUTOR_INTENT_LABEL_KEYS: Record<TutorControlIntent, StringKey> = {
   start: "tutor.doStart",
+  done: "tutor.doDone",
   again: "tutor.doAgain",
   "repeat-word": "tutor.doRepeatWord",
   "hear-word": "tutor.doHearWord",
@@ -217,13 +245,15 @@ export const TUTOR_INTENT_LABEL_KEYS: Record<TutorIntent, StringKey> = {
  *
  * Order is meaningful: the first entry is the primary action.
  */
-function controlsFor(view: TutorSessionView): TutorIntent[] {
+function controlsFor(view: TutorSessionView): TutorControlIntent[] {
   switch (view.state) {
     case "ready":
       return ["start"];
-    // While the learner recites, the teacher is quiet. Only the ways out.
+    // While the learner recites, the teacher is quiet. With the microphone
+    // open the one thing they need is a way to say they have finished;
+    // otherwise it is the ways out of the lesson.
     case "listening":
-      return ["pause", "from-beginning"];
+      return view.micOpen ? ["done", "from-beginning"] : ["pause", "from-beginning"];
     // Nothing to press while the teacher listens back.
     case "checking":
       return [];

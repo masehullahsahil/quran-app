@@ -79,6 +79,8 @@ const FAKE_INDEX = {
 
 const mutationMocks = vi.hoisted(() => ({
   recitationEvaluate: vi.fn(),
+  tutorStart: vi.fn(),
+  tutorTurn: vi.fn(),
   recitationIngest: vi.fn(),
   learnerSyncProgress: vi.fn(),
   learnerSyncQaidaProgress: vi.fn(),
@@ -96,6 +98,13 @@ vi.mock("@/lib/trpc", () => {
       recitation: {
         evaluate: { useMutation: () => mutation(mutationMocks.recitationEvaluate) },
         ingestChunk: { useMutation: () => mutation(mutationMocks.recitationIngest) },
+      },
+      // The Live Tutor session. Left un-stubbed by default so the existing
+      // tests keep exercising the surfaces Study shows without a tutor — which
+      // is also what a learner sees if the tutor cannot be reached.
+      tutor: {
+        start: { useMutation: () => mutation(mutationMocks.tutorStart) },
+        turn: { useMutation: () => mutation(mutationMocks.tutorTurn) },
       },
       learner: {
         syncProgress: { useMutation: () => mutation(vi.fn(), mutationMocks.learnerSyncProgress) },
