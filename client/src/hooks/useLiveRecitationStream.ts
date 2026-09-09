@@ -30,6 +30,40 @@
  * one carries everything the dropped one did and more. Queueing them would send
  * the server a backlog of stale prefixes of audio it has already heard.
  *
+ * ## A request whose outcome is unknown
+ *
+ * Every live request is in exactly one of three states, and the difference
+ * between the last two is the whole of this section:
+ *
+ *   * **not sent** — nothing has left the browser, and the audio may be
+ *     replaced freely by a newer, longer sample;
+ *   * **unresolved** — it left the browser and no answer came back. The server
+ *     may have transcribed it, confirmed an omission, moved the Tutor, and had
+ *     its response lost on the way home;
+ *   * **acknowledged** — the server answered, whatever it said.
+ *
+ * The dangerous case is the middle one, and the tempting mistake is to shrug
+ * and send the next cumulative chunk. That is not a retry: it is a *different*
+ * input, under a different chunk id, carrying different audio. The server has
+ * no way to recognise it as the same logical operation, so the trusted outcome
+ * it already committed — quite possibly an interruption the learner needs — is
+ * never replayed, and the browser goes on reciting past a correction that has
+ * already happened.
+ *
+ * So an unresolved request is **retained exactly** and retried byte for byte:
+ * same stream, same session reference, same turn id, same chunk id, same
+ * sequence, same audio, same timestamps, same stability, same scope. #63 keeps
+ * the latest committed response and replays it for a duplicate of that input,
+ * so the retry returns the original event, Tutor handoff, directive and result
+ * without transcribing or applying anything twice. A replayed duplicate is
+ * therefore processed exactly as the original answer would have been.
+ *
+ * Newer audio arriving meanwhile is dropped rather than sent — a later
+ * cumulative sample contains it — and it may never leapfrog the unresolved
+ * request. After a bounded number of attempts the stream gives up and closes:
+ * the lesson falls back to finalised turns, which work, and nothing is
+ * fabricated.
+ *
  * ## Word turns are never streamed
  *
  * The live contract requires a focused word attempt to be a completed turn, and
@@ -62,6 +96,42 @@ export type UseLiveRecitationStreamInput = {
   onEvent: (event: LiveTutorServerEvent) => void;
 };
 
+/**
+ * How hard the browser tries to resolve a request whose outcome it does not
+ * know.
+ *
+ * Bounded on purpose. The point of retrying is to learn what the server already
+ * decided, not to get audio through at any cost: if the live path is down, the
+ * lesson still works on finalised turns and that is where it should end up
+ * rather than in an unbounded loop.
+ */
+export const LIVE_RETRY = {
+  /** Attempts in total, including the first send. */
+  maxAttempts: 3,
+  /** Wait between attempts. Short: an interruption the learner is owed. */
+  delayMs: 400,
+} as const;
+
+/** The exact request, kept so a retry can be the same logical input. */
+type LiveIngestPayload = {
+  session: LiveSessionReference;
+  streamId: string;
+  turnId: string;
+  chunkId: string;
+  sequence: number;
+  attemptScope: "ayah";
+  stability: "interim";
+  turnComplete: false;
+  captureStartedAtMs: number;
+  captureEndedAtMs: number;
+  audioBase64: string;
+  mimeType: InterimTurnAudio["mimeType"];
+  learningLevel: LearningLevel;
+  uiLanguage: SupportedLanguageCode;
+};
+
+type UnresolvedRequest = { payload: LiveIngestPayload; attempts: number };
+
 export type LiveRecitationStream = {
   /** True once the server has bound a stream to this lesson. */
   open: boolean;
@@ -69,6 +139,8 @@ export type LiveRecitationStream = {
   directive: LiveListeningDirective;
   /** Send one rolling chunk. Dropped when the server would refuse it. */
   sendInterim: (chunk: InterimTurnAudio) => void;
+  /** True while a request's outcome is unknown. Diagnostics only. */
+  awaitingAnswer: boolean;
 };
 
 /** A blob as the routes want it: base64, without the data-URL prefix. */
@@ -104,15 +176,22 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
 
   const [open, setOpen] = useState(false);
   const [directive, setDirective] = useState<LiveListeningDirective>("wait");
+  const [awaitingAnswer, setAwaitingAnswer] = useState(false);
 
   const streamIdRef = useRef<string | null>(null);
   /** The last sequence the server says it applied. The next one is this plus 1. */
   const appliedSequenceRef = useRef(0);
+  /** The request whose outcome is unknown, retained exactly for retry. */
+  const unresolvedRef = useRef<UnresolvedRequest | null>(null);
   const inFlightRef = useRef(false);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** How many chunks this browser has sent. Only ever used to make ids unique. */
   const sentCountRef = useRef(0);
   const directiveRef = useRef<LiveListeningDirective>("wait");
+  /** Which session+revision an open was already attempted for. */
   const openedForRef = useRef<string | null>(null);
+  /** Set once the live path has been given up on for this session. */
+  const abandonedRef = useRef(false);
   const latest = useRef(input);
   latest.current = input;
 
@@ -121,15 +200,117 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     setDirective(next);
   }, []);
 
+  const clearRetry = useCallback(() => {
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
+
   const closeStream = useCallback(() => {
+    clearRetry();
     streamIdRef.current = null;
     appliedSequenceRef.current = 0;
     sentCountRef.current = 0;
+    unresolvedRef.current = null;
     inFlightRef.current = false;
     openedForRef.current = null;
+    setAwaitingAnswer(false);
     setOpen(false);
     setChannel("wait");
-  }, [setChannel]);
+  }, [clearRetry, setChannel]);
+
+  /**
+   * What the server said, applied once.
+   *
+   * The same function handles an original answer and a replayed duplicate,
+   * which is the point: #63 gives a duplicate of the latest committed input the
+   * original's event, handoff, directive and result, so there is nothing to
+   * treat differently. An interruption acted on twice is harmless anyway — the
+   * turn is already closed and the handoff carries the same revision, so the
+   * teaching sequence is keyed to the same plan and performed once.
+   */
+  const handleAnswer = useCallback((answer: NonNullable<Awaited<ReturnType<NonNullable<typeof ingest>["mutateAsync"]>>>) => {
+    appliedSequenceRef.current = answer.acknowledgement.appliedSequence;
+    setChannel(answer.nextChannel);
+
+    if (answer.acknowledgement.status === "lost-stream") {
+      // The stream is gone — a serverless instance was recycled. Fail closed:
+      // stop streaming rather than sending chunks into a stream nobody holds.
+      // The lesson itself is a separate question, and the next finalised turn
+      // is what answers it.
+      closeStream();
+      latest.current.onEvent({ type: "not-applied", acknowledgement: answer.acknowledgement });
+      return;
+    }
+    if (answer.tutor?.status === "lost") {
+      latest.current.onEvent({ type: "lost" });
+      return;
+    }
+    // The one authoritative outcome, whether this answer is the original or
+    // #63 replaying it. Everything needed to act on it is here: the omission
+    // the server confirmed and the turn it decided. Nothing is derived.
+    if (answer.event && answer.tutor?.status === "updated" && answer.tutor.session) {
+      latest.current.onEvent({
+        type: "interrupt",
+        omission: answer.event,
+        session: answer.tutor.session,
+        action: answer.tutor.action,
+      });
+      return;
+    }
+    if (answer.acknowledgement.status !== "applied") {
+      // A duplicate carrying nothing authoritative, an out-of-order arrival, or
+      // a chunk the server refused. Bookkeeping, and never learner-visible.
+      latest.current.onEvent({ type: "not-applied", acknowledgement: answer.acknowledgement });
+      return;
+    }
+    // Following along. Provisional by definition, and never rendered as a
+    // correction: `possible-skip` lives in here and stays here.
+    latest.current.onEvent({ type: "tracking", directive: answer.nextChannel, stream: answer.stream });
+  }, [closeStream, setChannel]);
+
+  /**
+   * Attempt one request, and hold onto it until its outcome is known.
+   *
+   * A rejection is not a failure to send — it is a failure to *learn what
+   * happened*. The request stays exactly as it was so the next attempt is the
+   * same logical input and #63 can recognise it.
+   */
+  const attempt = useCallback((request: UnresolvedRequest) => {
+    const mutate = ingest?.mutateAsync;
+    if (!mutate) return;
+    inFlightRef.current = true;
+    setAwaitingAnswer(true);
+    void Promise.resolve(mutate(request.payload))
+      .then((answer) => {
+        // Resolved, whatever it says. The request is no longer unknown.
+        unresolvedRef.current = null;
+        setAwaitingAnswer(false);
+        if (answer) handleAnswer(answer);
+      })
+      .catch(() => {
+        request.attempts += 1;
+        if (request.attempts >= LIVE_RETRY.maxAttempts) {
+          // Bounded. The live path is down; the lesson continues on finalised
+          // turns, and nothing about the Quran is invented to cover the gap.
+          unresolvedRef.current = null;
+          abandonedRef.current = true;
+          closeStream();
+          return;
+        }
+        unresolvedRef.current = request;
+        clearRetry();
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          const pending = unresolvedRef.current;
+          if (pending && !inFlightRef.current) attempt(pending);
+        }, LIVE_RETRY.delayMs);
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+      });
+  }, [clearRetry, closeStream, handleAnswer, ingest]);
 
   /**
    * Open a stream for this lesson.
@@ -138,24 +319,33 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
    * session it already holds; the browser names the session and nothing else.
    * A failure here is not an error the learner reads — the lesson simply runs
    * on finalised turns, which is the whole feature minus the interruption.
+   *
+   * Keyed by session *and revision*: a bind refused as stale is not retried at
+   * the same revision, and is retried at the next one. `Home.tsx` awaits the
+   * `start` handoff before enabling this at all, so the first attempt already
+   * names the revision that intent produced.
    */
   useEffect(() => {
     const reference = input.reference;
-    if (!input.enabled || !reference || !startLive?.mutateAsync) {
-      if (!input.enabled || !reference) closeStream();
+    if (!input.enabled || !reference || !startLive?.mutateAsync || abandonedRef.current) {
+      if (!input.enabled || !reference) {
+        abandonedRef.current = false;
+        closeStream();
+      }
       return;
     }
-    const key = reference.sessionId;
-    if (openedForRef.current === key) return;
+    const key = `${reference.sessionId}#${reference.revision}`;
+    if (openedForRef.current === key || streamIdRef.current) return;
     openedForRef.current = key;
 
     void Promise.resolve(startLive.mutateAsync({ session: reference }))
       .then((answer) => {
         if (!answer) return;
         if (!answer.stream) {
-          // The lesson is stale, lost, or not in a state that can be streamed.
+          // Stale, lost, or a lesson in a state that cannot be streamed.
           // Nothing is invented from here.
-          closeStream();
+          streamIdRef.current = null;
+          setOpen(false);
           if (answer.tutor?.status === "lost") latest.current.onEvent({ type: "lost" });
           return;
         }
@@ -165,10 +355,12 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
         setChannel(answer.nextChannel);
       })
       .catch(() => {
-        // Unreachable is not lost. The lesson keeps working on finalised turns.
-        closeStream();
+        // Unreachable is not lost. The lesson keeps working on finalised turns,
+        // and a later revision may open a stream successfully.
+        streamIdRef.current = null;
+        setOpen(false);
       });
-  }, [input.enabled, input.reference?.sessionId, startLive, closeStream, setChannel]);
+  }, [input.enabled, input.reference?.sessionId, input.reference?.revision, startLive, closeStream, setChannel]);
 
   useEffect(() => () => closeStream(), [closeStream]);
 
@@ -181,81 +373,49 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     // about the lesson.
     if (!acceptsInterimAudio(directiveRef.current)) return;
     if (chunk.scope !== "ayah") return;
-    // One in flight. The next chunk is cumulative and carries everything this
-    // one would have, so dropping is lossless.
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
+    // One uncertain request at a time, and newer audio never leapfrogs it. The
+    // next cumulative sample contains everything this one would have, so
+    // dropping costs nothing; sending would ask the server a different question
+    // while the answer to the last one is still unknown.
+    if (inFlightRef.current || unresolvedRef.current) return;
 
     const sequence = appliedSequenceRef.current + 1;
     sentCountRef.current += 1;
-    const attempt = sentCountRef.current;
+    const attemptId = sentCountRef.current;
     void blobToBase64(chunk.blob)
-      .then((audioBase64) => ingest.mutateAsync({
-        session: reference,
-        streamId,
-        turnId: chunk.turnId,
-        chunkId: chunkId(chunk.turnId, attempt),
-        sequence,
-        attemptScope: "ayah" as const,
-        // Open utterance: the tracker may reach `possible-skip` from one of
-        // these, and nothing more. Only a completed turn can be evaluated.
-        stability: "interim" as const,
-        turnComplete: false,
-        captureStartedAtMs: Math.max(0, Math.round(chunk.captureStartedAtMs)),
-        captureEndedAtMs: Math.max(0, Math.round(chunk.captureEndedAtMs)),
-        audioBase64,
-        mimeType: chunk.mimeType,
-        learningLevel: latest.current.learningLevel,
-        uiLanguage: latest.current.uiLanguage,
-      }))
-      .then((answer) => {
-        if (!answer) return;
-        appliedSequenceRef.current = answer.acknowledgement.appliedSequence;
-        setChannel(answer.nextChannel);
-
-        if (answer.tutor?.status === "lost") {
-          latest.current.onEvent({ type: "lost" });
-          return;
-        }
-        // The one authoritative outcome. Everything needed to act on it is in
-        // the answer: the omission the server confirmed, and the turn it
-        // decided. Nothing is derived here.
-        if (answer.event && answer.tutor?.status === "updated" && answer.tutor.session) {
-          latest.current.onEvent({
-            type: "interrupt",
-            omission: answer.event,
-            session: answer.tutor.session,
-            action: answer.tutor.action,
-          });
-          return;
-        }
-        if (answer.acknowledgement.status === "lost-stream") {
-          // The stream is gone — a serverless instance was recycled. Fail
-          // closed: stop streaming rather than sending chunks into a stream
-          // nobody is holding. The lesson itself is a separate question, and
-          // the next finalised turn is what answers it.
-          closeStream();
-          latest.current.onEvent({ type: "not-applied", acknowledgement: answer.acknowledgement });
-          return;
-        }
-        if (answer.acknowledgement.status !== "applied") {
-          // A duplicate, a retry, an out-of-order arrival, or a chunk the
-          // server refused. Not an error, and not visible.
-          latest.current.onEvent({ type: "not-applied", acknowledgement: answer.acknowledgement });
-          return;
-        }
-        // Following along. Provisional by definition, and never rendered as a
-        // correction: `possible-skip` lives in here and stays here.
-        latest.current.onEvent({ type: "tracking", directive: answer.nextChannel, stream: answer.stream });
+      .then((audioBase64) => {
+        // Guard again: encoding is asynchronous, and the world may have moved.
+        if (streamIdRef.current !== streamId) return;
+        if (inFlightRef.current || unresolvedRef.current) return;
+        const request: UnresolvedRequest = {
+          attempts: 0,
+          payload: {
+            session: reference,
+            streamId,
+            turnId: chunk.turnId,
+            chunkId: chunkId(chunk.turnId, attemptId),
+            sequence,
+            attemptScope: "ayah",
+            // Open utterance: the tracker may reach `possible-skip` from one of
+            // these, and nothing more. Only a completed turn can be evaluated.
+            stability: "interim",
+            turnComplete: false,
+            captureStartedAtMs: Math.max(0, Math.round(chunk.captureStartedAtMs)),
+            captureEndedAtMs: Math.max(0, Math.round(chunk.captureEndedAtMs)),
+            audioBase64,
+            mimeType: chunk.mimeType,
+            learningLevel: latest.current.learningLevel,
+            uiLanguage: latest.current.uiLanguage,
+          },
+        };
+        // Unknown from the moment it leaves, not from the moment it fails.
+        unresolvedRef.current = request;
+        attempt(request);
       })
       .catch(() => {
-        // A failed chunk changes nothing. The sequence has not advanced, so the
-        // next rolling chunk takes the same number and carries the same audio.
-      })
-      .finally(() => {
-        inFlightRef.current = false;
+        // The blob could not be read. Nothing was sent, so nothing is unknown.
       });
-  }, [closeStream, ingest, setChannel]);
+  }, [attempt, ingest]);
 
-  return { open, directive, sendInterim };
+  return { open, directive, sendInterim, awaitingAnswer };
 }

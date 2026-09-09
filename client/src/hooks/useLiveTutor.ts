@@ -64,6 +64,23 @@ export type LiveTutorController = {
    */
   reference: TutorSessionReference | null;
   sendIntent: (intent: LearnerIntent) => void;
+  /**
+   * The same intent, awaited.
+   *
+   * Resolves once the server has answered *and* the answer has been stored, so
+   * a caller that needs the lesson to have actually moved before doing
+   * something else can order the two. Resolves null when there is no session or
+   * the turn could not be sent.
+   *
+   * This exists for one caller and one reason. Opening a live recitation stream
+   * names the session *and the revision*, and the server rejects a stale one —
+   * so a stream opened while a `start` intent is still in flight can bind to
+   * the revision that intent is about to replace, be refused, and leave the
+   * lesson silently without live tracking. Awaiting the handoff is the barrier.
+   * Nothing about that ordering may depend on React's rendering speed or on
+   * which request happens to reach the server first.
+   */
+  sendIntentAsync: (intent: LearnerIntent) => Promise<TutorHandoff | null>;
   sendTiming: (timing: TutorTimingEvent) => void;
   /**
    * Take the tutor half of a `recitation.evaluateWithTutor` answer.
@@ -179,11 +196,18 @@ export function useLiveTutor(input: UseLiveTutorInput): LiveTutorController {
       });
   }, [input.enabled, input.surah, input.ayah, input.totalAyahs, input.learnerLanguage, start, remember, clear]);
 
+  /**
+   * Send one event and store whatever the server answers.
+   *
+   * Returns the promise rather than swallowing it, so a caller that needs to
+   * wait can. `sendIntent` and `sendTiming` still ignore it, which is right for
+   * every caller that only needs the lesson to move eventually.
+   */
   const send = useCallback(
-    (event: PublicTutorEvent) => {
+    (event: PublicTutorEvent): Promise<TutorHandoff | null> => {
       const session = sessionRef.current;
-      if (!session || !advance?.mutateAsync) return;
-      void Promise.resolve(
+      if (!session || !advance?.mutateAsync) return Promise.resolve(null);
+      return Promise.resolve(
         advance.mutateAsync({
           // Reference only. The lesson itself is the server's, and this is all
           // it will accept.
@@ -191,11 +215,17 @@ export function useLiveTutor(input: UseLiveTutorInput): LiveTutorController {
           event,
         }),
       )
-        .then((handoff) => { if (handoff) remember(handoff); })
+        .then((handoff) => {
+          if (!handoff) return null;
+          // Stored before the promise resolves, so anything awaiting this is
+          // guaranteed to see the new revision rather than racing it.
+          remember(handoff);
+          return handoff;
+        })
         // A failed turn leaves the last known state standing rather than
         // inventing a new one. The server remains the authority even when it
         // is unreachable.
-        .catch(() => {});
+        .catch(() => null);
     },
     [advance, remember],
   );
@@ -206,8 +236,9 @@ export function useLiveTutor(input: UseLiveTutorInput): LiveTutorController {
     status: state.status,
     active: state.turn !== null,
     reference: session ? { sessionId: session.sessionId, revision: session.revision } : null,
-    sendIntent: useCallback((intent: LearnerIntent) => send({ type: "intent", intent }), [send]),
-    sendTiming: useCallback((timing: TutorTimingEvent) => send({ type: "timing", timing }), [send]),
+    sendIntent: useCallback((intent: LearnerIntent) => { void send({ type: "intent", intent }); }, [send]),
+    sendIntentAsync: useCallback((intent: LearnerIntent) => send({ type: "intent", intent }), [send]),
+    sendTiming: useCallback((timing: TutorTimingEvent) => { void send({ type: "timing", timing }); }, [send]),
     applyHandoff: remember,
   };
 }

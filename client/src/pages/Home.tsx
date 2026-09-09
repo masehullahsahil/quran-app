@@ -1522,13 +1522,43 @@ export default function Home() {
     }
   }, [view, handsFreeOn]);
 
+  /**
+   * Start the lesson, in an order that cannot race.
+   *
+   * Three things have to happen and the sequence is load-bearing:
+   *
+   *   1. the microphone is granted,
+   *   2. the server accepts the `start` intent and its answer is stored,
+   *   3. and only then does anything open a live stream or capture audio.
+   *
+   * Step 2 has to be *awaited* rather than fired and forgotten. A live stream
+   * is opened against a session id **and a revision**, and the server rejects a
+   * stale revision — so a stream opened while `start` is still in flight can
+   * name the revision that intent is about to replace, be refused, and leave
+   * the lesson running with no live tracking at all and nothing on screen to
+   * say so. Under in-process test latency the two orders look identical; over a
+   * real network they do not.
+   *
+   * The barrier is the `await`, not React's rendering order and not which
+   * request happens to reach the server first. `handsFreeOn` is what enables
+   * the stream, and it is set only after the trusted handoff is stored — so the
+   * first render that can open a stream already holds the new revision. The
+   * revision itself is never computed here: it arrives on the handoff.
+   *
+   * Still one press. A second is only ever needed if the server did not answer.
+   */
   const startHandsFree = useCallback(async () => {
     const ready = await continuousRef.current.start();
     if (!ready) return;
+    const handoff = await tutorRef.current.sendIntentAsync("start");
+    if (!handoff || handoff.status === "lost") {
+      // The lesson did not move, or is gone. Binding a stream now would name a
+      // revision we cannot vouch for, so nothing starts: the microphone goes
+      // back and Study's own controls are there, working, as they always are.
+      continuousRef.current.stop();
+      return;
+    }
     setHandsFreeOn(true);
-    // The engine opens the turn, exactly as pressing Start does today. The plan
-    // built from its answer is what actually opens the microphone.
-    tutorRef.current.sendIntent("start");
   }, []);
 
   const handsFreeOptions: HandsFreeOption[] = (() => {

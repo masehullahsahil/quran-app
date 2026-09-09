@@ -33,12 +33,13 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { TrpcContext } from "../../../server/_core/context";
 import { resetContinuousTutorStreamsForTests } from "../../../server/continuousTutor";
 import { resetRecitationRateLimitForTests } from "../../../server/recitationRateLimit";
-import { resetLiveTutorSessionsForTests } from "../../../server/tutorRouter";
+import { getTrustedTutorSession, resetLiveTutorSessionsForTests } from "../../../server/tutorRouter";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
 import { loadLocale } from "@locales/index";
 import en from "@locales/en";
 import { VOICE_ACTIVITY_DEFAULTS } from "@/lib/voiceActivity";
 import { HANDS_FREE_TIMING } from "@/lib/handsFreePlan";
+import { LIVE_RETRY } from "@/hooks/useLiveRecitationStream";
 
 /* ---------------------------------------------------------- the Quran text */
 
@@ -57,6 +58,27 @@ const WORD_AUDIO_URL = "https://audio.qurancdn.example/wbw/001_002_003.mp3";
 /* -------------------------------------------- the real router, through tRPC */
 
 const routerCalls: { name: string; input: Record<string, unknown> }[] = [];
+/** Every answer `ingestLiveAudio` actually returned to the browser. */
+const liveAnswers: LiveAnswer[] = [];
+
+type LiveAnswer = {
+  acknowledgement: { status: string; sequence: number; appliedSequence: number; chunkId: string };
+  event: { targetWordIndex: number; targetArabic: string } | null;
+  nextChannel: string;
+  tutor: { status: string } | null;
+};
+
+/**
+ * How the fake transport misbehaves.
+ *
+ * `unreachable` throws before the router is invoked, so nothing is committed.
+ * `lost-response` runs the real route, discards what it returned, and throws —
+ * the server has committed and the browser does not know it.
+ */
+type LiveControl = {
+  turnDelayMs?: number;
+  fault?: { mode: "unreachable" | "lost-response"; remaining: number };
+};
 const callerRef: { current: ReturnType<typeof import("../../../server/routers")["appRouter"]["createCaller"]> | null } = { current: null };
 
 vi.mock("@/lib/trpc", () => {
@@ -99,10 +121,39 @@ vi.mock("@/lib/trpc", () => {
       const caller = callerRef.current;
       if (!caller) throw new Error("no router caller");
       const [group, procedure] = name.split(".") as ["tutor" | "recitation", string];
+      const control = (globalThis as { __live?: LiveControl }).__live;
+
+      // A slow `tutor.turn`, so the Start ordering barrier is observable. Over a
+      // real network this is ordinary; in process it has to be asked for.
+      if (name === "tutor.turn" && control?.turnDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, control.turnDelayMs));
+      }
+
+      // The transport fault, injected around the real route.
+      if (name === "recitation.ingestLiveAudio" && control?.fault && control.fault.remaining > 0) {
+        control.fault.remaining -= 1;
+        if (control.fault.mode === "unreachable") {
+          // The request never reached the server. Nothing was committed.
+          throw new Error("network unreachable");
+        }
+        // The server did the work; the response was lost on the way home. This
+        // is the failure #63's replay exists for, and the browser cannot tell
+        // it apart from the case above.
+        await (caller[group] as Record<string, (value: unknown) => Promise<unknown>>)[procedure](input);
+        throw new Error("response lost");
+      }
+
       const out = await (caller[group] as Record<string, (value: unknown) => Promise<unknown>>)[procedure](input);
+      if (name === "tutor.start") {
+        const answer = out as { session?: { sessionId: string } };
+        if (answer.session) (globalThis as { __sessionId?: string }).__sessionId = answer.session.sessionId;
+      }
       if (name === "recitation.startLive") {
         const answer = out as { stream?: { streamId: string } | null };
         if (answer.stream) (globalThis as { __streamId?: string | null }).__streamId = answer.stream.streamId;
+      }
+      if (name === "recitation.ingestLiveAudio") {
+        (globalThis as { __answers?: unknown[] }).__answers?.push(out);
       }
       return out;
     },
@@ -340,7 +391,11 @@ beforeEach(async () => {
   nextTimerId = 1;
   sliceCounter = 0;
   openedStreamId = null;
+  liveAnswers.length = 0;
   (globalThis as { __streamId?: string | null }).__streamId = null;
+  (globalThis as { __sessionId?: string }).__sessionId = "";
+  (globalThis as { __answers?: unknown[] }).__answers = liveAnswers;
+  (globalThis as { __live?: LiveControl }).__live = {};
   FakeRecorder.instances.length = 0;
 
   resetContinuousTutorStreamsForTests();
@@ -445,6 +500,29 @@ const interimChunks = () => {
 let openedStreamId: string | null = null;
 const currentStreamId = () => (globalThis as { __streamId?: string | null }).__streamId ?? openedStreamId;
 
+
+/** The knobs on the fake transport for this test. */
+const control = () => (globalThis as { __live?: LiveControl }).__live!;
+/** Make the next `n` live requests fail in this way. */
+function injectLiveFault(mode: "unreachable" | "lost-response", remaining: number) {
+  control().fault = { mode, remaining };
+}
+/** Every chunk request, including the attempts that failed. */
+const liveRequests = () => callsTo("recitation.ingestLiveAudio").map((call) => call.input);
+/** How many times the transcription provider was asked to do work. */
+const transcriptionCalls = () => transcribed.length;
+/** Chunk requests that threw rather than returning an answer. */
+const failedChunkAttempts = () => liveRequests().length - liveAnswers.length;
+/** The revision the tutor session is on right now, from the server's store. */
+function openedSessionRevision(): number {
+  const lookup = getTrustedTutorSession({ sessionId: openedSessionId(), revision: -1 });
+  const session = lookup.status === "current" ? lookup.session : lookup.handoff.session;
+  return session?.revision ?? -1;
+}
+/** The session the router opened last, recorded as `tutor.start` answered. */
+function openedSessionId(): string {
+  return (globalThis as { __sessionId?: string }).__sessionId ?? "";
+}
 
 async function click(node: HTMLElement | null | undefined) {
   await act(async () => { node!.click(); });
@@ -748,6 +826,222 @@ describe("the correction runs to completion on the real routes", () => {
     // The screen moved, and only because the server's own evaluation of the
     // full ayah completed it.
     expect(await until(() => container.querySelector(".study-index")?.textContent === "03")).toBe(true);
+  });
+});
+
+/* ------------------------- 15: the Start ordering barrier (BLOCKER 1) */
+
+/**
+ * A live stream is bound to a session id **and a revision**, and the server
+ * refuses a stale one. `Start Live Tutor` sends a `start` intent that changes
+ * that revision — so if the stream is opened while the intent is still in
+ * flight, it names the revision the intent is about to replace, is refused, and
+ * the lesson runs with no live tracking and nothing on screen to say so.
+ *
+ * In process, the two orders are indistinguishable: everything resolves in the
+ * same tick. So the intent is deliberately slowed here, which is what a real
+ * network does for free.
+ */
+describe("starting cannot race the tutor revision", () => {
+  it("does not open a stream until the start intent has been accepted", async () => {
+    control().turnDelayMs = 300;
+    await mount();
+    await openLesson();
+
+    const revisionBefore = openedSessionRevision();
+    await act(async () => { container.querySelector<HTMLButtonElement>(".handsfree-begin")!.click(); });
+    await settle(3);
+
+    // The intent is still in flight. Nothing may have bound a stream yet: the
+    // only revision available right now is the one `start` is replacing.
+    expect(callsTo("tutor.turn")).toHaveLength(1);
+    expect(callsTo("recitation.startLive")).toHaveLength(0);
+
+    // Now let it finish.
+    expect(await until(() => callsTo("recitation.startLive").length === 1, 3_000)).toBe(true);
+
+    const bound = callsTo("recitation.startLive")[0].input.session as { revision: number };
+    // The revision the server produced for the start intent, not the one before
+    // it — and never computed in the browser.
+    expect(bound.revision).toBe(openedSessionRevision());
+    expect(bound.revision).toBeGreaterThan(revisionBefore);
+  });
+
+  it("still needs only one press, and listening begins normally", async () => {
+    control().turnDelayMs = 200;
+    await mount();
+    await openLesson();
+    await startLiveTutor();
+
+    expect(await until(() => inState("learner-listening")() || inState("learner-speaking")())).toBe(true);
+    // One press, and no control offering to do the next thing.
+    expect(container.querySelectorAll(".tutor-control")).toHaveLength(0);
+
+    transcripts = ["الحمد", "الحمد لله"];
+    await pump(HANDS_FREE_TIMING.interimChunkMs * 2, VOICE);
+    expect(await until(() => interimChunks().length > 0)).toBe(true);
+    // A stream that bound to a live revision actually works.
+    expect(liveAnswers.some((answer) => answer.acknowledgement.status === "applied")).toBe(true);
+  });
+});
+
+/* ------------- 16: an ingest response that was lost (BLOCKER 2) */
+
+/**
+ * The server processed a chunk, confirmed an omission, moved the Tutor — and
+ * the response never arrived. The browser cannot tell that apart from "the
+ * request never landed", so it must assume the worst: retry the *same logical
+ * input*, byte for byte, and let #63 replay whatever it already committed.
+ *
+ * Sending the next cumulative chunk instead would be a different question under
+ * a different id, and the interruption the learner is owed would be lost.
+ */
+describe("a live response that never came back", () => {
+  /** Wait until `n` chunk requests have been answered one way or another. */
+  async function afterChunks(n: number) {
+    return until(() => liveAnswers.length + failedChunkAttempts() >= n, 4_000);
+  }
+
+  it("A. replays a confirmed omission the browser never heard about", async () => {
+    transcripts = ["الحمد", "الحمد لله", "الحمد لله العالمين", "الحمد لله العالمين"];
+    await mount();
+    await openLesson();
+    await startLiveTutor();
+
+    // Three chunks land normally; the tracker reaches `possible-skip`.
+    await pump(HANDS_FREE_TIMING.interimChunkMs * 3 + 200, VOICE);
+    expect(await afterChunks(3)).toBe(true);
+    expect(container.querySelector(".tutor-target")).toBeNull();
+
+    // The fourth is the one that confirms the omission — and its response is
+    // lost on the way home.
+    injectLiveFault("lost-response", 1);
+    const before = transcriptionCalls();
+    await pump(HANDS_FREE_TIMING.interimChunkMs + 200, VOICE);
+
+    // The browser retried, and the retry is the same logical input.
+    expect(await until(() => liveRequests().length >= 5, 4_000)).toBe(true);
+    const requests = liveRequests();
+    const lost = requests[requests.length - 2];
+    const retry = requests[requests.length - 1];
+    expect(retry.chunkId).toBe(lost.chunkId);
+    expect(retry.sequence).toBe(lost.sequence);
+    expect(retry.audioBase64).toBe(lost.audioBase64);
+    expect(retry.turnId).toBe(lost.turnId);
+    expect(retry.streamId).toBe(lost.streamId);
+    expect(retry.captureStartedAtMs).toBe(lost.captureStartedAtMs);
+    expect(retry.captureEndedAtMs).toBe(lost.captureEndedAtMs);
+    expect(retry.stability).toBe(lost.stability);
+    expect(retry.attemptScope).toBe(lost.attemptScope);
+
+    // #63 answered it as a duplicate carrying the original omission.
+    const replay = liveAnswers[liveAnswers.length - 1];
+    expect(replay.acknowledgement.status).toBe("duplicate");
+    expect(replay.event?.targetArabic).toBe(TARGET);
+    expect(replay.tutor?.status).toBe("updated");
+
+    // And the browser acted on the replay exactly as on an original: the
+    // teacher interrupted, the trusted word played, once.
+    expect(await until(() => played.includes(WORD_AUDIO_URL))).toBe(true);
+    expect(played.filter((src) => src === WORD_AUDIO_URL)).toHaveLength(1);
+    expect(container.querySelectorAll(".tutor-target")).toHaveLength(1);
+    expect(container.querySelector(".tutor-target p")?.textContent).toBe(TARGET);
+
+    // The replay cost no transcription: the server returned its committed
+    // answer without doing the work again.
+    expect(transcriptionCalls()).toBe(before + 1);
+
+    // And nothing produced a second correction.
+    await pump(HANDS_FREE_TIMING.interimChunkMs * 2, VOICE);
+    expect(container.querySelectorAll(".tutor-target")).toHaveLength(1);
+    expect(callsTo("recitation.evaluateWithTutor")).toHaveLength(0);
+  });
+
+  it("B. resolves an ordinary lost answer before sending newer audio", async () => {
+    transcripts = ["الحمد", "الحمد لله", "الحمد لله ال", "الحمد لله الع"];
+    await mount();
+    await openLesson();
+    await startLiveTutor();
+
+    // Lose the very first chunk's response. It committed ordinary tracking.
+    injectLiveFault("lost-response", 1);
+    await pump(HANDS_FREE_TIMING.interimChunkMs + 200, VOICE);
+    // The retry runs on its own timer, not on the audio clock.
+    expect(await until(() => liveAnswers.length >= 1, 4_000)).toBe(true);
+    expect(liveRequests()).toHaveLength(2);
+
+    // Only now is there more audio to send.
+    await pump(HANDS_FREE_TIMING.interimChunkMs + 200, VOICE);
+    expect(await until(() => liveRequests().length >= 3, 4_000)).toBe(true);
+
+    const requests = liveRequests();
+    // The second request is the retry of the first, not newer audio.
+    expect(requests[1].chunkId).toBe(requests[0].chunkId);
+    expect(requests[1].sequence).toBe(requests[0].sequence);
+    expect(requests[1].audioBase64).toBe(requests[0].audioBase64);
+
+    // The replay advanced the client's idea of where the server is.
+    const replay = liveAnswers[0];
+    expect(replay.acknowledgement.status).toBe("duplicate");
+    expect(replay.acknowledgement.appliedSequence).toBe(requests[0].sequence);
+
+    // Only then does newer audio go, and it takes the next sequence — no gap,
+    // and nothing leapfrogged the unresolved request.
+    const sequences = requests.map((request) => request.sequence as number);
+    expect(sequences[0]).toBe(1);
+    expect(sequences[1]).toBe(1);
+    expect(sequences[2]).toBe(2);
+    expect(requests[2].chunkId).not.toBe(requests[0].chunkId);
+    expect(requests[2].audioBase64).not.toBe(requests[0].audioBase64);
+  });
+
+  it("C. retries normally when the request never reached the server", async () => {
+    transcripts = ["الحمد", "الحمد لله", "الحمد لله ال"];
+    await mount();
+    await openLesson();
+    await startLiveTutor();
+
+    injectLiveFault("unreachable", 1);
+    await pump(HANDS_FREE_TIMING.interimChunkMs * 2 + 400, VOICE);
+    expect(await until(() => liveAnswers.length >= 1, 4_000)).toBe(true);
+
+    const requests = liveRequests();
+    // Same request, sent again — and this time the server had never seen it, so
+    // it is applied rather than replayed.
+    expect(requests[1].chunkId).toBe(requests[0].chunkId);
+    expect(requests[1].sequence).toBe(requests[0].sequence);
+    expect(liveAnswers[0].acknowledgement.status).toBe("applied");
+    expect(liveAnswers[0].acknowledgement.appliedSequence).toBe(1);
+  });
+
+  it("D. gives up safely when the live path stays down", async () => {
+    transcripts = ["الحمد", "الحمد لله", "الحمد لله العالمين", "الحمد لله العالمين"];
+    await mount();
+    await openLesson();
+    await startLiveTutor();
+
+    injectLiveFault("unreachable", 50);
+    await pump(HANDS_FREE_TIMING.interimChunkMs * 4 + 600, VOICE);
+    await settle(6);
+
+    const requests = liveRequests();
+    // Bounded, and every attempt was the same logical input: newer audio never
+    // leapfrogged the one whose outcome was unknown.
+    expect(requests.length).toBeLessThanOrEqual(LIVE_RETRY.maxAttempts);
+    expect(new Set(requests.map((request) => request.chunkId)).size).toBe(1);
+    expect(liveAnswers).toHaveLength(0);
+
+    // Nothing about the Quran was invented to cover the gap.
+    expect(container.querySelector(".tutor-target")).toBeNull();
+    expect(container.querySelector(".study-index")?.textContent).toBe("02");
+    expect(played).not.toContain(WORD_AUDIO_URL);
+    expect(callsTo("recitation.evaluateWithTutor")).toHaveLength(0);
+
+    // And the lesson is not stuck: the learner is still being listened to, and
+    // a finalised turn still works.
+    expect(inState("learner-listening")() || inState("learner-speaking")()).toBe(true);
+    await pump(VOICE_ACTIVITY_DEFAULTS.endOfTurnSilenceMs + 300, QUIET);
+    expect(await until(() => callsTo("recitation.evaluateWithTutor").length === 1, 4_000)).toBe(true);
   });
 });
 
