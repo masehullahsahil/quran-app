@@ -79,6 +79,9 @@ const FAKE_INDEX = {
 
 const mutationMocks = vi.hoisted(() => ({
   recitationEvaluate: vi.fn(),
+  recitationEvaluateWithTutor: vi.fn(),
+  tutorStart: vi.fn(),
+  tutorTurn: vi.fn(),
   recitationIngest: vi.fn(),
   learnerSyncProgress: vi.fn(),
   learnerSyncQaidaProgress: vi.fn(),
@@ -95,7 +98,18 @@ vi.mock("@/lib/trpc", () => {
       auth: { me: { useQuery: empty } },
       recitation: {
         evaluate: { useMutation: () => mutation(mutationMocks.recitationEvaluate) },
+        // Present so the page can mount, and deliberately never answered: the
+        // tutor never opens in this file, so every recording here must go down
+        // the ordinary `evaluate` path. A call landing on this mock is a bug.
+        evaluateWithTutor: { useMutation: () => mutation(mutationMocks.recitationEvaluateWithTutor) },
         ingestChunk: { useMutation: () => mutation(mutationMocks.recitationIngest) },
+      },
+      // The Live Tutor session. Left un-stubbed by default so the existing
+      // tests keep exercising the surfaces Study shows without a tutor — which
+      // is also what a learner sees if the tutor cannot be reached.
+      tutor: {
+        start: { useMutation: () => mutation(mutationMocks.tutorStart) },
+        turn: { useMutation: () => mutation(mutationMocks.tutorTurn) },
       },
       learner: {
         syncProgress: { useMutation: () => mutation(vi.fn(), mutationMocks.learnerSyncProgress) },
@@ -737,6 +751,23 @@ describe("Study recitation correction", () => {
     // stay inside the collapsed notes rather than beside the lesson.
     const elsewhere = Array.from(container.querySelectorAll(".correction-word"));
     for (const node of elsewhere) expect(node.closest("details.teacher-notes")).toBeTruthy();
+  });
+
+  it("keeps ordinary Study on recitation.evaluate when there is no tutor", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    // The tutor never opened here, so the trusted route is not the one this
+    // recording takes — and the existing Study experience is unchanged.
+    expect(mutationMocks.recitationEvaluate).toHaveBeenCalledTimes(1);
+    expect(mutationMocks.recitationEvaluateWithTutor).not.toHaveBeenCalled();
+    // Ordinary Study still supplies its own ayah context, which is exactly what
+    // the tutor route refuses to accept from a browser.
+    expect(mutationMocks.recitationEvaluate.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({ expectedArabic: expect.any(String), surah: expect.any(Number), ayah: expect.any(Number) }),
+    );
   });
 
   it("walks the learner from the word back into the ayah", async () => {

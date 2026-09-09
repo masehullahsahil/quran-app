@@ -338,6 +338,9 @@ export const strings = {
 
   // The two or three things offered at a time. Never all of them at once.
   "tutor.doStart": "Start",
+  // The end of the learner's turn — not pausing, and not stopping.
+  "tutor.doDone": "Done",
+    "tutor.recordingNotApplied": "Your teacher could not take that recording. Start the lesson again.",
   "tutor.doAgain": "Try again",
   "tutor.doRepeatWord": "Say the word",
   "tutor.doHearWord": "Hear the word",

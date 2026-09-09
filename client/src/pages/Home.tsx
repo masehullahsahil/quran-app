@@ -53,6 +53,11 @@ import type { QuranAwareReview } from "@shared/quranEvaluation";
 import { resolveTeacherAction, traceTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
 import { describeStudyTiers } from "@/lib/studyView";
 import { StudyCorrection } from "@/components/StudyCorrection";
+import { LiveTutorPanel } from "@/components/LiveTutorPanel";
+import { useLiveTutor } from "@/hooks/useLiveTutor";
+import { attemptScopeFor, liveTutorSessionView } from "@/lib/liveTutorView";
+import type { LearnerIntent } from "@shared/liveTutor";
+import { FINISH_TURN, type TutorControlIntent } from "@shared/tutorConversation";
 import { deriveCorrectionLesson, type AttemptScope, type RetainedTarget } from "@/lib/correctionSession";
 import type {
   CorrectionSessionSnapshot,
@@ -375,6 +380,18 @@ export default function Home() {
   const { t, locale, letterLesson, manifest } = useLocale();
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
+  /**
+   * The trusted recording path (#57).
+   *
+   * One call does the whole job: the server loads the tutor's own Quran
+   * position and active target, runs the same evaluator ordinary Study uses,
+   * and applies the result to the lesson. The browser sends audio and a session
+   * reference, and receives a review plus a decided tutor turn. It never sees,
+   * builds, or forwards the evidence in between.
+   */
+  const evaluateWithTutor = trpc.recitation.evaluateWithTutor.useMutation();
+  // Both paths look identical to the learner: a recording is being checked.
+  const isCheckingRecitation = evaluateRecitation.isPending || evaluateWithTutor.isPending;
   const ingestRecitationChunk = trpc.recitation.ingestChunk.useMutation();
   const me = trpc.auth.me.useQuery(undefined, { retry: false, refetchOnWindowFocus: false });
   const syncProgress = trpc.learner.syncProgress.useMutation();
@@ -851,32 +868,72 @@ export default function Home() {
       const attemptId = typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${liveSessionRef.current.sessionId}-${Date.now()}-${liveChunkSequenceRef.current}`;
-      const result = await evaluateRecitation.mutateAsync({
-        expectedArabic: activeVerse.arabic,
-        audioBase64,
-        mimeType: blob.type === "audio/ogg" ? "audio/ogg" : blob.type === "audio/wav" ? "audio/wav" : blob.type === "audio/mp4" ? "audio/mp4" : "audio/webm",
-        surah: surahNumber,
-        ayah: activeVerse.number,
-        attemptScope,
-        ...(correctionTargetAtStart ? { correctionTarget: correctionTargetAtStart } : {}),
-        learningLevel,
-        // The coach's encouragement follows the interface language. It is
-        // wording only — the instruction and the advancement decision are
-        // already made, deterministically, before this call returns.
-        uiLanguage: locale as SupportedLanguageCode,
-        // Position tracking. The neighbouring ayahs let the server tell a
-        // repeated previous ayah or an early next ayah apart from a real
-        // attempt at this one, using the same alignment it already runs.
-        totalAyahs: ayahs.length,
-        ...(previousVerse ? { previousAyahArabic: previousVerse.arabic } : {}),
-        ...(nextVerse ? { nextAyahArabic: nextVerse.arabic } : {}),
-        position: {
-          expectedWordIndex: position.expectedWordIndex,
-          lastCompletedAyah: position.lastCompletedAyah,
-          state: position.state,
-          attemptsOnCurrentAyah: position.attemptsOnCurrentAyah,
-        },
-      });
+      const mimeType = blob.type === "audio/ogg" ? "audio/ogg" as const
+        : blob.type === "audio/wav" ? "audio/wav" as const
+        : blob.type === "audio/mp4" ? "audio/mp4" as const
+        : "audio/webm" as const;
+      // The coach's encouragement follows the interface language. It is wording
+      // only — the instruction and the advancement decision are already made,
+      // deterministically, before this call returns.
+      const uiLanguage = locale as SupportedLanguageCode;
+      /**
+       * Which path this recording takes.
+       *
+       * With a live lesson, the trusted one: the tutor's session reference and
+       * the audio go together and the server decides everything else. Without
+       * one, ordinary Study, unchanged — the same call it has always made, with
+       * the same client-supplied ayah context, because there is no tutor whose
+       * authority it could be undermining.
+       */
+      const tutorReference = tutorRef.current.reference;
+      let result;
+      if (tutorReference) {
+        const handoff = await evaluateWithTutor.mutateAsync({
+          session: tutorReference,
+          // Everything the trusted route accepts. Not in this object, and not
+          // accepted by its schema: expected Quran text, surah, ayah, the
+          // neighbouring ayahs, the position, or the correction target. Those
+          // are the tutor's, and the server reads them from the tutor.
+          attempt: { audioBase64, mimeType, learningLevel, uiLanguage, attemptScope },
+        });
+        // The lesson moved, or did not, on the server. Either way this is the
+        // answer and the page does not second-guess it.
+        tutorRef.current.applyHandoff(handoff.tutor);
+        if (!handoff.recitation) {
+          // The session was stale, lost, or the attempt did not fit it. No
+          // review is shown, no progress is written, and the Quran does not
+          // move — the tutor says what happens next.
+          const message = t("tutor.recordingNotApplied");
+          setReviewError(message);
+          setRecorderMessage(message);
+          return;
+        }
+        result = handoff.recitation;
+      } else {
+        result = await evaluateRecitation.mutateAsync({
+          expectedArabic: activeVerse.arabic,
+          audioBase64,
+          mimeType,
+          surah: surahNumber,
+          ayah: activeVerse.number,
+          attemptScope,
+          ...(correctionTargetAtStart ? { correctionTarget: correctionTargetAtStart } : {}),
+          learningLevel,
+          uiLanguage,
+          // Position tracking. The neighbouring ayahs let the server tell a
+          // repeated previous ayah or an early next ayah apart from a real
+          // attempt at this one, using the same alignment it already runs.
+          totalAyahs: ayahs.length,
+          ...(previousVerse ? { previousAyahArabic: previousVerse.arabic } : {}),
+          ...(nextVerse ? { nextAyahArabic: nextVerse.arabic } : {}),
+          position: {
+            expectedWordIndex: position.expectedWordIndex,
+            lastCompletedAyah: position.lastCompletedAyah,
+            state: position.state,
+            attemptsOnCurrentAyah: position.attemptsOnCurrentAyah,
+          },
+        });
+      }
       const rawReview = result as RecitationFeedback;
       const review: RecitationFeedback = {
         ...rawReview,
@@ -1030,7 +1087,7 @@ export default function Home() {
   const teacherAction: TeacherAction = resolveTeacherAction({
     recording: {
       isRecording,
-      isReviewing: evaluateRecitation.isPending,
+      isReviewing: isCheckingRecitation,
       failed: Boolean(reviewError),
     },
     attempt: feedback
@@ -1107,7 +1164,7 @@ export default function Home() {
     wordReviewAvailable: Boolean(feedback?.wordReviewAvailable),
     lastAttemptScope,
     isRecording,
-    isChecking: evaluateRecitation.isPending,
+    isChecking: isCheckingRecitation,
     session: correctionSession,
   });
 
@@ -1119,13 +1176,92 @@ export default function Home() {
    * has no room for, or a word that is not the one standing at that position
    * all resolve to null and the lesson falls back to the reciter's ayah.
    */
-  const focusWordAudio = correctionLesson
+  /**
+   * The Live Tutor.
+   *
+   * One session per ayah, opened when Study is on screen and the ayah is known.
+   * Everything about the lesson — the phase, the action, the target — is the
+   * server's; this page holds the microphone, the audio and the words on
+   * screen, and asks the tutor what to say.
+   *
+   * When the tutor is unreachable, `active` stays false and Study renders the
+   * surfaces it had before, which still work.
+   */
+  const tutor = useLiveTutor({
+    surah: surahNumber,
+    ayah: activeVerse?.number ?? selectedVerse,
+    totalAyahs: ayahs.length || 1,
+    learnerLanguage: locale as SupportedLanguageCode,
+    enabled: view === "study" && Boolean(activeVerse) && ayahs.length > 0,
+  });
+
+  // The evaluation callback is created once per attempt and outlives the render
+  // it was made in, so it reads the controller through a ref rather than
+  // capturing one.
+  const tutorRef = useRef(tutor);
+  tutorRef.current = tutor;
+
+  /**
+   * Follow the tutor's Quran position.
+   *
+   * The single rule: when an accepted trusted answer puts the lesson at a
+   * different surah/ayah than the one it was at, the screen moves to exactly
+   * that position. Nothing else may move it while a lesson is running — not a
+   * next-ayah guess, not a score, not a reading of the transcript, and not the
+   * learner asking to continue.
+   *
+   * Opening a session at a position is not a move, so the first answer is
+   * recorded and ignored; otherwise a learner who had paged ahead would be
+   * dragged back to where the lesson started.
+   */
+  const trustedSurah = tutor.turn?.session.surah ?? null;
+  const trustedAyah = tutor.turn?.session.ayah ?? null;
+  const lastTrustedPlace = useRef<string | null>(null);
+  useEffect(() => {
+    if (trustedSurah === null || trustedAyah === null) {
+      lastTrustedPlace.current = null;
+      return;
+    }
+    const place = `${trustedSurah}:${trustedAyah}`;
+    if (lastTrustedPlace.current === place) return;
+    const opening = lastTrustedPlace.current === null;
+    lastTrustedPlace.current = place;
+    if (opening || trustedSurah !== surahNumber) return;
+    setSelectedVerse(trustedAyah);
+  }, [trustedSurah, trustedAyah, surahNumber]);
+
+  /**
+   * The word the tutor is holding, if any.
+   *
+   * Read straight off the session the server returned. Guarded the same way the
+   * focused lesson is (#50): a target from another ayah, or one the ayah on
+   * screen has no room for, is not a target for this screen.
+   */
+  const tutorCorrection = (() => {
+    const held = tutor.turn?.session.activeCorrection ?? null;
+    if (!held || held.surah !== surahNumber || held.ayah !== (activeVerse?.number ?? selectedVerse)) return null;
+    if (held.targetWordIndex < 1 || held.targetWordIndex > expectedWords.length) return null;
+    return held.targetArabic ? { wordIndex: held.targetWordIndex, arabic: held.targetArabic } : null;
+  })();
+
+  /**
+   * The word whose recording may be offered.
+   *
+   * The tutor's own target when a session is running — it is the authority on
+   * what the lesson is about — and the focused lesson's otherwise, which is
+   * what Study uses without a tutor.
+   */
+  const audioTarget = tutorCorrection ?? (correctionLesson
+    ? { wordIndex: correctionLesson.targetWordIndex, arabic: correctionLesson.targetArabic }
+    : null);
+
+  const focusWordAudio = audioTarget
     ? findWordAudio(
         {
           surah: surahNumber,
           ayah: activeVerse?.number ?? selectedVerse,
-          wordIndex: correctionLesson.targetWordIndex,
-          arabic: correctionLesson.targetArabic,
+          wordIndex: audioTarget.wordIndex,
+          arabic: audioTarget.arabic,
         },
         {
           surah: surahNumber,
@@ -1141,10 +1277,99 @@ export default function Home() {
   // learner on a metered connection should not pay for recordings of words they
   // were never sent back to. The hook's `preload` is stable, so this runs when
   // the target word changes and not on every render.
+
   const preloadWord = wordRecording.preload;
   useEffect(() => {
     preloadWord(focusWordAudio?.url ?? null);
   }, [focusWordAudio?.url, preloadWord]);
+
+
+  const tutorView = tutor.turn
+    ? liveTutorSessionView(
+        {
+          session: tutor.turn.session,
+          action: tutor.turn.action,
+          // The word is playable only where #51 found a trusted recording of it.
+          canHearWord: Boolean(focusWordAudio),
+          canHearAyah: !audioUnavailable,
+          isRecording,
+          isChecking: isCheckingRecitation,
+          // What the learner is actually looking at. When the lesson has moved
+          // and the page has not yet followed, the tutor says nothing about a
+          // word rather than pointing at the wrong ayah (#50).
+          displayedSurah: surahNumber,
+          displayedAyah: activeVerse?.number ?? selectedVerse,
+        },
+        expectedWords.length,
+      )
+    : null;
+
+  /**
+   * What the learner asked for.
+   *
+   * Two things happen for each intent: the tutor is told (so the session moves,
+   * or refuses to), and the page does the local part — open the microphone,
+   * play a file, step to another ayah. Nothing here decides a lesson state; the
+   * next turn the server returns is what the panel renders.
+   *
+   * The recording scope comes from the engine's own action, never from a guess
+   * about what the learner probably meant: a word-scoped attempt run through
+   * the whole-ayah reviewer answers a question nobody asked (#53).
+   */
+  const runTutorIntent = (intent: TutorControlIntent) => {
+    // Ending a turn is the recorder's business, not the engine's: it learns
+    // what happened from the review that follows, not from being told the
+    // learner stopped talking. So it is handled here and not sent on.
+    if (intent === FINISH_TURN) {
+      if (isRecording) stopRecording();
+      return;
+    }
+    tutor.sendIntent(intent);
+    const scope = tutor.turn ? attemptScopeFor(tutor.turn.session, tutor.turn.action) : "ayah";
+
+    switch (intent) {
+      case "start":
+      case "again":
+        if (isRecording) stopRecording();
+        else void startRecording(scope);
+        return;
+      case "repeat-word":
+        if (!isRecording) void startRecording("word");
+        return;
+      case "hear-word":
+        if (focusWordAudio) {
+          audioRef.current?.pause();
+          void wordRecording.play(focusWordAudio.url);
+        } else {
+          // No trusted recording of the word, so the ayah, honestly — never a
+          // synthesised stand-in for Quranic Arabic.
+          void playReciter(0.78);
+        }
+        return;
+      case "hear-ayah":
+        void playReciter(1);
+        return;
+      case "from-beginning":
+        retryLesson();
+        return;
+      // `continue` is a request, not a move. The Quran position is the tutor's
+      // and it changes only when a trusted recitation result actually completes
+      // an ayah — never because a learner pressed a button, and never before
+      // the server has answered.
+      case "continue":
+        return;
+      case "pause":
+      case "stop":
+        if (isRecording) stopRecording();
+        audioRef.current?.pause();
+        return;
+      // `hint` and `resume` are the engine's to answer: the next turn carries
+      // the hint, or the phase it resumed into. There is nothing local to do.
+      default:
+        return;
+    }
+  };
+
 
 
   useEffect(() => {
@@ -1334,11 +1559,32 @@ export default function Home() {
           {view === "study" && (!activeVerse ? contentFallback : <div className="study-layout">
             <div className="study-index" aria-hidden="true"><strong>{String(activeVerse.number).padStart(2, "0")}</strong></div>
             <div className="study-card"><img src="/assets/quran-audio-study-abstract.svg" alt="" className="study-visual" /><p className="study-arabic" lang="ar" dir="rtl">{activeVerse.arabic}</p><div className="study-divider" />{activeVerse.transliteration && <p className="transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="study-translation">{activeVerse.translation}</p>}<button type="button" className="listen-inline" onClick={() => void playReciter(0.78)} disabled={audioUnavailable}><Volume2 size={17} />{t("study.listenSlowly")}</button></div>
-            <div className="teacher-loop" aria-label={t("study.lessonLabel")}>
-              {/* Priority one: what to do now, where you are, and the mic. One
-                  instruction and at most one contextual button — the listen and
-                  record controls below are the other half of the same block. */}
-              <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
+            <div className={`teacher-loop ${tutorView ? "has-tutor" : ""}`} aria-label={t("study.lessonLabel")}>
+              {/* The Live Tutor is the lesson. When a session is running it is
+                  the dominant surface: the ayah, one sentence from the teacher,
+                  and the one thing to do now.
+
+                  The surfaces below it are not deleted — the instruction block,
+                  the correction card, the notes and the diagnostics are all
+                  still correct, and still there. They are simply no longer in
+                  front of the learner saying the same thing in a second voice.
+                  What the teacher noticed is behind the panel's own disclosure;
+                  the rest renders exactly as before whenever no session is
+                  running, which is also what happens if the tutor is
+                  unreachable. */}
+              {tutorView && (
+                <LiveTutorPanel
+                  session={tutorView}
+                  ayah={{ arabic: activeVerse.arabic, label: `${surahLabel} ${t("now.place", { ayah: activeVerse.number, total: ayahs.length })}` }}
+                  onIntent={runTutorIntent}
+                />
+              )}
+
+              {/* Priority one, when the tutor is not running: what to do now,
+                  where you are, and the mic. One instruction and at most one
+                  contextual button — the listen and record controls below are
+                  the other half of the same block. */}
+              {!tutorView && <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
                 <p className="now-place"><span className="now-surah">{surahLabel}</span><span>{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}</span>{studyTiers.now.showWordPosition && teacherAction.focusWordIndex !== null && <span>{t("now.placeWord", { number: teacherAction.focusWordIndex })}</span>}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
                 <h2 className="now-instruction" aria-live="polite">{t(studyTiers.now.instructionKey, studyTiers.now.instructionParams)}</h2>
                 {/* The word itself lives in the lesson below, once and large.
@@ -1348,7 +1594,7 @@ export default function Home() {
                 {studyTiers.now.sequence.length > 1 && <ol className="now-steps" aria-label={t("now.stepsLabel")}>{studyTiers.now.sequence.map((step) => <li key={step}>{t(teachingStepLabels[step as TeachingStep])}</li>)}</ol>}
                 <div className="loop-actions">
                   <button type="button" className="loop-listen" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />}{t(isPlaying ? "study.reciterPlaying" : "study.hearReciter")}</button>
-                  <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording("ayah")} disabled={evaluateRecitation.isPending}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : evaluateRecitation.isPending ? t("study.reviewing") : t("study.record")}</button>
+                  <button type="button" className={`loop-record ${isRecording ? "is-recording" : ""}`} onClick={isRecording ? stopRecording : () => void startRecording("ayah")} disabled={isCheckingRecitation}>{isRecording ? <Square size={17} fill="currentColor" /> : <Mic size={18} />}{isRecording ? t("study.stopRecording") : isCheckingRecitation ? t("study.reviewing") : t("study.record")}</button>
                 </div>
                 {studyTiers.now.cta && <button type="button" className="now-action" onClick={runTeacherAction}>{studyTiers.now.cta.command === "next-ayah" ? <>{t(studyTiers.now.cta.labelKey, studyTiers.now.cta.params)} <ArrowRight size={16} /></> : <><RotateCcw size={16} /> {t(studyTiers.now.cta.labelKey, studyTiers.now.cta.params)}</>}</button>}
                 {/* The recorder's own line — "your word-recall review is ready"
@@ -1363,7 +1609,7 @@ export default function Home() {
                   names what happened in the learner's language and offers the
                   retry, which reloads the element before trying again. */}
               {audioUnavailable && <p className="playback-warning" role="status"><AlertCircle size={14} /> {audioUnavailableMessage}{audioLoadFailed && <button type="button" className="playback-retry" onClick={retryReciterAudio}><RotateCcw size={13} aria-hidden="true" /> {t("content.retry")}</button>}</p>}
-              </section>
+              </section>}
 
               {/* Tier two: how that attempt went — the exact word to fix, or,
                   when the decision named none, what actually happened instead.
@@ -1371,7 +1617,11 @@ export default function Home() {
                   borrows the confirmed-mistake styling. The card carries the
                   steps and the microphone so the learner never scrolls back up
                   to find them. */}
-              <StudyCorrection
+              {/* While the tutor is running, this is the same lesson said a
+                  second time — the word, the observation, the steps. It is the
+                  teaching surface Study uses without a tutor, and it stays
+                  exactly as it was for that case. */}
+              {!tutorView && <StudyCorrection
                 correction={studyTiers.correction}
                 outcome={studyTiers.outcome}
                 onListen={() => void playReciter(0.78)}
@@ -1388,9 +1638,9 @@ export default function Home() {
                 }}
                 onCta={runTeacherAction}
                 isRecording={isRecording}
-                isReviewing={evaluateRecitation.isPending}
+                isReviewing={isCheckingRecitation}
                 audioUnavailable={audioUnavailable}
-              />
+              />}
 
               {/* The live guide is the mic's own feedback, so it sits with it. */}
               {(isRecording || liveTranscript) && <div className="live-guidance"><div className="live-guidance-top"><span>{t(isRecording ? "live.guideTitle" : "live.heardTitle")}</span><small>{t(liveTranscript ? "live.source" : "live.waiting")}</small></div><div className="live-word-row" lang="ar" dir="rtl">{expectedWords.map((word, index) => <span key={`${word}-${index}`} className={liveMatched.includes(index) ? "is-heard" : index === position.expectedWordIndex - 1 ? "is-expected" : ""}>{word}</span>)}</div>{liveTranscript && <p className="heard-transcript" lang="ar" dir="rtl">{liveTranscript}</p>}</div>}

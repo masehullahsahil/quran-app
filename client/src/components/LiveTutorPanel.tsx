@@ -39,7 +39,7 @@ import {
   TUTOR_INTENT_LABEL_KEYS,
   TUTOR_VOICE_INTENTS,
   TUTOR_VOICE_STATUS,
-  type TutorIntent,
+  type TutorControlIntent,
   type TutorPresence,
   type TutorSessionView,
 } from "@shared/tutorConversation";
@@ -51,14 +51,15 @@ export type LiveTutorPanelProps = {
   /** The ayah on screen, exactly as the Quran data gives it. */
   ayah?: { arabic: string; label: string } | null;
   /** The learner asked for something. The page decides what that does. */
-  onIntent: (intent: TutorIntent) => void;
+  onIntent: (intent: TutorControlIntent) => void;
   /** Anything the teacher noticed, for the disclosure. Optional and secondary. */
   details?: React.ReactNode;
 };
 
 /** The icon for each control. A label always accompanies it. */
-const CONTROL_ICONS: Record<TutorIntent, React.ComponentType<{ size?: number; "aria-hidden"?: boolean }>> = {
+const CONTROL_ICONS: Record<TutorControlIntent, React.ComponentType<{ size?: number; "aria-hidden"?: boolean }>> = {
   start: Mic,
+  done: Square,
   again: Mic,
   "repeat-word": Mic,
   "hear-word": Volume2,
