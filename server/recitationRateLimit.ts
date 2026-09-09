@@ -32,16 +32,42 @@ const AUTHENTICATED_WINDOWS: RateLimitWindow[] = [
   { name: "sustained", limit: 60, windowSeconds: 60 * 60 },
 ];
 
+// Incremental recognition needs several short observations per utterance. It
+// has a separate bounded budget so it does not exhaust the finalized-review
+// allowance before a correction can complete.
+const LIVE_ANONYMOUS_WINDOWS: RateLimitWindow[] = [
+  { name: "burst", limit: 16, windowSeconds: 60 },
+  { name: "sustained", limit: 120, windowSeconds: 60 * 60 },
+];
+
+const LIVE_AUTHENTICATED_WINDOWS: RateLimitWindow[] = [
+  { name: "burst", limit: 32, windowSeconds: 60 },
+  { name: "sustained", limit: 300, windowSeconds: 60 * 60 },
+];
+
 const MEMORY_COUNTERS = "__miqraRecitationRateLimitMemoryCounters";
 const memoryCounters = getSharedMemoryCounters();
 
 export async function checkRecitationEvaluateRateLimit(ctx: TrpcContext): Promise<RecitationRateLimitDecision> {
+  return checkRateLimit(ctx, "evaluate", ANONYMOUS_WINDOWS, AUTHENTICATED_WINDOWS);
+}
+
+export async function checkLiveRecitationRateLimit(ctx: TrpcContext): Promise<RecitationRateLimitDecision> {
+  return checkRateLimit(ctx, "live", LIVE_ANONYMOUS_WINDOWS, LIVE_AUTHENTICATED_WINDOWS);
+}
+
+async function checkRateLimit(
+  ctx: TrpcContext,
+  namespace: "evaluate" | "live",
+  anonymousWindows: RateLimitWindow[],
+  authenticatedWindows: RateLimitWindow[],
+): Promise<RecitationRateLimitDecision> {
   const identity = getRateLimitIdentity(ctx);
-  const windows = identity.type === "user" ? AUTHENTICATED_WINDOWS : ANONYMOUS_WINDOWS;
+  const windows = identity.type === "user" ? authenticatedWindows : anonymousWindows;
   const store = createStore();
 
   for (const window of windows) {
-    const key = `recitation:evaluate:${window.name}:${identity.type}:${identity.hash}`;
+    const key = `recitation:${namespace}:${window.name}:${identity.type}:${identity.hash}`;
     const counter = await store.increment(key, window.windowSeconds);
     if (counter.count > window.limit) {
       return {

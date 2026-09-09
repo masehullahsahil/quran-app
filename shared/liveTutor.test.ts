@@ -141,6 +141,7 @@ describe("Quran evidence controls progression", () => {
     const turn = applyLiveTutorEvent(started(), { type: "recitation", evidence: completedAyahEvidence() });
     expect(turn.session).toMatchObject({ ayah: 3, lastCompletedAyah: 2, phase: "listening", activeCorrection: null });
     expect(turn.action).toMatchObject({ kind: "continue-recitation", reason: "ayah-completed", canAdvance: true });
+    expect(turn.action.nextChannel).toBe("listen-next-ayah");
   });
 
   it("enters exact-word correction when #53 names missing رَبِّ", () => {
@@ -150,6 +151,7 @@ describe("Quran evidence controls progression", () => {
       kind: "play-target-word",
       targetWordIndex: 3,
       targetArabic: "رَبِّ",
+      nextChannel: "play-target-word",
       canAdvance: false,
     });
   });
@@ -159,6 +161,7 @@ describe("Quran evidence controls progression", () => {
     const turn = applyLiveTutorEvent(correction, { type: "recitation", evidence: correctedWord() });
     expect(turn.session).toMatchObject({ ayah: 2, lastCompletedAyah: null, phase: "recite-ayah" });
     expect(turn.action).toMatchObject({ kind: "ask-full-ayah", reason: "target-recognised", canAdvance: false });
+    expect(turn.action.nextChannel).toBe("listen-for-full-ayah");
   });
 
   it("completes detect, focus, word recognition, full-ayah retry, then advance", () => {
@@ -178,6 +181,33 @@ describe("Quran evidence controls progression", () => {
     expect(turn.action.canAdvance).toBe(false);
   });
 
+  it("does not request more listening after trusted surah completion", () => {
+    const session = started("guided-recitation", 7, 7);
+    const evidence: TutorRecitationEvidence = {
+      scope: "ayah",
+      surah: 1,
+      ayah: 7,
+      verseFollowing: {
+        currentSurah: 1,
+        currentAyah: 7,
+        expectedWordIndex: 1,
+        lastCompletedAyah: 7,
+        state: "completed",
+        attemptsOnCurrentAyah: 0,
+        evidence: "strong",
+        shouldAdvance: false,
+        nextAyah: null,
+        correctionFocus: null,
+        reason: "surah_completed",
+      },
+      correctionSession: null,
+      focusedWordResult: null,
+    };
+    const turn = applyLiveTutorEvent(session, { type: "recitation", evidence });
+    expect(turn.session.phase).toBe("completed");
+    expect(turn.action).toMatchObject({ kind: "complete-session", nextChannel: "do-not-listen", canAdvance: false });
+  });
+
   it("holds position on uncertain recitation evidence", () => {
     const evidence = ayahEvidence({
       verseFollowing: follow({ state: "uncertain", evidence: "weak", reason: "too_little_evidence", correctionFocus: null }),
@@ -186,6 +216,7 @@ describe("Quran evidence controls progression", () => {
     const turn = applyLiveTutorEvent(started(), { type: "recitation", evidence });
     expect(turn.session).toMatchObject({ ayah: 2, lastCompletedAyah: null, phase: "waiting" });
     expect(turn.action).toMatchObject({ kind: "hold-uncertain", canAdvance: false });
+    expect(turn.action.nextChannel).toBe("keep-listening");
   });
 
   it("fails closed when correction evidence names a stale target", () => {
@@ -249,15 +280,17 @@ describe("structured learner commands", () => {
     const paused = applyLiveTutorEvent(correction, { type: "intent", intent: "pause" });
     const resumed = applyLiveTutorEvent(paused.session, { type: "intent", intent: "resume" });
     expect(paused.session).toMatchObject({ phase: "paused", ayah: 2, activeCorrection: TARGET });
+    expect(paused.action.nextChannel).toBe("do-not-listen");
     expect(resumed.session).toMatchObject({ phase: "correcting-word", ayah: 2, activeCorrection: TARGET });
     expect(resumed.action.kind).toBe("resume-session");
+    expect(resumed.action.nextChannel).toBe("listen-for-target-word");
   });
 
   it("stop ends the session without inventing completion", () => {
     const session = enterCorrection().session;
     const turn = applyLiveTutorEvent(session, { type: "intent", intent: "stop" });
     expect(turn.session).toMatchObject({ phase: "stopped", ayah: 2, lastCompletedAyah: null });
-    expect(turn.action).toMatchObject({ kind: "end-session", canAdvance: false });
+    expect(turn.action).toMatchObject({ kind: "end-session", nextChannel: "do-not-listen", canAdvance: false });
   });
 });
 
@@ -282,8 +315,10 @@ describe("hints and future timing events", () => {
     const session = started("memorization");
     const short = applyLiveTutorEvent(session, { type: "timing", timing: "short-silence" });
     const prolonged = applyLiveTutorEvent(short.session, { type: "timing", timing: "prolonged-silence" });
-    expect(short.action).toMatchObject({ kind: "wait", reason: "remain-quiet" });
+    expect(short.action).toMatchObject({ kind: "wait", reason: "remain-quiet", nextChannel: "keep-listening" });
+    expect(short.session).toMatchObject({ ayah: 2, lastCompletedAyah: null });
     expect(prolonged.action).toMatchObject({ kind: "offer-hint", reason: "help-may-be-useful" });
+    expect(prolonged.session).toMatchObject({ ayah: 2, lastCompletedAyah: null });
     expect(prolonged.session.hintLevel).toBe(0);
   });
 
