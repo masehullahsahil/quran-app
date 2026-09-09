@@ -447,6 +447,31 @@ async function listVerseText(surah: number, translationId: number): Promise<Vers
   });
 }
 
+export type QuranAyahContext = {
+  surah: number;
+  ayah: number;
+  totalAyahs: number;
+  expectedArabic: string;
+  previousAyahArabic: string | null;
+  nextAyahArabic: string | null;
+};
+
+/** Canonical text context used when server-owned tutor state drives evaluation. */
+export async function getQuranAyahContext(surah: number, ayah: number): Promise<QuranAyahContext> {
+  const verses = await listVerseText(surah, DEFAULT_TRANSLATION_ID);
+  const currentIndex = verses.findIndex((verse) => verse.number === ayah);
+  if (currentIndex < 0) throw new Error(`Unknown ayah ${surah}:${ayah}`);
+
+  return {
+    surah,
+    ayah,
+    totalAyahs: verses.length,
+    expectedArabic: verses[currentIndex].arabic,
+    previousAyahArabic: verses[currentIndex - 1]?.arabic ?? null,
+    nextAyahArabic: verses[currentIndex + 1]?.arabic ?? null,
+  };
+}
+
 /**
  * Word-by-word recordings for one surah.
  *

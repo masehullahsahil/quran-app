@@ -75,6 +75,7 @@ export type LiveTutorSession = {
   totalAyahs: number;
   expectedWordIndex: number;
   lastCompletedAyah: number | null;
+  attemptsOnCurrentAyah: number;
   phase: LiveTutorPhase;
   phaseBeforePause: ResumableTutorPhase | null;
   activeCorrection: CorrectionSessionSnapshot | null;
@@ -174,6 +175,7 @@ export function createLiveTutorSession(input: {
     revision: 0,
     expectedWordIndex: 1,
     lastCompletedAyah: null,
+    attemptsOnCurrentAyah: 0,
     phase: "ready",
     phaseBeforePause: null,
     activeCorrection: null,
@@ -387,7 +389,12 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
     if (correction.recognition === "recognised") {
       return transition(
         session,
-        { phase: "recite-ayah", activeCorrection: correction, hintLevel: 0 },
+        {
+          phase: "recite-ayah",
+          activeCorrection: correction,
+          attemptsOnCurrentAyah: evidence.verseFollowing.attemptsOnCurrentAyah,
+          hintLevel: 0,
+        },
         "ask-full-ayah",
         "target-recognised",
         "focused-word",
@@ -396,7 +403,11 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
     if (correction.recognition === "not-recognised") {
       return transition(
         session,
-        { phase: "correcting-word", activeCorrection: correction },
+        {
+          phase: "correcting-word",
+          activeCorrection: correction,
+          attemptsOnCurrentAyah: evidence.verseFollowing.attemptsOnCurrentAyah,
+        },
         "ask-target-word",
         "target-not-recognised",
         "focused-word",
@@ -404,7 +415,11 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
     }
     return transition(
       session,
-      { phase: "correcting-word", activeCorrection: correction },
+      {
+        phase: "correcting-word",
+        activeCorrection: correction,
+        attemptsOnCurrentAyah: evidence.verseFollowing.attemptsOnCurrentAyah,
+      },
       "hold-uncertain",
       "recitation-uncertain",
       "uncertain",
@@ -419,6 +434,7 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
         ayah: follow.currentAyah,
         expectedWordIndex: follow.expectedWordIndex,
         lastCompletedAyah: follow.lastCompletedAyah,
+        attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah,
         phase: "listening",
         activeCorrection: null,
         hintLevel: 0,
@@ -432,7 +448,13 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
   if (follow.reason === "surah_completed") {
     return transition(
       session,
-      { expectedWordIndex: follow.expectedWordIndex, lastCompletedAyah: follow.lastCompletedAyah, phase: "completed", activeCorrection: null },
+      {
+        expectedWordIndex: follow.expectedWordIndex,
+        lastCompletedAyah: follow.lastCompletedAyah,
+        attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah,
+        phase: "completed",
+        activeCorrection: null,
+      },
       "complete-session",
       "surah-completed",
       "ayah-strong",
@@ -443,6 +465,7 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
       session,
       {
         expectedWordIndex: follow.expectedWordIndex,
+        attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah,
         phase: "correcting-word",
         activeCorrection: evidence.correctionSession,
         hintLevel: 0,
@@ -453,14 +476,30 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
     );
   }
   if (follow.evidence === "none" || follow.evidence === "weak" || follow.state === "uncertain") {
-    return transition(session, { phase: "waiting" }, "hold-uncertain", "recitation-uncertain", "uncertain");
+    return transition(
+      session,
+      { phase: "waiting", attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah },
+      "hold-uncertain",
+      "recitation-uncertain",
+      "uncertain",
+    );
   }
   if (session.activeCorrection) {
-    return transition(session, { phase: "recite-ayah" }, "ask-full-ayah", "partial-recitation", "ayah-partial");
+    return transition(
+      session,
+      { phase: "recite-ayah", attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah },
+      "ask-full-ayah",
+      "partial-recitation",
+      "ayah-partial",
+    );
   }
   return transition(
     session,
-    { phase: "listening", expectedWordIndex: follow.expectedWordIndex },
+    {
+      phase: "listening",
+      expectedWordIndex: follow.expectedWordIndex,
+      attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah,
+    },
     "continue-recitation",
     "partial-recitation",
     "ayah-partial",
@@ -475,6 +514,10 @@ export function applyLiveTutorEvent(session: LiveTutorSession, event: LiveTutorE
 
 export function staleLiveTutorTurn(session: LiveTutorSession): LiveTutorTurn {
   return reject(session, "stale-session");
+}
+
+export function inconsistentLiveTutorTurn(session: LiveTutorSession): LiveTutorTurn {
+  return reject(session, "inconsistent-evidence");
 }
 
 export function traceLiveTutorTurn(event: LiveTutorEvent | null, turn: LiveTutorTurn): LiveTutorTrace {

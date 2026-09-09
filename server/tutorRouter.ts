@@ -5,91 +5,63 @@ import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
 import {
   LEARNER_INTENTS,
   LIVE_TUTOR_MODES,
-  LIVE_TUTOR_PHASES,
-  TUTOR_ACTION_KINDS,
   TUTOR_TIMING_EVENTS,
   applyLiveTutorEvent,
   createLiveTutorSession,
+  inconsistentLiveTutorTurn,
   staleLiveTutorTurn,
   type LiveTutorSession,
+  type LiveTutorTurn,
+  type TutorAction,
+  type TutorRecitationEvidence,
 } from "@shared/liveTutor";
-import {
-  VERSE_FOLLOWING_EVIDENCE,
-  VERSE_FOLLOWING_REASONS,
-  VERSE_FOLLOWING_STATES,
-} from "@shared/verseFollowing";
-import {
-  CORRECTION_STAGES,
-  FOCUSED_WORD_REASONS,
-  RECITATION_ATTEMPT_SCOPES,
-  TARGET_RECOGNITIONS,
-} from "@shared/wordCorrection";
 
-const correctionSessionSchema = z.object({
-  surah: z.number().int().min(1).max(114),
-  ayah: z.number().int().min(1).max(286),
-  targetWordIndex: z.number().int().min(1).max(1000),
-  targetArabic: z.string().min(1).max(4000),
-  stage: z.enum(CORRECTION_STAGES),
-  recognition: z.enum(TARGET_RECOGNITIONS),
-  attemptsOnTarget: z.number().int().min(0).max(1000).optional(),
-});
-
-const correctionFocusSchema = z.object({
-  wordIndex: z.number().int().min(1).max(1000),
-  expectedArabic: z.string().min(1).max(4000),
-  kind: z.enum(["missing", "review"]),
-});
-
-const verseFollowingSchema = z.object({
-  currentSurah: z.number().int().min(1).max(114),
-  currentAyah: z.number().int().min(1).max(286),
-  expectedWordIndex: z.number().int().min(1).max(1000),
-  lastCompletedAyah: z.number().int().min(1).max(286).nullable(),
-  state: z.enum(VERSE_FOLLOWING_STATES),
-  attemptsOnCurrentAyah: z.number().int().min(0).max(1000),
-  evidence: z.enum(VERSE_FOLLOWING_EVIDENCE),
-  shouldAdvance: z.boolean(),
-  nextAyah: z.number().int().min(1).max(286).nullable(),
-  correctionFocus: correctionFocusSchema.nullable(),
-  reason: z.enum(VERSE_FOLLOWING_REASONS),
-});
-
-const focusedWordResultSchema = z.object({
-  recognition: z.enum(TARGET_RECOGNITIONS),
-  reason: z.enum(FOCUSED_WORD_REASONS),
-});
-
-const sessionSchema = z.object({
+export const tutorSessionReferenceSchema = z.object({
   sessionId: z.string().min(1).max(200),
   revision: z.number().int().min(0).max(1_000_000),
-  mode: z.enum(LIVE_TUTOR_MODES),
-  surah: z.number().int().min(1).max(114),
-  ayah: z.number().int().min(1).max(286),
-  totalAyahs: z.number().int().min(1).max(286),
-  expectedWordIndex: z.number().int().min(1).max(1000),
-  lastCompletedAyah: z.number().int().min(1).max(286).nullable(),
-  phase: z.enum(LIVE_TUTOR_PHASES),
-  phaseBeforePause: z.enum(["ready", "listening", "correcting-word", "recite-ayah", "waiting"]).nullable(),
-  activeCorrection: correctionSessionSchema.nullable(),
-  lastTutorAction: z.enum(TUTOR_ACTION_KINDS).nullable(),
-  hintLevel: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(3)]),
-  learnerLanguage: z.enum(SUPPORTED_LANGUAGE_CODES),
-});
+}).strict();
 
-const recitationEvidenceSchema = z.object({
-  scope: z.enum(RECITATION_ATTEMPT_SCOPES),
-  surah: z.number().int().min(1).max(114),
-  ayah: z.number().int().min(1).max(286),
-  verseFollowing: verseFollowingSchema,
-  correctionSession: correctionSessionSchema.nullable(),
-  focusedWordResult: focusedWordResultSchema.nullable(),
-});
+export type TutorSessionReference = z.infer<typeof tutorSessionReferenceSchema>;
 
-const tutorEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("intent"), intent: z.enum(LEARNER_INTENTS) }),
-  z.object({ type: z.literal("timing"), timing: z.enum(TUTOR_TIMING_EVENTS) }),
-  z.object({ type: z.literal("recitation"), evidence: recitationEvidenceSchema }),
+type TutorRecoveryAction = {
+  kind: "refresh-session";
+  reason: "lost-session";
+  canAdvance: false;
+};
+
+export type TutorHandoffResult =
+  | {
+      status: "updated" | "rejected" | "stale";
+      accepted: boolean;
+      session: LiveTutorSession;
+      action: TutorAction;
+    }
+  | {
+      status: "lost";
+      accepted: false;
+      session: null;
+      action: TutorRecoveryAction;
+    };
+
+export type TrustedTutorRecitation = {
+  surah: number;
+  ayah: number;
+  result: {
+    attemptScope: TutorRecitationEvidence["scope"];
+    verseFollowing: TutorRecitationEvidence["verseFollowing"];
+    correctionSession: TutorRecitationEvidence["correctionSession"];
+    focusedWordResult: TutorRecitationEvidence["focusedWordResult"];
+  };
+};
+
+type TutorSessionLookup =
+  | { status: "current"; session: LiveTutorSession }
+  | { status: "stale"; handoff: TutorHandoffResult }
+  | { status: "lost"; handoff: TutorHandoffResult };
+
+const publicTutorEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("intent"), intent: z.enum(LEARNER_INTENTS) }).strict(),
+  z.object({ type: z.literal("timing"), timing: z.enum(TUTOR_TIMING_EVENTS) }).strict(),
 ]);
 
 const startInput = z.object({
@@ -98,7 +70,7 @@ const startInput = z.object({
   ayah: z.number().int().min(1).max(286),
   totalAyahs: z.number().int().min(1).max(286),
   learnerLanguage: z.enum(SUPPORTED_LANGUAGE_CODES),
-}).superRefine((input, ctx) => {
+}).strict().superRefine((input, ctx) => {
   if (input.ayah > input.totalAyahs) ctx.addIssue({ code: "custom", path: ["ayah"], message: "Ayah exceeds the surah length" });
 });
 
@@ -109,31 +81,62 @@ const sessions = globalStore[LIVE_TUTOR_STORE];
 const MAX_EPHEMERAL_SESSIONS = 500;
 
 function saveSession(session: LiveTutorSession) {
+  sessions.delete(session.sessionId);
   sessions.set(session.sessionId, session);
   if (sessions.size <= MAX_EPHEMERAL_SESSIONS) return;
   const oldest = sessions.keys().next().value;
   if (oldest) sessions.delete(oldest);
 }
 
-function sameSession(left: LiveTutorSession, right: LiveTutorSession): boolean {
-  const leftCorrection = left.activeCorrection;
-  const rightCorrection = right.activeCorrection;
-  const sameCorrection = leftCorrection === null && rightCorrection === null || Boolean(
-    leftCorrection && rightCorrection &&
-    leftCorrection.surah === rightCorrection.surah &&
-    leftCorrection.ayah === rightCorrection.ayah &&
-    leftCorrection.targetWordIndex === rightCorrection.targetWordIndex &&
-    leftCorrection.targetArabic === rightCorrection.targetArabic &&
-    leftCorrection.stage === rightCorrection.stage &&
-    leftCorrection.recognition === rightCorrection.recognition &&
-    leftCorrection.attemptsOnTarget === rightCorrection.attemptsOnTarget,
-  );
-  return left.sessionId === right.sessionId && left.revision === right.revision && left.mode === right.mode &&
-    left.surah === right.surah && left.ayah === right.ayah && left.totalAyahs === right.totalAyahs &&
-    left.expectedWordIndex === right.expectedWordIndex && left.lastCompletedAyah === right.lastCompletedAyah &&
-    left.phase === right.phase && left.phaseBeforePause === right.phaseBeforePause && sameCorrection &&
-    left.lastTutorAction === right.lastTutorAction && left.hintLevel === right.hintLevel &&
-    left.learnerLanguage === right.learnerLanguage;
+function handoff(status: "updated" | "rejected" | "stale", turn: LiveTutorTurn): TutorHandoffResult {
+  return { status, ...turn };
+}
+
+function lostHandoff(): TutorHandoffResult {
+  return {
+    status: "lost",
+    accepted: false,
+    session: null,
+    action: { kind: "refresh-session", reason: "lost-session", canAdvance: false },
+  };
+}
+
+export function getTrustedTutorSession(reference: TutorSessionReference): TutorSessionLookup {
+  const trusted = sessions.get(reference.sessionId);
+  if (!trusted) return { status: "lost", handoff: lostHandoff() };
+  if (trusted.revision !== reference.revision) {
+    return { status: "stale", handoff: handoff("stale", staleLiveTutorTurn(trusted)) };
+  }
+  return { status: "current", session: trusted };
+}
+
+/** Internal bridge only: no public schema accepts this evidence object. */
+export function applyTrustedTutorRecitation(
+  reference: TutorSessionReference,
+  attempt: TrustedTutorRecitation,
+): TutorHandoffResult {
+  const lookup = getTrustedTutorSession(reference);
+  if (lookup.status !== "current") return lookup.handoff;
+
+  const turn = applyLiveTutorEvent(lookup.session, {
+    type: "recitation",
+    evidence: {
+      scope: attempt.result.attemptScope,
+      surah: attempt.surah,
+      ayah: attempt.ayah,
+      verseFollowing: attempt.result.verseFollowing,
+      correctionSession: attempt.result.correctionSession,
+      focusedWordResult: attempt.result.focusedWordResult,
+    },
+  });
+  if (turn.accepted) saveSession(turn.session);
+  return handoff(turn.accepted ? "updated" : "rejected", turn);
+}
+
+export function rejectTrustedTutorRecitation(reference: TutorSessionReference): TutorHandoffResult {
+  const lookup = getTrustedTutorSession(reference);
+  if (lookup.status !== "current") return lookup.handoff;
+  return handoff("rejected", inconsistentLiveTutorTurn(lookup.session));
 }
 
 export function resetLiveTutorSessionsForTests() {
@@ -146,13 +149,15 @@ export const tutorRouter = router({
     saveSession(turn.session);
     return turn;
   }),
-  turn: publicProcedure.input(z.object({ session: sessionSchema, event: tutorEventSchema })).mutation(({ input }) => {
-    const trusted = sessions.get(input.session.sessionId);
-    if (!trusted) return staleLiveTutorTurn(input.session);
-    if (!sameSession(trusted, input.session)) return staleLiveTutorTurn(trusted);
+  turn: publicProcedure.input(z.object({
+    session: tutorSessionReferenceSchema,
+    event: publicTutorEventSchema,
+  }).strict()).mutation(({ input }) => {
+    const lookup = getTrustedTutorSession(input.session);
+    if (lookup.status !== "current") return lookup.handoff;
 
-    const turn = applyLiveTutorEvent(trusted, input.event);
+    const turn = applyLiveTutorEvent(lookup.session, input.event);
     if (turn.accepted) saveSession(turn.session);
-    return turn;
+    return handoff(turn.accepted ? "updated" : "rejected", turn);
   }),
 });
