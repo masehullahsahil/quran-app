@@ -86,6 +86,32 @@ export const CRITICAL_STRING_KEYS = [
   "mastery.strong",
   "mastery.mastered",
 
+  // The hands-free lesson. Every one of these is either the state of the
+  // learner's own microphone or a sentence the teacher says while their eyes
+  // are on the Quran rather than the screen — the last place a pack may fall
+  // back to a language the learner did not choose.
+  "handsfree.label",
+  "handsfree.start",
+  "handsfree.privacy",
+  "handsfree.stateIdle",
+  "handsfree.stateListening",
+  "handsfree.stateSpeaking",
+  "handsfree.stateChecking",
+  "handsfree.stateTeacher",
+  "handsfree.stateReciter",
+  "handsfree.stateWaiting",
+  "handsfree.statePaused",
+  "handsfree.stateMicUnavailable",
+  "handsfree.stateReconnect",
+  "handsfree.nowYouSayIt",
+  "handsfree.goodContinue",
+  "handsfree.pause",
+  "handsfree.resume",
+  "handsfree.stop",
+  "handsfree.sessionLost",
+  "handsfree.micDenied",
+  "handsfree.vadUnsupported",
+
   // The Qaida course controls, which sit beside untranslated lesson text.
   "course.continue",
   "course.tryAgain",

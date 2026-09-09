@@ -5,7 +5,7 @@
 // The default import keeps this renderable in a test: the app's build uses the
 // automatic JSX runtime, while the test transform falls back to the classic one
 // (tsconfig sets `jsx: "preserve"`), where JSX needs React in scope.
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -67,6 +67,11 @@ import type {
 } from "@shared/wordCorrection";
 import { findWordAudio } from "@/lib/wordAudio";
 import { useRecordingAudio } from "@/hooks/useRecordingAudio";
+import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTutor";
+import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn } from "@/hooks/useContinuousTutorAudio";
+import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
+import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
+import { interruptHandoff, interruptsCapture, tutorLiveTransport, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -376,6 +381,14 @@ export default function Home() {
   // and the end-of-ayah handover both use it, so continuous listening survives
   // the src swap that a verse change causes.
   const resumeOnVerseChangeRef = useRef(false);
+  /**
+   * Whether the hands-free lesson is running.
+   *
+   * Read by `reviewRecording`, which is defined above the hands-free section
+   * and needs to know one thing about it: that the teacher already has a voice.
+   * See its use below — two of them talking over each other is not a lesson.
+   */
+  const handsFreeRef = useRef(false);
 
   const { t, locale, letterLesson, manifest } = useLocale();
   const letterAudio = useLetterAudio();
@@ -975,7 +988,11 @@ export default function Home() {
         }
       }
       setRecorderMessage(review.wordReviewAvailable ? t("recorder.reviewReady") : review.reviewMessage ?? t("feedback.reviewUnavailable"));
-      if (review.wordReviewAvailable && coachAudioOn) speakGuidance(review.spokenGuidance);
+      // Study's own coaching voice, and only Study's. In a hands-free lesson
+      // the teacher is already speaking — in the learner's own language, in a
+      // sequence built around the Quran boundary — and this line reads the
+      // review's English guidance over the top of it. One teacher at a time.
+      if (review.wordReviewAvailable && coachAudioOn && !handsFreeRef.current) speakGuidance(review.spokenGuidance);
     } catch (error) {
       const message = error instanceof Error ? error.message : t("recorder.reviewFailed");
       setReviewError(message);
@@ -1304,6 +1321,229 @@ export default function Home() {
       )
     : null;
 
+  /* ------------------------------------------------ the hands-free lesson */
+
+  /**
+   * The lesson with the microphone left open.
+   *
+   * Everything below is additive. Study's manual path — the record button, the
+   * correction card, the panel's own controls — is untouched and is exactly
+   * what runs when this cannot: an old browser, a refused permission, no
+   * `AudioContext`. A learner who never presses "Start Live Tutor" sees the
+   * screen they saw before, and one whose microphone fails is put back on it.
+   *
+   * The division of labour is the same one the rest of the tutor observes. The
+   * browser decides *when the learner stopped talking* and *which file to
+   * play*; the server decides everything about the Quran. There is no code
+   * below that names a word, compares a recitation, or moves an ayah.
+   */
+  const [handsFreeOn, setHandsFreeOn] = useState(false);
+  const [coachMuted, setCoachMuted] = useState(false);
+  handsFreeRef.current = handsFreeOn;
+  const handsFreeSupported = continuousAudioSupported();
+
+  // `reviewRecording` is re-made every render and a finalised turn arrives from
+  // a timer that outlives the render it was armed in, so it is reached through
+  // a ref. The same reason `tutorRef` exists.
+  const reviewRecordingRef = useRef(reviewRecording);
+  reviewRecordingRef.current = reviewRecording;
+
+  /**
+   * A turn the detector finalised, on its way to the trusted route.
+   *
+   * It takes exactly the path a recording made with the record button takes —
+   * `reviewRecording`, which sends it through `recitation.evaluateWithTutor`
+   * with the tutor's session reference and nothing else. Hands-free changes
+   * *when* a recording is made, never what happens to it or who judges it.
+   */
+  const handleFinalisedTurn = useCallback((turn: FinalisedTurn) => {
+    void (async () => {
+      try {
+        await reviewRecordingRef.current(turn.blob, turn.scope);
+      } finally {
+        // Whatever the server said — accepted, rejected, unreachable — the
+        // learner is no longer being checked, and the next plan may open the
+        // microphone again. A lesson that could get stuck on "Checking" because
+        // one request failed would be worse than one that simply listens again.
+        continuousRef.current?.setChecking(false);
+      }
+    })();
+  }, []);
+
+  const handleMicrophoneUnavailable = useCallback(() => {
+    // Back to the manual path, which works. Nothing is described as hands-free
+    // from here: the component says what happened and Study's own controls are
+    // the way forward.
+    setHandsFreeOn(false);
+  }, []);
+
+  const continuous = useContinuousTutorAudio({
+    onTurn: handleFinalisedTurn,
+    onUnavailable: handleMicrophoneUnavailable,
+    /**
+     * Deliberately no `onTiming`.
+     *
+     * The engine accepts timing events, and sending them from here would look
+     * like the obvious wiring — but `learner-started-speaking` and
+     * `learner-stopped-speaking` both *set the session phase*, and the phase is
+     * what selects the attempt scope (#53). A browser-detected pause during a
+     * word correction would move the lesson out of `correcting-word`, and the
+     * learner's next recording of one word would be submitted as a whole-ayah
+     * attempt. Local silence detection must never be able to do that. The
+     * recording itself is the evidence, and the server reads it.
+     */
+  });
+  const continuousRef = useRef(continuous);
+  continuousRef.current = continuous;
+
+  /**
+   * The sequence the app performs in answer to the tutor's own turn.
+   *
+   * Built from `action.kind` and nothing else — see `lib/handsFreePlan.ts`.
+   * Null whenever hands-free is not running, which is what keeps the manual
+   * path completely inert.
+   */
+  // Memoised on the things it is actually made of. Without this the plan is a
+  // new object on every render, and an effect watching it re-runs on every
+  // render — which is a render loop the moment that effect sets any state.
+  const handsFreeTurn = tutor.turn;
+  const handsFreeWordUrl = focusWordAudio?.url ?? null;
+  const displayedAyahNumber = activeVerse?.number ?? selectedVerse;
+  const handsFreePlan: HandsFreePlan | null = useMemo(() => (
+    handsFreeOn && handsFreeTurn
+      ? handsFreePlanFor({
+          session: handsFreeTurn.session,
+          action: handsFreeTurn.action,
+          canPlayWord: Boolean(handsFreeWordUrl),
+          canPlayAyah: !audioUnavailable,
+          onScreen: handsFreeTurn.session.surah === surahNumber
+            && handsFreeTurn.session.ayah === displayedAyahNumber,
+        })
+      : null
+  ), [handsFreeOn, handsFreeTurn, handsFreeWordUrl, audioUnavailable, surahNumber, displayedAyahNumber]);
+
+  const handsFreeRunnable = handsFreeOn
+    && continuous.active
+    && continuous.state !== "paused"
+    && continuous.state !== "session-lost"
+    && continuous.state !== "microphone-unavailable";
+
+  const playback = useTutorPlaybackOrchestrator({
+    plan: handsFreePlan,
+    language: locale as SupportedLanguageCode,
+    muted: coachMuted,
+    // The Quran, only ever as a recording. Both of these are trusted files —
+    // #51's word audio and the selected reciter's ayah — and there is no third
+    // source the orchestrator could reach for.
+    wordAudioUrl: handsFreeWordUrl,
+    ayahAudioUrl: activeVerse?.audioUrl ?? null,
+    translate: t,
+    holdForPlayback: continuous.holdForPlayback,
+    releasePlayback: continuous.releasePlayback,
+    listen: continuous.listen,
+    enabled: handsFreeRunnable,
+  });
+
+  /**
+   * Codex's live tracking, once it exists.
+   *
+   * Until then this is `NO_LIVE_TRANSPORT`: it accepts everything and emits
+   * nothing, so the lesson runs on finalised turns and the mid-ayah
+   * interruption simply does not fire. What is already wired is the *response*
+   * — an `interrupt` stops learner capture immediately, without waiting for
+   * silence, and stores the trusted turn it carries through the same
+   * `applyHandoff` a finished recording uses. See `lib/tutorLiveTransport.ts`
+   * for the three edits that swap the transport in.
+   */
+  const handleLiveEvent = useCallback((event: LiveTutorServerEvent) => {
+    if (interruptsCapture(event)) {
+      // Server authority. Capture stops now, mid-word, and the partial audio is
+      // discarded rather than submitted — the server has already decided, and
+      // asking it the same question again could produce a second answer.
+      continuousRef.current?.interrupt();
+      tutorRef.current.applyHandoff(interruptHandoff(event));
+      return;
+    }
+    if (event.type === "lost") {
+      continuousRef.current?.markSessionLost();
+      return;
+    }
+    // `tracking`, `possible-omission` and `confirmed-omission` are provisional.
+    // Nothing is rendered from them: a learner watching "maybe you missed a
+    // word" appear and disappear will stop and correct something that was
+    // right. While the server is still deciding, the screen says "Listening."
+  }, []);
+
+  const liveSessionId = tutor.reference?.sessionId ?? null;
+  useEffect(() => {
+    // Read at subscription time rather than captured at mount, so installing a
+    // live transport after start-up is enough to switch the lesson onto it.
+    const transport = tutorLiveTransport();
+    const reference = tutorRef.current.reference;
+    if (!handsFreeOn || !reference || !transport.available) return;
+    transport.open(reference);
+    const unsubscribe = transport.subscribe(handleLiveEvent);
+    return () => {
+      unsubscribe();
+      transport.close();
+    };
+  }, [handsFreeOn, liveSessionId, handleLiveEvent]);
+
+  /**
+   * The server no longer has this lesson.
+   *
+   * Everything stops: no automatic progression, no invented correction, and the
+   * ayah stays exactly where it is. The learner is offered a way to start
+   * again, and starting again resumes from this position rather than claiming
+   * the ayah was completed.
+   */
+  useEffect(() => {
+    if (handsFreeOn && tutor.status === "lost") continuousRef.current?.markSessionLost();
+  }, [handsFreeOn, tutor.status]);
+
+  // Leaving Study ends the session and hands the microphone back. Not a
+  // nice-to-have: a live track surviving a navigation is a microphone the
+  // learner did not agree to leave open.
+  useEffect(() => {
+    if (view !== "study" && handsFreeOn) {
+      continuousRef.current?.stop();
+      setHandsFreeOn(false);
+    }
+  }, [view, handsFreeOn]);
+
+  const startHandsFree = useCallback(async () => {
+    const ready = await continuousRef.current.start();
+    if (!ready) return;
+    setHandsFreeOn(true);
+    // The engine opens the turn, exactly as pressing Start does today. The plan
+    // built from its answer is what actually opens the microphone.
+    tutorRef.current.sendIntent("start");
+  }, []);
+
+  const handsFreeOptions: HandsFreeOption[] = (() => {
+    if (!handsFreeOn || !tutor.turn) return [];
+    const options: HandsFreeOption[] = ["repeat-teacher"];
+    if (focusWordAudio) options.push("hear-word");
+    if (!audioUnavailable) options.push("hear-ayah");
+    options.push("hint");
+    return options;
+  })();
+
+  /**
+   * The recovery controls, which are the engine's intents by another name.
+   *
+   * Each one asks the tutor for something and then does nothing else: the turn
+   * that comes back is what plays the word, shows the hint, or repeats the
+   * instruction. Nothing here performs an action the server did not choose.
+   */
+  const runHandsFreeOption = useCallback((option: HandsFreeOption) => {
+    const intent = option === "repeat-teacher" ? "again"
+      : option === "hear-word" ? "hear-word"
+      : option === "hear-ayah" ? "hear-ayah"
+      : "hint";
+    tutorRef.current.sendIntent(intent);
+  }, []);
+
   /**
    * What the learner asked for.
    *
@@ -1577,6 +1817,36 @@ export default function Home() {
                   session={tutorView}
                   ayah={{ arabic: activeVerse.arabic, label: `${surahLabel} ${t("now.place", { ayah: activeVerse.number, total: ayahs.length })}` }}
                   onIntent={runTutorIntent}
+                  handsFree={handsFreeOn}
+                />
+              )}
+
+              {/* The microphone, and the two ways to stop it.
+
+                  Rendered only where the tutor is actually running, because
+                  hands-free is the tutor listening — without a session there is
+                  nothing for it to be hands-free *of*. On a browser that cannot
+                  do it the component renders nothing at all and Study keeps the
+                  controls below, which is the fallback and is never described
+                  as hands-free. */}
+              {tutorView && (
+                <HandsFreeTutor
+                  supported={handsFreeSupported}
+                  active={handsFreeOn && continuous.active}
+                  state={continuous.state}
+                  failure={continuous.failure}
+                  line={playback.line}
+                  lineSpoken={playback.lineSpoken}
+                  level={continuous.level}
+                  scope={continuous.scope}
+                  options={handsFreeOptions}
+                  muted={coachMuted}
+                  onMutedChange={setCoachMuted}
+                  onStart={() => void startHandsFree()}
+                  onPause={() => { continuous.pause(); tutor.sendIntent("pause"); }}
+                  onResume={() => { continuous.resume(); tutor.sendIntent("resume"); }}
+                  onStop={() => { continuous.stop(); setHandsFreeOn(false); tutor.sendIntent("stop"); }}
+                  onOption={runHandsFreeOption}
                 />
               )}
 
