@@ -1,4 +1,5 @@
 import { COOKIE_NAME } from "@shared/const";
+import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
@@ -34,13 +35,14 @@ import {
   type TargetRecognition,
 } from "@shared/wordCorrection";
 import { evaluateFocusedWordTranscript, validateCorrectionTarget, type ValidatedCorrectionTarget } from "./focusedWordEvaluation";
-import { checkRecitationEvaluateRateLimit, logRecitationRateLimit } from "./recitationRateLimit";
+import { checkLiveRecitationRateLimit, checkRecitationEvaluateRateLimit, logRecitationRateLimit } from "./recitationRateLimit";
 import { isStorageConfigured, storagePut } from "./storage";
 import { ingestRecitationChunk } from "./recitationSession";
 import { buildReviewQueue, deriveAyahMemory, findRecurringErrors } from "@shared/memorization";
 import { getQaidaLesson } from "@shared/qaidaCurriculum";
 import { getLearnerSnapshot, insertMemorizationAttempt, mergeQaidaProgress } from "./db";
 import {
+  applyTrustedTutorLiveOmission,
   applyTrustedTutorRecitation,
   getTrustedTutorSession,
   rejectTrustedTutorRecitation,
@@ -48,6 +50,15 @@ import {
   tutorSessionReferenceSchema,
 } from "./tutorRouter";
 import type { LiveTutorSession } from "@shared/liveTutor";
+import {
+  abortContinuousTutorInput,
+  commitContinuousTutorInput,
+  liveTiming,
+  reserveContinuousTutorInput,
+  startContinuousTutorStream,
+} from "./continuousTutor";
+import { createLiveQuranTracker, updateLiveQuranTracker } from "./liveRecitationTracker";
+import type { LiveInputAcknowledgement, LiveListeningDirective } from "@shared/liveRecitation";
 
 // Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
 // past 1,600 characters once Uthmani diacritics are counted. The old limit fit
@@ -55,6 +66,53 @@ import type { LiveTutorSession } from "@shared/liveTutor";
 // now that any surah can be selected.
 const MAX_AYAH_CHARS = 4000;
 const BASE64_AUDIO = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function decodeRecitationAudio(audioBase64: string): { rawBase64: string; audioBuffer: Buffer } {
+  const rawBase64 = audioBase64.includes(",")
+    ? audioBase64.slice(audioBase64.indexOf(",") + 1)
+    : audioBase64;
+  if (!BASE64_AUDIO.test(rawBase64) || rawBase64.length % 4 !== 0) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "The recording could not be read. Please record again." });
+  }
+  const audioBuffer = Buffer.from(rawBase64, "base64");
+  if (!audioBuffer.length) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "The recording was empty. Please record again." });
+  }
+  if (audioBuffer.length > MAX_AUDIO_BYTES) {
+    throw new TRPCError({
+      code: "PAYLOAD_TOO_LARGE",
+      message: `That recording is ${formatMegabytes(audioBuffer.length)} MB. Please record a clip under ${formatMegabytes(MAX_AUDIO_BYTES)} MB — one ayah at a calm pace is well within it.`,
+    });
+  }
+  return { rawBase64, audioBuffer };
+}
+
+async function enforceRecitationRateLimit(
+  ctx: TrpcContext,
+  check = checkRecitationEvaluateRateLimit,
+) {
+  let rateLimit;
+  try {
+    rateLimit = await check(ctx);
+  } catch (error) {
+    console.warn("[recitation] evaluate rate-limit store unavailable", {
+      store: "redis",
+      message: error instanceof Error ? error.message : "unknown error",
+    });
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: "Recitation review is temporarily busy. Please try again in a minute.",
+      cause: error,
+    });
+  }
+  if (!rateLimit.allowed) {
+    logRecitationRateLimit(rateLimit);
+    throw new TRPCError({
+      code: "TOO_MANY_REQUESTS",
+      message: `Too many recitation reviews. Please wait ${rateLimit.retryAfterSeconds} seconds and try again.`,
+    });
+  }
+}
 
 // Everything the verse-following tracker needs is optional: a client that only
 // wants a word review keeps working, and the tracker then reports on this ayah
@@ -112,6 +170,37 @@ const tutorRecitationInput = z.object({
   session: tutorSessionReferenceSchema,
   attempt: tutorRecitationAttemptInput,
 }).strict();
+
+const liveTutorStartInput = z.object({
+  session: tutorSessionReferenceSchema,
+}).strict();
+
+const liveTutorAudioInput = z.object({
+  session: tutorSessionReferenceSchema,
+  streamId: z.string().uuid(),
+  turnId: z.string().min(1).max(200),
+  chunkId: z.string().min(1).max(200),
+  sequence: z.number().int().min(1).max(1_000_000),
+  attemptScope: z.enum(RECITATION_ATTEMPT_SCOPES),
+  stability: z.enum(["interim", "final"]),
+  turnComplete: z.boolean(),
+  captureStartedAtMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  captureEndedAtMs: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  audioBase64: z.string().min(20).max(MAX_AUDIO_BASE64_LENGTH),
+  mimeType: z.enum(["audio/webm", "audio/ogg", "audio/wav", "audio/mpeg", "audio/mp4"]),
+  learningLevel: z.enum(LEARNING_LEVELS).default("qaida"),
+  uiLanguage: z.enum(SUPPORTED_LANGUAGE_CODES).default("en"),
+}).strict().superRefine((input, ctx) => {
+  if (input.captureEndedAtMs < input.captureStartedAtMs) {
+    ctx.addIssue({ code: "custom", path: ["captureEndedAtMs"], message: "Capture end precedes its start" });
+  }
+  if (input.turnComplete && input.stability !== "final") {
+    ctx.addIssue({ code: "custom", path: ["stability"], message: "A completed turn must be final" });
+  }
+  if (input.attemptScope === "word" && !input.turnComplete) {
+    ctx.addIssue({ code: "custom", path: ["turnComplete"], message: "Focused word audio must be evaluated as a completed turn" });
+  }
+});
 
 const correctionFocusInput = z.object({
   wordIndex: z.number().int().min(1).max(1000),
@@ -325,7 +414,10 @@ async function trustedTutorRecitationInput(
   attempt: z.output<typeof tutorRecitationAttemptInput>,
 ): Promise<RecitationEvaluationInput | null> {
   if (session.phase === "paused" || session.phase === "completed" || session.phase === "stopped") return null;
-  if (attempt.attemptScope === "word" && !session.activeCorrection) return null;
+  const expectedScope = session.activeCorrection?.stage === "recite-ayah" ? "ayah"
+    : session.activeCorrection ? "word"
+      : "ayah";
+  if (attempt.attemptScope !== expectedScope) return null;
 
   const context = await getQuranAyahContext(session.surah, session.ayah);
   if (context.totalAyahs !== session.totalAyahs) return null;
@@ -504,47 +596,12 @@ export const appRouter = router({
           note: "No audio, transcript, acoustic finding, or ayah score was evaluated because the focused correction target was invalid.",
         };
       }
-      const rawBase64 = input.audioBase64.includes(",")
-        ? input.audioBase64.slice(input.audioBase64.indexOf(",") + 1)
-        : input.audioBase64;
-      if (!BASE64_AUDIO.test(rawBase64) || rawBase64.length % 4 !== 0) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "The recording could not be read. Please record again." });
-      }
-      const audioBuffer = Buffer.from(rawBase64, "base64");
-      if (!audioBuffer.length) {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "The recording was empty. Please record again." });
-      }
-      // The recorder enforces this before uploading, so reaching it here means a
-      // client that skipped the check. Serverless platforms reject an oversized
-      // body before the function runs, so this is a backstop, not the guard.
-      if (audioBuffer.length > MAX_AUDIO_BYTES) {
-        throw new TRPCError({
-          code: "PAYLOAD_TOO_LARGE",
-          message: `That recording is ${formatMegabytes(audioBuffer.length)} MB. Please record a clip under ${formatMegabytes(MAX_AUDIO_BYTES)} MB — one ayah at a calm pace is well within it.`,
-        });
-      }
+      // The recorder enforces the size before upload. This shared decoder is
+      // also used by incremental live chunks, so both trusted paths reject the
+      // same malformed or oversized payloads.
+      const { rawBase64, audioBuffer } = decodeRecitationAudio(input.audioBase64);
 
-      let rateLimit;
-      try {
-        rateLimit = await checkRecitationEvaluateRateLimit(ctx);
-      } catch (error) {
-        console.warn("[recitation] evaluate rate-limit store unavailable", {
-          store: "redis",
-          message: error instanceof Error ? error.message : "unknown error",
-        });
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message: "Recitation review is temporarily busy. Please try again in a minute.",
-          cause: error,
-        });
-      }
-      if (!rateLimit.allowed) {
-        logRecitationRateLimit(rateLimit);
-        throw new TRPCError({
-          code: "TOO_MANY_REQUESTS",
-          message: `Too many recitation reviews. Please wait ${rateLimit.retryAfterSeconds} seconds and try again.`,
-        });
-      }
+      await enforceRecitationRateLimit(ctx);
 
       // Archiving the attempt is a side effect, not a prerequisite: storage
       // runs on Forge while transcription runs on OpenAI, so the review has to
@@ -757,6 +814,25 @@ export const appRouter = router({
       };
     };
 
+    const liveAcknowledgement = (
+      status: LiveInputAcknowledgement["status"],
+      input: z.output<typeof liveTutorAudioInput>,
+      appliedSequence: number,
+    ): LiveInputAcknowledgement => ({
+      status,
+      turnId: input.turnId,
+      chunkId: input.chunkId,
+      sequence: input.sequence,
+      appliedSequence,
+    });
+
+    const idleDirective = (phase: "listening" | "interrupted" | "paused" | "completed" | "stopped" | undefined): LiveListeningDirective => {
+      if (!phase) return "do-not-listen";
+      if (phase === "paused" || phase === "completed" || phase === "stopped") return "do-not-listen";
+      if (phase === "interrupted") return "wait";
+      return "keep-listening";
+    };
+
     return router({
       // Stateless, typed chunk orchestration. Clients carry the returned session
       // into the next request; only finalized chunks can change its durable place.
@@ -792,6 +868,241 @@ export const appRouter = router({
         return tutor.status === "updated"
           ? { recitation, tutor }
           : { recitation: null, tutor };
+      }),
+      startLive: publicProcedure.input(liveTutorStartInput).mutation(({ input }) => {
+        const lookup = getTrustedTutorSession(input.session);
+        if (lookup.status !== "current") return { stream: null, tutor: lookup.handoff, nextChannel: "do-not-listen" as const };
+        const session = lookup.session;
+        if (session.phase === "paused" || session.phase === "completed" || session.phase === "stopped") {
+          return {
+            stream: null,
+            tutor: rejectTrustedTutorRecitation(input.session),
+            nextChannel: "do-not-listen" as const,
+          };
+        }
+        const stream = startContinuousTutorStream(session);
+        const nextChannel: LiveListeningDirective = session.activeCorrection
+          ? session.activeCorrection.stage === "recite-ayah" ? "listen-for-full-ayah" : "listen-for-target-word"
+          : "keep-listening";
+        return { stream, tutor: null, nextChannel };
+      }),
+      ingestLiveAudio: publicProcedure.input(liveTutorAudioInput).mutation(async ({ ctx, input }) => {
+        const { audioBuffer } = decodeRecitationAudio(input.audioBase64);
+        const audioHash = createHash("sha256").update(audioBuffer).digest("hex");
+        const reservation = reserveContinuousTutorInput({
+          streamId: input.streamId,
+          tutorSessionId: input.session.sessionId,
+          turnId: input.turnId,
+          chunkId: input.chunkId,
+          sequence: input.sequence,
+          turnComplete: input.turnComplete,
+          audioHash,
+        });
+        const timingBase = {
+          captureStartedAtMs: input.captureStartedAtMs,
+          captureEndedAtMs: input.captureEndedAtMs,
+        };
+
+        if (reservation.status !== "reserved") {
+          return {
+            acknowledgement: reservation.acknowledgement,
+            stream: reservation.snapshot,
+            recognitionStatus: "not-run" as const,
+            event: null,
+            nextChannel: idleDirective(reservation.snapshot?.phase),
+            timing: liveTiming(timingBase),
+            recitation: null,
+            tutor: null,
+          };
+        }
+
+        const lookup = getTrustedTutorSession(input.session);
+        if (lookup.status !== "current") {
+          abortContinuousTutorInput(input.streamId, input.sequence);
+          return {
+            acknowledgement: liveAcknowledgement("stale", input, reservation.snapshot.lastSequence),
+            stream: reservation.snapshot,
+            recognitionStatus: "not-run" as const,
+            event: null,
+            nextChannel: "do-not-listen" as const,
+            timing: liveTiming(timingBase),
+            recitation: null,
+            tutor: lookup.handoff,
+          };
+        }
+
+        const session = lookup.session;
+        const inactive = session.phase === "paused" || session.phase === "completed" || session.phase === "stopped";
+        const blockedIncrement = !input.turnComplete && (input.attemptScope === "word" || Boolean(session.activeCorrection));
+        if (inactive || blockedIncrement) {
+          abortContinuousTutorInput(input.streamId, input.sequence);
+          return {
+            acknowledgement: liveAcknowledgement("rejected", input, reservation.snapshot.lastSequence),
+            stream: reservation.snapshot,
+            recognitionStatus: "not-run" as const,
+            event: null,
+            nextChannel: inactive ? "do-not-listen" as const : "wait" as const,
+            timing: liveTiming(timingBase),
+            recitation: null,
+            tutor: null,
+          };
+        }
+
+        try {
+          if (input.turnComplete) {
+            const trustedInput = await trustedTutorRecitationInput(session, {
+              audioBase64: input.audioBase64,
+              mimeType: input.mimeType,
+              learningLevel: input.learningLevel,
+              uiLanguage: input.uiLanguage,
+              attemptScope: input.attemptScope,
+            });
+            if (!trustedInput) {
+              abortContinuousTutorInput(input.streamId, input.sequence);
+              return {
+                acknowledgement: liveAcknowledgement("rejected", input, reservation.snapshot.lastSequence),
+                stream: reservation.snapshot,
+                recognitionStatus: "not-run" as const,
+                event: null,
+                nextChannel: "wait" as const,
+                timing: liveTiming(timingBase),
+                recitation: null,
+                tutor: rejectTrustedTutorRecitation(input.session),
+              };
+            }
+
+            const recitation = await evaluateRecitationAttempt({ ctx, input: trustedInput });
+            const tutor = applyTrustedTutorRecitation(input.session, {
+              surah: session.surah,
+              ayah: session.ayah,
+              result: recitation,
+            });
+            if (tutor.status !== "updated" || !tutor.session) {
+              abortContinuousTutorInput(input.streamId, input.sequence);
+              return {
+                acknowledgement: liveAcknowledgement(tutor.status === "stale" ? "stale" : "rejected", input, reservation.snapshot.lastSequence),
+                stream: reservation.snapshot,
+                recognitionStatus: "transcribed" as const,
+                event: null,
+                nextChannel: "do-not-listen" as const,
+                timing: liveTiming({ ...timingBase, recognitionResultAtMs: Date.now() }),
+                recitation: null,
+                tutor,
+              };
+            }
+
+            const tracker = createLiveQuranTracker(tutor.session.surah, tutor.session.ayah);
+            tracker.expectedWordIndex = tutor.session.expectedWordIndex;
+            const committed = commitContinuousTutorInput({
+              streamId: input.streamId,
+              turnId: input.turnId,
+              chunkId: input.chunkId,
+              sequence: input.sequence,
+              tutorSession: tutor.session,
+              directive: tutor.action.nextChannel,
+              tracker,
+            });
+            if (!committed) throw new TRPCError({ code: "CONFLICT", message: "The live turn could not be committed." });
+            const actionAt = Date.now();
+            return {
+              acknowledgement: committed.acknowledgement,
+              stream: committed.snapshot,
+              recognitionStatus: recitation.reviewStatus === "unavailable" ? "unavailable" as const : "transcribed" as const,
+              event: null,
+              nextChannel: tutor.action.nextChannel,
+              timing: liveTiming({ ...timingBase, recognitionResultAtMs: actionAt, tutorActionAtMs: actionAt }),
+              recitation,
+              tutor,
+            };
+          }
+
+          await enforceRecitationRateLimit(ctx, checkLiveRecitationRateLimit);
+          const context = await getQuranAyahContext(session.surah, session.ayah);
+          if (context.totalAyahs !== session.totalAyahs) {
+            abortContinuousTutorInput(input.streamId, input.sequence);
+            return {
+              acknowledgement: liveAcknowledgement("rejected", input, reservation.snapshot.lastSequence),
+              stream: reservation.snapshot,
+              recognitionStatus: "not-run" as const,
+              event: null,
+              nextChannel: "do-not-listen" as const,
+              timing: liveTiming(timingBase),
+              recitation: null,
+              tutor: rejectTrustedTutorRecitation(input.session),
+            };
+          }
+
+          const transcription = await transcribeAudio({ audio: audioBuffer, mimeType: input.mimeType, language: "ar" });
+          const recognitionResultAtMs = Date.now();
+          const currentLookup = getTrustedTutorSession(input.session);
+          if (currentLookup.status !== "current") {
+            abortContinuousTutorInput(input.streamId, input.sequence);
+            return {
+              acknowledgement: liveAcknowledgement("stale", input, reservation.snapshot.lastSequence),
+              stream: reservation.snapshot,
+              recognitionStatus: "error" in transcription ? "unavailable" as const : "transcribed" as const,
+              event: null,
+              nextChannel: "do-not-listen" as const,
+              timing: liveTiming({ ...timingBase, recognitionResultAtMs }),
+              recitation: null,
+              tutor: currentLookup.handoff,
+            };
+          }
+          const trackerUpdate = updateLiveQuranTracker({
+            tracker: reservation.snapshot.tracker,
+            expectedArabic: context.expectedArabic,
+            transcript: "error" in transcription ? "" : transcription.text,
+            stability: input.stability,
+            sequence: input.sequence,
+          });
+          const omission = trackerUpdate.omission;
+          const tutor = omission ? applyTrustedTutorLiveOmission(input.session, omission) : null;
+          if (tutor && (tutor.status !== "updated" || !tutor.session)) {
+            abortContinuousTutorInput(input.streamId, input.sequence);
+            return {
+              acknowledgement: liveAcknowledgement(tutor.status === "stale" ? "stale" : "rejected", input, reservation.snapshot.lastSequence),
+              stream: reservation.snapshot,
+              recognitionStatus: "error" in transcription ? "unavailable" as const : "transcribed" as const,
+              event: null,
+              nextChannel: "do-not-listen" as const,
+              timing: liveTiming({ ...timingBase, recognitionResultAtMs }),
+              recitation: null,
+              tutor,
+            };
+          }
+
+          const trustedSession = tutor?.session ?? session;
+          const nextChannel: LiveListeningDirective = omission ? "interrupt-learner" : "keep-listening";
+          const tutorActionAtMs = omission ? Date.now() : null;
+          const committed = commitContinuousTutorInput({
+            streamId: input.streamId,
+            turnId: input.turnId,
+            chunkId: input.chunkId,
+            sequence: input.sequence,
+            tutorSession: trustedSession,
+            directive: nextChannel,
+            tracker: trackerUpdate.tracker,
+          });
+          if (!committed) throw new TRPCError({ code: "CONFLICT", message: "The live chunk could not be committed." });
+          return {
+            acknowledgement: committed.acknowledgement,
+            stream: committed.snapshot,
+            recognitionStatus: "error" in transcription ? "unavailable" as const : "transcribed" as const,
+            event: omission,
+            nextChannel,
+            timing: liveTiming({ ...timingBase, recognitionResultAtMs, omission, tutorActionAtMs }),
+            recitation: null,
+            tutor,
+          };
+        } catch (error) {
+          abortContinuousTutorInput(input.streamId, input.sequence);
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({
+            code: "BAD_GATEWAY",
+            message: "The live Tutor could not process this audio turn.",
+            cause: error,
+          });
+        }
       }),
     });
   })(),

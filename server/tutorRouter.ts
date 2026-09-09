@@ -15,6 +15,7 @@ import {
   type TutorAction,
   type TutorRecitationEvidence,
 } from "@shared/liveTutor";
+import type { LiveWordOmittedEvent } from "@shared/liveRecitation";
 
 export const tutorSessionReferenceSchema = z.object({
   sessionId: z.string().min(1).max(200),
@@ -26,6 +27,7 @@ export type TutorSessionReference = z.infer<typeof tutorSessionReferenceSchema>;
 type TutorRecoveryAction = {
   kind: "refresh-session";
   reason: "lost-session";
+  nextChannel: "do-not-listen";
   canAdvance: false;
 };
 
@@ -97,7 +99,7 @@ function lostHandoff(): TutorHandoffResult {
     status: "lost",
     accepted: false,
     session: null,
-    action: { kind: "refresh-session", reason: "lost-session", canAdvance: false },
+    action: { kind: "refresh-session", reason: "lost-session", nextChannel: "do-not-listen", canAdvance: false },
   };
 }
 
@@ -131,6 +133,60 @@ export function applyTrustedTutorRecitation(
   });
   if (turn.accepted) saveSession(turn.session);
   return handoff(turn.accepted ? "updated" : "rejected", turn);
+}
+
+/** Internal-only bridge from deterministic live alignment into #53 correction state. */
+export function applyTrustedTutorLiveOmission(
+  reference: TutorSessionReference,
+  omission: LiveWordOmittedEvent,
+): TutorHandoffResult {
+  const lookup = getTrustedTutorSession(reference);
+  if (lookup.status !== "current") return lookup.handoff;
+  const session = lookup.session;
+  if (
+    session.activeCorrection ||
+    omission.surah !== session.surah ||
+    omission.ayah !== session.ayah ||
+    omission.targetWordIndex < session.expectedWordIndex
+  ) {
+    return handoff("rejected", inconsistentLiveTutorTurn(session));
+  }
+
+  const correctionSession = {
+    surah: session.surah,
+    ayah: session.ayah,
+    targetWordIndex: omission.targetWordIndex,
+    targetArabic: omission.targetArabic,
+    stage: "hear" as const,
+    recognition: "not-recognised" as const,
+    attemptsOnTarget: 0,
+  };
+  return applyTrustedTutorRecitation(reference, {
+    surah: session.surah,
+    ayah: session.ayah,
+    result: {
+      attemptScope: "ayah",
+      verseFollowing: {
+        currentSurah: session.surah,
+        currentAyah: session.ayah,
+        expectedWordIndex: omission.targetWordIndex,
+        lastCompletedAyah: session.lastCompletedAyah,
+        state: "correcting",
+        attemptsOnCurrentAyah: session.attemptsOnCurrentAyah,
+        evidence: "partial",
+        shouldAdvance: false,
+        nextAyah: session.ayah < session.totalAyahs ? session.ayah + 1 : null,
+        correctionFocus: {
+          wordIndex: omission.targetWordIndex,
+          expectedArabic: omission.targetArabic,
+          kind: "missing",
+        },
+        reason: "mistake_to_correct",
+      },
+      correctionSession,
+      focusedWordResult: null,
+    },
+  });
 }
 
 export function rejectTrustedTutorRecitation(reference: TutorSessionReference): TutorHandoffResult {

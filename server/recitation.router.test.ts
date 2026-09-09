@@ -892,7 +892,7 @@ describe("recitation.evaluateWithTutor", () => {
         status: "lost",
         accepted: false,
         session: null,
-        action: { kind: "refresh-session", reason: "lost-session", canAdvance: false },
+        action: { kind: "refresh-session", reason: "lost-session", nextChannel: "do-not-listen", canAdvance: false },
       },
     });
     expect(calls).toEqual([]);
