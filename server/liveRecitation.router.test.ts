@@ -183,7 +183,8 @@ describe("continuous live Tutor route", () => {
       stream: { tracker: { recognitionState: "possible-skip", possibleSkip: { targetWordIndex: 3 } } },
     });
 
-    const interrupted = await caller.recitation.ingestLiveAudio(liveInput({ ...base, sequence: 4 }));
+    const interruptionInput = liveInput({ ...base, sequence: 4, chunkId: "chunk-omission" });
+    const interrupted = await caller.recitation.ingestLiveAudio(interruptionInput);
     expect(interrupted).toMatchObject({
       acknowledgement: { status: "applied", appliedSequence: 4 },
       event: { type: "word-omitted", targetWordIndex: 3, targetArabic: "رَبِّ" },
@@ -199,6 +200,19 @@ describe("continuous live Tutor route", () => {
     expect(interrupted.timing.omissionConfirmedAtMs).toBe(interrupted.timing.recognitionResultAtMs);
     expect(interrupted.timing.tutorActionAtMs).not.toBeNull();
     if (!interrupted.tutor?.session) throw new Error("Expected an interrupted Tutor session");
+
+    const interruptionRetry = await caller.recitation.ingestLiveAudio({ ...interruptionInput, sequence: 5 });
+    expect(interruptionRetry).toMatchObject({
+      acknowledgement: { status: "duplicate", appliedSequence: 4 },
+      event: { type: "word-omitted", targetWordIndex: 3, targetArabic: "رَبِّ" },
+      nextChannel: "interrupt-learner",
+      stream: { phase: "interrupted", tutorRevision: 1 },
+      tutor: {
+        status: "updated",
+        session: { ayah: 2, lastCompletedAyah: null, phase: "correcting-word" },
+        action: { kind: "play-target-word", targetArabic: "رَبِّ", canAdvance: false },
+      },
+    });
 
     const focused = await caller.recitation.ingestLiveAudio(liveInput({
       streamId: started.stream.streamId,
@@ -311,7 +325,12 @@ describe("continuous live Tutor route", () => {
     const first = await caller.recitation.ingestLiveAudio(input);
     expect(first.tutor).toMatchObject({ session: { ayah: 3, lastCompletedAyah: 2 } });
     const duplicate = await caller.recitation.ingestLiveAudio({ ...input, sequence: 2, chunkId: "retry-final" });
-    expect(duplicate).toMatchObject({ acknowledgement: { status: "duplicate", appliedSequence: 1 }, recitation: null, tutor: null });
+    expect(duplicate).toMatchObject({
+      acknowledgement: { status: "duplicate", appliedSequence: 1 },
+      nextChannel: "listen-next-ayah",
+      recitation: { verseFollowing: { currentAyah: 3, lastCompletedAyah: 2, shouldAdvance: true } },
+      tutor: { session: { ayah: 3, lastCompletedAyah: 2 } },
+    });
     expect(calls.filter(url => url.includes("/audio/transcriptions"))).toHaveLength(1);
   });
 

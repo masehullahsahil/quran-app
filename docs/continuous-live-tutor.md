@@ -69,9 +69,14 @@ Tutor revisions, and stream/session mismatches before transcription.
 
 Chunk ids deduplicate incremental retries. Turn ids deduplicate completed
 utterances. A SHA-256 digest also catches a network retry sent under a new id;
-the digest is never logged or returned. Processed identifiers are bounded.
-Duplicate full-ayah success therefore cannot advance twice, and duplicate
-omission evidence cannot create a second correction.
+the digest is never logged or returned. Processed identifiers are bounded, and
+only the latest committed response is retained for immediate retry recovery. A
+duplicate of that latest input replays the original trusted event, Tutor
+handoff, directive, and recitation result without invoking the provider or
+state transition again. Older duplicate IDs remain no-ops rather than
+resurfacing stale teaching actions. Duplicate full-ayah success therefore
+cannot advance twice, and duplicate omission evidence cannot create a second
+correction or strand the learner without its target.
 
 Like the v1 Tutor session itself, this coordinator is process-local. Losing a
 serverless instance returns `lost-stream` and applies no recitation result or

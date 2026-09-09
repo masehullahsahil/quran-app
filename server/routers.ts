@@ -48,6 +48,7 @@ import {
   rejectTrustedTutorRecitation,
   tutorRouter,
   tutorSessionReferenceSchema,
+  type TutorHandoffResult,
 } from "./tutorRouter";
 import type { LiveTutorSession } from "@shared/liveTutor";
 import {
@@ -58,7 +59,12 @@ import {
   startContinuousTutorStream,
 } from "./continuousTutor";
 import { createLiveQuranTracker, updateLiveQuranTracker } from "./liveRecitationTracker";
-import type { LiveInputAcknowledgement, LiveListeningDirective } from "@shared/liveRecitation";
+import type {
+  LiveAudioTiming,
+  LiveInputAcknowledgement,
+  LiveListeningDirective,
+  LiveWordOmittedEvent,
+} from "@shared/liveRecitation";
 
 // Long enough for al-Baqarah 2:282, the longest ayah in the Quran, which runs
 // past 1,600 characters once Uthmani diacritics are counted. The old limit fit
@@ -814,6 +820,15 @@ export const appRouter = router({
       };
     };
 
+    type LiveRouteReplay = {
+      recognitionStatus: "transcribed" | "unavailable";
+      event: LiveWordOmittedEvent | null;
+      nextChannel: LiveListeningDirective;
+      timing: LiveAudioTiming;
+      recitation: Awaited<ReturnType<typeof evaluateRecitationAttempt>> | null;
+      tutor: TutorHandoffResult | null;
+    };
+
     const liveAcknowledgement = (
       status: LiveInputAcknowledgement["status"],
       input: z.output<typeof liveTutorAudioInput>,
@@ -889,7 +904,7 @@ export const appRouter = router({
       ingestLiveAudio: publicProcedure.input(liveTutorAudioInput).mutation(async ({ ctx, input }) => {
         const { audioBuffer } = decodeRecitationAudio(input.audioBase64);
         const audioHash = createHash("sha256").update(audioBuffer).digest("hex");
-        const reservation = reserveContinuousTutorInput({
+        const reservation = reserveContinuousTutorInput<LiveRouteReplay>({
           streamId: input.streamId,
           tutorSessionId: input.session.sessionId,
           turnId: input.turnId,
@@ -904,15 +919,16 @@ export const appRouter = router({
         };
 
         if (reservation.status !== "reserved") {
+          const replay = reservation.status === "duplicate" ? reservation.replay : null;
           return {
             acknowledgement: reservation.acknowledgement,
             stream: reservation.snapshot,
-            recognitionStatus: "not-run" as const,
-            event: null,
-            nextChannel: idleDirective(reservation.snapshot?.phase),
-            timing: liveTiming(timingBase),
-            recitation: null,
-            tutor: null,
+            recognitionStatus: replay?.recognitionStatus ?? "not-run" as const,
+            event: replay?.event ?? null,
+            nextChannel: replay?.nextChannel ?? idleDirective(reservation.snapshot?.phase),
+            timing: replay?.timing ?? liveTiming(timingBase),
+            recitation: replay?.recitation ?? null,
+            tutor: replay?.tutor ?? null,
           };
         }
 
@@ -993,6 +1009,15 @@ export const appRouter = router({
 
             const tracker = createLiveQuranTracker(tutor.session.surah, tutor.session.ayah);
             tracker.expectedWordIndex = tutor.session.expectedWordIndex;
+            const actionAt = Date.now();
+            const replay: LiveRouteReplay = {
+              recognitionStatus: recitation.reviewStatus === "unavailable" ? "unavailable" : "transcribed",
+              event: null,
+              nextChannel: tutor.action.nextChannel,
+              timing: liveTiming({ ...timingBase, recognitionResultAtMs: actionAt, tutorActionAtMs: actionAt }),
+              recitation,
+              tutor,
+            };
             const committed = commitContinuousTutorInput({
               streamId: input.streamId,
               turnId: input.turnId,
@@ -1001,18 +1026,13 @@ export const appRouter = router({
               tutorSession: tutor.session,
               directive: tutor.action.nextChannel,
               tracker,
+              replay,
             });
             if (!committed) throw new TRPCError({ code: "CONFLICT", message: "The live turn could not be committed." });
-            const actionAt = Date.now();
             return {
               acknowledgement: committed.acknowledgement,
               stream: committed.snapshot,
-              recognitionStatus: recitation.reviewStatus === "unavailable" ? "unavailable" as const : "transcribed" as const,
-              event: null,
-              nextChannel: tutor.action.nextChannel,
-              timing: liveTiming({ ...timingBase, recognitionResultAtMs: actionAt, tutorActionAtMs: actionAt }),
-              recitation,
-              tutor,
+              ...replay,
             };
           }
 
@@ -1074,6 +1094,14 @@ export const appRouter = router({
           const trustedSession = tutor?.session ?? session;
           const nextChannel: LiveListeningDirective = omission ? "interrupt-learner" : "keep-listening";
           const tutorActionAtMs = omission ? Date.now() : null;
+          const replay: LiveRouteReplay = {
+            recognitionStatus: "error" in transcription ? "unavailable" : "transcribed",
+            event: omission,
+            nextChannel,
+            timing: liveTiming({ ...timingBase, recognitionResultAtMs, omission, tutorActionAtMs }),
+            recitation: null,
+            tutor,
+          };
           const committed = commitContinuousTutorInput({
             streamId: input.streamId,
             turnId: input.turnId,
@@ -1082,17 +1110,13 @@ export const appRouter = router({
             tutorSession: trustedSession,
             directive: nextChannel,
             tracker: trackerUpdate.tracker,
+            replay,
           });
           if (!committed) throw new TRPCError({ code: "CONFLICT", message: "The live chunk could not be committed." });
           return {
             acknowledgement: committed.acknowledgement,
             stream: committed.snapshot,
-            recognitionStatus: "error" in transcription ? "unavailable" as const : "transcribed" as const,
-            event: omission,
-            nextChannel,
-            timing: liveTiming({ ...timingBase, recognitionResultAtMs, omission, tutorActionAtMs }),
-            recitation: null,
-            tutor,
+            ...replay,
           };
         } catch (error) {
           abortContinuousTutorInput(input.streamId, input.sequence);

@@ -62,7 +62,7 @@ function firstSkipCandidate(
   // is intentional: a clipped microphone start is more likely than proof that
   // the learner skipped the first word.
   for (let target = 2; target < totalWords; target += 1) {
-    if (!missing.has(target) || matched.includes(target) || lastMatched <= target) continue;
+    if (!missing.has(target) || accounted.has(target) || lastMatched <= target) continue;
     let prefixAccountedFor = true;
     for (let index = 1; index < target; index += 1) {
       if (!accounted.has(index)) {

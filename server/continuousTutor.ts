@@ -15,6 +15,7 @@ type ProcessedInput = {
   key: string;
   audioHash: string;
   sequence: number;
+  replay: unknown;
 };
 
 type PendingInput = {
@@ -29,12 +30,13 @@ type LiveStreamRecord = {
   pending: PendingInput | null;
 };
 
-export type LiveStreamReservation =
+export type LiveStreamReservation<TReplay = unknown> =
   | { status: "reserved"; snapshot: LiveRecitationStreamSnapshot }
   | {
       status: "duplicate" | "out-of-order" | "rejected" | "lost-stream";
       acknowledgement: LiveInputAcknowledgement;
       snapshot: LiveRecitationStreamSnapshot | null;
+      replay: TReplay | null;
     };
 
 const LIVE_STREAM_STORE = Symbol.for("quran-app.continuous-tutor-streams");
@@ -100,7 +102,7 @@ function inputKey(input: { turnId: string; chunkId: string; turnComplete: boolea
   return input.turnComplete ? `turn:${input.turnId}` : `chunk:${input.chunkId}`;
 }
 
-export function reserveContinuousTutorInput(input: {
+export function reserveContinuousTutorInput<TReplay = unknown>(input: {
   streamId: string;
   tutorSessionId: string;
   turnId: string;
@@ -108,13 +110,14 @@ export function reserveContinuousTutorInput(input: {
   sequence: number;
   turnComplete: boolean;
   audioHash: string;
-}): LiveStreamReservation {
+}): LiveStreamReservation<TReplay> {
   const record = streams.get(input.streamId);
   if (!record) {
     return {
       status: "lost-stream",
       acknowledgement: acknowledgement("lost-stream", input, 0),
       snapshot: null,
+      replay: null,
     };
   }
   const key = inputKey(input);
@@ -124,19 +127,24 @@ export function reserveContinuousTutorInput(input: {
       status: "rejected",
       acknowledgement: acknowledgement("rejected", input, record.snapshot.lastSequence),
       snapshot: copySnapshot(record.snapshot),
+      replay: null,
     };
   }
 
-  const duplicate = record.processed.some((item) => (
+  const processedDuplicate = record.processed.find((item) => (
     item.key === key || item.key.startsWith(keyPrefix) && item.audioHash === input.audioHash
-  )) || record.pending?.key === key || Boolean(
+  ));
+  const pendingDuplicate = record.pending?.key === key || Boolean(
     record.pending?.key.startsWith(keyPrefix) && record.pending.audioHash === input.audioHash,
   );
-  if (duplicate) {
+  if (processedDuplicate || pendingDuplicate) {
     return {
       status: "duplicate",
       acknowledgement: acknowledgement("duplicate", input, record.snapshot.lastSequence),
       snapshot: copySnapshot(record.snapshot),
+      replay: processedDuplicate?.sequence === record.snapshot.lastSequence
+        ? processedDuplicate.replay as TReplay
+        : null,
     };
   }
 
@@ -145,6 +153,7 @@ export function reserveContinuousTutorInput(input: {
       status: "out-of-order",
       acknowledgement: acknowledgement("out-of-order", input, record.snapshot.lastSequence),
       snapshot: copySnapshot(record.snapshot),
+      replay: null,
     };
   }
 
@@ -168,7 +177,7 @@ function phaseForDirective(directive: LiveListeningDirective, tutorPhase: LiveTu
   return "listening";
 }
 
-export function commitContinuousTutorInput(input: {
+export function commitContinuousTutorInput<TReplay = unknown>(input: {
   streamId: string;
   turnId: string;
   chunkId: string;
@@ -176,6 +185,7 @@ export function commitContinuousTutorInput(input: {
   tutorSession: LiveTutorSession;
   directive: LiveListeningDirective;
   tracker?: LiveQuranTrackerState;
+  replay?: TReplay;
 }): { snapshot: LiveRecitationStreamSnapshot; acknowledgement: LiveInputAcknowledgement } | null {
   const record = streams.get(input.streamId);
   if (!record || record.pending?.sequence !== input.sequence) return null;
@@ -193,11 +203,15 @@ export function commitContinuousTutorInput(input: {
     tracker,
   };
   record.processed = [
-    ...record.processed.slice(-(MAX_PROCESSED_INPUTS - 1)),
+    ...record.processed.slice(-(MAX_PROCESSED_INPUTS - 1)).map((processed) => ({
+      ...processed,
+      replay: null,
+    })),
     {
       key: record.pending.key,
       audioHash: record.pending.audioHash,
       sequence: input.sequence,
+      replay: input.replay ?? null,
     },
   ];
   record.pending = null;

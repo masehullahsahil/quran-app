@@ -50,6 +50,17 @@ describe("incremental live Quran tracking", () => {
     });
   });
 
+  it("does not accuse a confirmed word when later chunks are non-cumulative", () => {
+    const first = update(createLiveQuranTracker(1, 2), "الحمد لله", 1);
+    const stablePrefix = update(first.tracker, "الحمد لله", 2);
+    expect(stablePrefix.tracker.confirmedWordIndexes).toEqual([1, 2]);
+
+    const possible = update(stablePrefix.tracker, "العالمين", 3);
+    expect(possible.tracker.possibleSkip).toMatchObject({ targetWordIndex: 3, laterWordIndex: 4 });
+    const confirmed = update(possible.tracker, "العالمين", 4);
+    expect(confirmed.omission).toMatchObject({ targetWordIndex: 3, targetArabic: "رَبِّ" });
+  });
+
   it("confirms a skip from one finalized incremental recognition", () => {
     const result = update(createLiveQuranTracker(1, 2), "الحمد لله العالمين", 1, "final");
     expect(result.omission).toMatchObject({ targetWordIndex: 3, targetArabic: "رَبِّ", evidence: "finalized-later-word" });
