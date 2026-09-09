@@ -54,6 +54,18 @@ export type LiveTutorPanelProps = {
   onIntent: (intent: TutorControlIntent) => void;
   /** Anything the teacher noticed, for the disclosure. Optional and secondary. */
   details?: React.ReactNode;
+  /**
+   * The hands-free session is running, so this panel's own controls are off.
+   *
+   * Not a style choice. In a hands-free lesson the next thing happens without a
+   * press — the word plays, the microphone re-opens, the ayah moves — so a row
+   * of buttons offering to do those things is offering to do them twice. The
+   * two controls a learner still needs (Pause, Finish) live with the microphone
+   * state in `HandsFreeTutor`, and the recovery options are behind its
+   * disclosure. Everything else on this panel is unchanged: the ayah, the
+   * sentence, the word under correction, the presence line.
+   */
+  handsFree?: boolean;
 };
 
 /** The icon for each control. A label always accompanies it. */
@@ -86,7 +98,7 @@ const PRESENCE_ICONS: Record<TutorPresence, React.ComponentType<{ size?: number;
   waiting: Check,
 };
 
-export function LiveTutorPanel({ session, ayah = null, onIntent, details }: LiveTutorPanelProps) {
+export function LiveTutorPanel({ session, ayah = null, onIntent, details, handsFree = false }: LiveTutorPanelProps) {
   const { t } = useLocale();
   const view = describeTutorView(session);
   const [voiceOpen, setVoiceOpen] = useState(false);
@@ -148,8 +160,9 @@ export function LiveTutorPanel({ session, ayah = null, onIntent, details }: Live
         </div>
       )}
 
-      {/* 3. The one thing to do now, and at most two ways round it. */}
-      {view.controls.length > 0 && (
+      {/* 3. The one thing to do now, and at most two ways round it. Absent in
+             a hands-free session, where there is nothing to press. */}
+      {!handsFree && view.controls.length > 0 && (
         <div className="tutor-controls">
           {view.controls.map((control) => (
             <button
@@ -168,10 +181,10 @@ export function LiveTutorPanel({ session, ayah = null, onIntent, details }: Live
       {/* Speaking to the teacher. Honest: the app is not listening for
           instructions, and this says so rather than implying an open
           microphone. Kept out of the way — it is preparation, not a feature. */}
-      <button type="button" className="tutor-voice-open" aria-expanded={voiceOpen} onClick={() => setVoiceOpen((open) => !open)}>
+      {!handsFree && <button type="button" className="tutor-voice-open" aria-expanded={voiceOpen} onClick={() => setVoiceOpen((open) => !open)}>
         <MessageCircle size={13} aria-hidden="true" /> {t("tutor.voiceOpen")}
-      </button>
-      {voiceOpen && (
+      </button>}
+      {!handsFree && voiceOpen && (
         <div className="tutor-voice" role="group" aria-label={t("tutor.voiceTitle")}>
           <p>{t("tutor.voiceNotListening")}</p>
           <ul>

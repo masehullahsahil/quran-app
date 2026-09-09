@@ -404,6 +404,63 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .live-tutor.is-word-recognised, .live-tutor.is-complete { background: #f4f9f5; border-color: #bcd4c3; border-left-color: #2e7857; }
 .live-tutor.is-paused { background: #f7f7f5; border-color: #d9d7d1; border-left-color: #8d8f8a; }
 
+/* ---------------------------------------------------------------------------
+   The hands-free lesson.
+
+   Built for a phone propped on a table at arm's length while the learner
+   recites: the state is a sentence at a readable size, the two controls are
+   thumb-sized and out of the way, and everything else is folded away. No row of
+   buttons, because in the normal path there is nothing to press.
+
+   Every state is carried by text. The meter is the only moving part, it is
+   aria-hidden, and it repeats nothing the sentence does not already say — so
+   reduced motion, a screen reader and a colour-blind reader all lose nothing.
+   --------------------------------------------------------------------------- */
+.handsfree { margin-top: 12px; padding: 14px 16px; background: #fbfaf6; border: 1px solid #e3ded0; border-radius: 12px; }
+.handsfree.is-learner-listening, .handsfree.is-learner-speaking { border-color: #bcd4c3; background: #f5faf6; }
+.handsfree.is-app-speaking, .handsfree.is-qari-playing { border-color: #e3d3b4; background: #fdfaf1; }
+.handsfree.is-microphone-unavailable, .handsfree.is-session-lost { border-color: #e3cdc6; background: #fdf6f4; }
+
+.handsfree-start { display: flex; flex-direction: column; gap: 8px; }
+.handsfree-begin { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 52px; padding: 0 20px; border: 0; border-radius: 10px; background: #174d42; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer; }
+.handsfree-begin:hover { background: #123f36; }
+.handsfree-privacy { margin: 0; color: #6b7a70; font-size: 12px; line-height: 1.5; }
+
+.handsfree-status { display: flex; align-items: center; gap: 10px; }
+.handsfree-state { display: flex; align-items: center; gap: 8px; margin: 0; color: #22312a; font-size: 14px; font-weight: 700; }
+.handsfree-state small { color: #7a8079; font-size: 11px; font-weight: 600; }
+.handsfree.is-learner-listening .handsfree-state, .handsfree.is-learner-speaking .handsfree-state { color: #1f6b4f; }
+.handsfree.is-microphone-unavailable .handsfree-state, .handsfree.is-session-lost .handsfree-state { color: #9a4b3a; }
+
+/* Decoration only: the width follows the input level so a learner can see the
+   microphone is alive. It says nothing the state sentence does not. */
+.handsfree-meter { flex: 0 0 64px; height: 4px; border-radius: 2px; background: linear-gradient(to right, #2e7857 calc(var(--handsfree-level, 0) * 100%), #e3ded0 0); transition: background .12s linear; }
+@media (prefers-reduced-motion: reduce) { .handsfree-meter { transition: none; } }
+
+.handsfree-line { margin: 10px 0 0; color: #22312a; font-size: clamp(16px, 3.8vw, 18px); font-weight: 600; line-height: 1.45; }
+.handsfree-shown-only { display: block; margin-top: 4px; color: #7a8079; font-size: 11px; font-weight: 500; }
+
+.handsfree-fallback, .handsfree-lost p { margin: 10px 0 0; color: #7c4a3c; font-size: 13px; line-height: 1.5; }
+.handsfree-restart { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border: 1px solid #d9c6bf; border-radius: 8px; background: #fff; color: #7c4a3c; font-size: 13px; font-weight: 700; cursor: pointer; }
+
+.handsfree-controls { display: flex; gap: 8px; margin-top: 12px; }
+.handsfree-control { flex: 1 1 0; display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 44px; padding: 0 12px; border: 1px solid #d8d3c4; border-radius: 9px; background: #fff; color: #3b463f; font-size: 14px; font-weight: 600; cursor: pointer; }
+.handsfree-control.is-primary { border-color: #174d42; background: #174d42; color: #fff; }
+
+.handsfree-options { margin-top: 10px; }
+.handsfree-options > summary { color: #6b7a70; font-size: 12px; font-weight: 700; cursor: pointer; list-style: none; }
+.handsfree-options > summary::-webkit-details-marker { display: none; }
+.handsfree-option-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.handsfree-option { min-height: 38px; padding: 0 12px; border: 1px solid #ddd8c9; border-radius: 8px; background: #fff; color: #3b463f; font-size: 13px; cursor: pointer; }
+.handsfree-mute { display: flex; align-items: center; gap: 8px; margin-top: 10px; color: #6b7a70; font-size: 12px; }
+
+/* Nothing here may push the page sideways on a 390px screen. */
+@media (max-width: 420px) {
+  .handsfree { padding: 12px 13px; }
+  .handsfree-option-row { flex-direction: column; }
+  .handsfree-option { width: 100%; }
+}
+
 /* Presence: what the app is doing, in a word. Never a claim that a person is
    on the other end of it. */
 .tutor-presence { display: flex; align-items: center; gap: 7px; margin: 0; color: #6b7a70; font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
