@@ -33,7 +33,23 @@ export type LiveTutorViewInput = {
   isRecording: boolean;
   /** True while an attempt is with the reviewer. */
   isChecking: boolean;
+  /**
+   * The surah and ayah actually on screen.
+   *
+   * Compared against the session's own position, because the two can disagree
+   * for a moment: the tutor advances, and the page follows on the next commit.
+   * A correction rendered across that gap is the #50 bug — the previous ayah's
+   * word, counted against this ayah's words. So a view whose position does not
+   * match the screen shows no target at all.
+   */
+  displayedSurah: number;
+  displayedAyah: number;
 };
+
+/** Whether the lesson and the screen are looking at the same ayah. */
+function onScreen(input: LiveTutorViewInput): boolean {
+  return input.session.surah === input.displayedSurah && input.session.ayah === input.displayedAyah;
+}
 
 /**
  * The lesson state the learner is shown.
@@ -67,10 +83,15 @@ function stateFor(input: LiveTutorViewInput): TutorSessionView["state"] {
     case "stopped":
       return "complete";
     case "correcting-word":
+      // Only where the screen is showing the ayah the lesson is on. A word
+      // being taught somewhere else is not a correction *here*, so the teacher
+      // goes quiet rather than saying something about the wrong ayah.
+      if (!onScreen(input)) return "listening";
       // The engine offers help by choosing an offer-hint or show-hint action;
       // the learner being stuck is its judgement, not this file's.
       return action.kind === "offer-hint" || action.kind === "show-hint" ? "hint" : "correction";
     case "recite-ayah":
+      if (!onScreen(input)) return "listening";
       // "target-recognised" is the turn that says so. Anything after it is the
       // teacher waiting for the ayah, which is a different sentence.
       return action.reason === "target-recognised" ? "word-recognised" : "recite-ayah";
@@ -94,7 +115,11 @@ function stateFor(input: LiveTutorViewInput): TutorSessionView["state"] {
 function targetFor(input: LiveTutorViewInput, ayahWordCount: number): TutorSessionView["target"] {
   const correction = input.session.activeCorrection;
   if (!correction) return null;
+  // Three ways this can be the wrong word, and all three hide it: the engine
+  // holds a target from another ayah, the lesson is not on the ayah the learner
+  // is looking at, or the position is one this ayah has no room for.
   if (correction.surah !== input.session.surah || correction.ayah !== input.session.ayah) return null;
+  if (!onScreen(input)) return null;
   const { targetWordIndex, targetArabic } = correction;
   if (!Number.isInteger(targetWordIndex) || targetWordIndex < 1 || targetWordIndex > ayahWordCount) return null;
   if (!targetArabic) return null;
@@ -129,11 +154,16 @@ export function liveTutorSessionView(input: LiveTutorViewInput, ayahWordCount: n
  * The engine says which it is asking for, and this reads that and nothing else
  * — never the interface's guess about what the learner probably meant.
  */
-export function attemptScopeFor(session: LiveTutorSession, action: TutorAction): "word" | "ayah" {
+export function attemptScopeFor(session: LiveTutorSession, _action?: TutorAction): "word" | "ayah" {
   // The phase is the engine's own statement of what it is working on, and it
   // holds across the whole of a correction — through "listen to it" and "now
   // say it" alike. Reading only the current action kind would send a word
   // attempt as an ayah attempt on every turn but one.
+  // `recite-ayah` is the other half of a correction and still carries the
+  // target, but the thing being asked for there is the whole ayah — so it is an
+  // ayah attempt, exactly like ordinary listening. Only `correcting-word` is a
+  // word attempt (#53), and the trusted route rejects a word attempt that has
+  // no target behind it.
   if (session.phase === "correcting-word") return "word";
-  return action.kind === "ask-target-word" ? "word" : "ayah";
+  return "ayah";
 }

@@ -129,10 +129,26 @@ tutor.start / tutor.turn      useLiveTutor      liveTutorView       LiveTutorPan
 ```
 
 **`client/src/hooks/useLiveTutor.ts`** is the only place the app talks to the
-engine. It opens one session per ayah, posts events against the exact snapshot
-the server last returned, and stores the turn that comes back. It never advances
-a phase or chooses an action. When the tutor is unreachable, `active` stays
-false and Study renders the surfaces it had before — which still work.
+engine. It opens one session per lesson and then names it by `sessionId` and
+`revision` — nothing else. Since #57 the public turn API takes a learner intent
+or a timing event and there is no recitation variant, on the server or in this
+file, so the browser has no way to tell the tutor what a recording contained.
+It never advances a phase or chooses an action. When the tutor is unreachable,
+`active` stays false and Study renders the surfaces it had before — which still
+work.
+
+A session is opened again when the *learner* moves to another ayah, and adopted
+unchanged when the *server* moves the lesson to one; reopening it there would
+throw away the advancement that had just happened.
+
+The four answers the server can give, and what the hook does with each:
+
+| Answer | What it means | What the hook does |
+|---|---|---|
+| `updated` | the turn landed | stores the trusted session and action |
+| `rejected` | the turn was refused | stores the trusted session and action; the lesson is unchanged, and the server says why |
+| `stale` | our revision was behind | stores the session the server returned — no local transition is invented |
+| `lost` | no such session exists | drops the lesson entirely: no advancement, no completion, no resumed correction. Study falls back to its ordinary surfaces and a new lesson opens on the next move |
 
 **`client/src/lib/liveTutorView.ts`** maps the engine's vocabulary onto the
 panel's. It reads a phase and an action kind, and nothing else: no transcript,
@@ -159,15 +175,50 @@ rule the focused lesson gained in #50.
 
 **`Home.tsx`** holds the microphone, the audio and the words, and asks the tutor
 what to say. `runTutorIntent` sends the intent and does the local half: open the
-recorder, play a file, step to another ayah. Nothing there decides a lesson
-state; the turn that comes back is what renders.
+recorder, play a file. Nothing there decides a lesson state; the turn that comes
+back is what renders.
+
+### Recordings, while a lesson is running
+
+`recitation.evaluateWithTutor` (#57) takes the whole job in one call. The browser
+sends audio, MIME type, learning level, interface language, attempt scope, and
+the session reference. That is the entire payload, and the route's schema
+rejects the rest: the expected Quran text, the surah and ayah, the neighbouring
+ayahs, the position, and the correction target all come from the tutor's own
+session. The answer is `{ recitation, tutor }` — the review Study already knew
+how to render, and a tutor turn that was decided server-side. A response with no
+`recitation` means the attempt did not land, and then nothing is shown, nothing
+is written, and the Quran does not move.
+
+Without a lesson, Study uses ordinary `recitation.evaluate` exactly as before,
+client-supplied ayah context and all. There is no tutor authority to undermine
+there, and that path is unchanged.
+
+### The Quran position follows the server
+
+One rule, and only one: when an accepted trusted answer puts the lesson at a
+different surah/ayah, the screen moves to exactly that position. `continue` is a
+request, not a move — it is sent to the engine and does nothing locally. No
+next-ayah guess, no completion assumption, no score threshold and no reading of
+the transcript may move the Quran while a lesson is running. Opening a session
+at a position is not a move, so a learner who has paged ahead is not dragged
+back to where the lesson started.
 
 ### The recording scope
 
-`attemptScopeFor` reads the session phase, not the current action: a correction
-is a word attempt through the whole of it — "listen to it" and "now say it"
-alike — and reading only the action kind would submit a word attempt as an ayah
-attempt on every turn but one, which is exactly what #53 exists to prevent.
+`attemptScopeFor` reads the session phase, not the current action:
+
+| Phase | Scope |
+|---|---|
+| `correcting-word` | `word` |
+| `recite-ayah` | `ayah` — the target is still held, but the whole ayah is what is being asked for |
+| everything else | `ayah` |
+
+A correction is a word attempt through the whole of it — "listen to it" and "now
+say it" alike — and reading only the action kind would submit a word attempt as
+an ayah attempt on every turn but one, which is exactly what #53 exists to
+prevent. The scope travels to `evaluateWithTutor`, and the server refuses a word
+attempt made against a session with no active target.
 
 ### Ending a turn
 
@@ -191,22 +242,14 @@ Not deleted, and all still exactly what Study shows without a tutor:
 | Teacher notes, score, corrections table | shown, collapsed, as before |
 | the developer diagnostics panel | unchanged, still behind its flag |
 
-### What awaits the trusted handoff
-
-`sendRecitation` in `useLiveTutor` is the single call site. Today the page posts
-the bounded evidence from the review it received — scope, position, the verse
-tracker's result, the correction snapshot and the focused-word result, with no
-transcript and no score. When the server hands the tutor its own evidence
-directly, that one call goes away and neither the adapter nor the panel moves.
-
 ## Limitations
 
-- **The client posts the recitation evidence.** Until the trusted handoff
-  lands, the page tells the tutor what the reviewer found. The evidence is the
-  server's own output, and the tutor still decides the lesson from it — but a
-  client that can be tampered with is between the two.
-- **One session per ayah, in memory.** The engine's store is bounded and
-  in-process; a cold start loses live sessions and Study re-establishes one.
+- **One session per lesson, in memory.** The engine's store is bounded and
+  in-process; a cold start or a request routed to another instance loses live
+  sessions. The server answers `lost`, no progress is created, and Study falls
+  back until a new lesson opens. Durable or shared storage is still open work.
+- **No voice-activity detection.** The learner ends a turn by pressing Done;
+  timing events exist in the engine but nothing produces them yet.
 - **The hint is a shape, not a curriculum.** `tutor.hintGiven` says "Start from
   *{word}*", which is the only hint the current data supports. A real hint
   ladder is a content question for a teacher.

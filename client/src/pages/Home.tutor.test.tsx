@@ -23,12 +23,22 @@ import React, { act } from "react";
 
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+/**
+ * The real server, not a sketch of it.
+ *
+ * `tutor.start` and `tutor.turn` here are the actual procedures from #57,
+ * called through tRPC with their actual `.strict()` input schemas and backed by
+ * the actual session store. So a browser payload these tests send is accepted
+ * or rejected for the same reason production would accept or reject it, and a
+ * test cannot pass by agreeing with an out-of-date idea of the contract.
+ */
 import {
-  applyLiveTutorEvent,
-  createLiveTutorSession,
-  type LiveTutorEvent,
-  type LiveTutorTurn,
-} from "@shared/liveTutor";
+  applyTrustedTutorRecitation,
+  getTrustedTutorSession,
+  rejectTrustedTutorRecitation,
+  resetLiveTutorSessionsForTests,
+  tutorRouter,
+} from "../../../server/tutorRouter";
 import type { VerseFollowingResult } from "@shared/verseFollowing";
 import { SUPPORTED_LANGUAGE_CODES, directionFor } from "@shared/languages";
 import { loadLocale, type LocaleCode } from "@locales/index";
@@ -40,48 +50,55 @@ import ar from "@locales/ar";
 
 /* ------------------------------------------------------------ the server */
 
-/** Al-Fatiha 1:2 — four words, the third of which the learner leaves out. */
+/**
+ * Al-Fatihah 1:2 — four words, the third of which the learner leaves out.
+ *
+ * The exact ayah, and the exact numbering, from the reported production
+ * sequence: the lesson sits on Ayah 2, the correction is on `رَبِّ` at word 3,
+ * and completing Ayah 2 is what moves the lesson to Ayah 3.
+ */
+const AYAH_NUMBER = 2;
 const AYAH_ARABIC = "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ";
 const AYAH_WORDS = AYAH_ARABIC.split(" ");
 const TARGET = AYAH_WORDS[2];
-
-/**
- * The tutor engine, in the test process.
- *
- * A real session, advanced by the real `applyLiveTutorEvent`, so the states
- * these tests render are the engine's own rather than a fixture's idea of them.
- */
-const tutorSessions = new Map<string, LiveTutorTurn>();
+/** Three ayahs in the fixture surah, so completing Ayah 2 has somewhere to go. */
+const TOTAL_AYAHS = 3;
 
 const mutationMocks = vi.hoisted(() => ({
   recitationEvaluate: vi.fn(),
+  recitationEvaluateWithTutor: vi.fn(),
   recitationIngest: vi.fn(),
   tutorStart: vi.fn(),
   tutorTurn: vi.fn(),
 }));
 
 /** The ayah audio the reciter serves, for the assertions below. */
-const AYAH_AUDIO_URL = "https://audio.example/001001.mp3";
+const AYAH_AUDIO_URL = "https://audio.example/001002.mp3";
 
 vi.mock("@/lib/trpc", () => {
   // Hoisted above the module body, so the fixtures live inside the factory.
   const words = "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ".split(" ");
   const ayahs = [
     {
-      number: 1, verseKey: "1:1", arabic: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ",
+      number: 1, verseKey: "1:1", arabic: "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+      translation: "In the name of Allah, the Most Compassionate, Most Merciful", transliteration: null,
+      audioUrl: "https://audio.example/001001.mp3", wordAudio: [],
+    },
+    {
+      number: 2, verseKey: "1:2", arabic: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ",
       translation: "All praise is for Allah, Lord of all worlds", transliteration: null,
-      audioUrl: "https://audio.example/001001.mp3",
+      audioUrl: "https://audio.example/001002.mp3",
       wordAudio: words.map((arabic, index) => ({
-        position: index + 1, arabic, url: `https://audio.qurancdn.example/wbw/001_001_00${index + 1}.mp3`,
+        position: index + 1, arabic, url: `https://audio.qurancdn.example/wbw/001_002_00${index + 1}.mp3`,
       })),
     },
     {
-      number: 2, verseKey: "1:2", arabic: "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+      number: 3, verseKey: "1:3", arabic: "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
       translation: "the Most Compassionate, Most Merciful", transliteration: null,
-      audioUrl: "https://audio.example/001002.mp3", wordAudio: [],
+      audioUrl: "https://audio.example/001003.mp3", wordAudio: [],
     },
   ];
-  const surah = { number: 1, nameSimple: "Al-Fatiha", nameArabic: "الفاتحة", versesCount: 7, revelationPlace: "makkah", translatedName: "The Opening" };
+  const surah = { number: 1, nameSimple: "Al-Fatiha", nameArabic: "الفاتحة", versesCount: 3, revelationPlace: "makkah", translatedName: "The Opening" };
   const FAKE_SURAH = {
     surah, reciterId: 7, translationId: 131, ayahs,
     wordAudioSource: { provider: "quran.com", kind: "word-file", reciterName: null, matchesSelectedReciter: false },
@@ -101,6 +118,7 @@ vi.mock("@/lib/trpc", () => {
       auth: { me: { useQuery: empty } },
       recitation: {
         evaluate: { useMutation: () => mutation(mutationMocks.recitationEvaluate) },
+        evaluateWithTutor: { useMutation: () => mutation(mutationMocks.recitationEvaluateWithTutor) },
         ingestChunk: { useMutation: () => mutation(mutationMocks.recitationIngest) },
       },
       tutor: {
@@ -149,6 +167,9 @@ class FakeRecorder {
   }
 }
 
+/** One caller into the real tutor router; the store behind it is reset per test. */
+const tutorCaller = tutorRouter.createCaller({} as never);
+
 let container: HTMLDivElement;
 let root: Root;
 
@@ -166,29 +187,110 @@ async function settle(turns = 4) {
 
 function follow(patch: Partial<VerseFollowingResult> = {}): VerseFollowingResult {
   return {
-    currentSurah: 1, currentAyah: 1, expectedWordIndex: 3, lastCompletedAyah: null,
+    currentSurah: 1, currentAyah: AYAH_NUMBER, expectedWordIndex: 3, lastCompletedAyah: null,
     state: "correcting", attemptsOnCurrentAyah: 1, evidence: "partial", shouldAdvance: false,
-    nextAyah: 2, correctionFocus: { wordIndex: 3, expectedArabic: TARGET, kind: "missing" },
-    reason: "mistake_to_correct", totalAyahs: 7, ...patch,
+    nextAyah: AYAH_NUMBER + 1, correctionFocus: { wordIndex: 3, expectedArabic: TARGET, kind: "missing" },
+    reason: "mistake_to_correct", totalAyahs: TOTAL_AYAHS, ...patch,
   } as VerseFollowingResult;
 }
 
-/** A review naming the third word, as the recitation service would return it. */
+/**
+ * What the evaluator returns, as the recitation service would return it.
+ *
+ * This is the *server's* answer, produced inside the trusted route below and
+ * never handled by the page: the browser sees only the review half of the
+ * response and never touches the tutor half.
+ */
 const review = (patch: Record<string, unknown> = {}) => ({
-  reviewStatus: "reviewed", wordReviewAvailable: true, transcript: "قل هو احد",
-  matchedCount: 3, totalWords: 4, score: 75, recitationScoreScope: "ayah",
+  reviewStatus: "reviewed", wordReviewAvailable: true, transcript: "الحمد لله العالمين",
+  matchedCount: 3, totalWords: 4, score: 75, attemptScope: "ayah", recitationScoreScope: "ayah",
   corrections: [{ expected: TARGET, heard: null, status: "missing", wordIndex: 3 }],
   encouragement: "", nextStep: "", spokenGuidance: "", note: "",
   reviewMessage: null, reviewMessageCode: null,
   quranAwareReview: { status: "not_configured", provider: null, confidence: null, summary: null, findings: [] },
   verseFollowing: follow(),
   correctionSession: {
-    surah: 1, ayah: 1, targetWordIndex: 3, targetArabic: TARGET,
+    surah: 1, ayah: AYAH_NUMBER, targetWordIndex: 3, targetArabic: TARGET,
     stage: "say-word", recognition: "not-recognised",
   },
   focusedWordResult: null,
   ...patch,
 });
+
+/** Attempt 2: the learner says the word and the server recognises it. */
+const wordRecognised = () => review({
+  attemptScope: "word", recitationScoreScope: "none", corrections: [], transcript: "ربي",
+  correctionSession: { surah: 1, ayah: AYAH_NUMBER, targetWordIndex: 3, targetArabic: TARGET, stage: "recite-ayah", recognition: "recognised" },
+  focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
+});
+
+/** Attempt 3: the whole ayah, correct, so the server completes it. */
+const ayahCompleted = () => review({
+  corrections: [], transcript: "الحمد لله رب العالمين", matchedCount: 4, score: 100,
+  correctionSession: null,
+  verseFollowing: follow({
+    currentAyah: AYAH_NUMBER + 1, expectedWordIndex: 1, lastCompletedAyah: AYAH_NUMBER,
+    state: "following", evidence: "strong", shouldAdvance: true,
+    nextAyah: AYAH_NUMBER + 2, correctionFocus: null, reason: "ayah_completed",
+  }),
+});
+
+/** Attempt 2, when the learner still does not say the word clearly. */
+const wordNotRecognised = () => review({
+  attemptScope: "word", recitationScoreScope: "none",
+  focusedWordResult: { recognition: "not-recognised", reason: "target_not_heard" },
+});
+
+type EvaluatorAnswer = (scope: "ayah" | "word") => Record<string, unknown>;
+
+/**
+ * What the evaluator will say about the next trusted recording.
+ *
+ * A queue, because the sequence tests need a different answer for each of three
+ * attempts in a row; the last entry is reused once the queue runs down. The
+ * default answers by scope — an ayah attempt misses the word, a word attempt
+ * gets it — which is the ordinary lesson these tests are built around.
+ */
+const answerByScope: EvaluatorAnswer = (scope) => (scope === "word" ? wordRecognised() : review());
+let evaluatorAnswers: EvaluatorAnswer[] = [];
+function evaluatorWillReturn(...answers: EvaluatorAnswer[]) {
+  evaluatorAnswers = answers;
+}
+function nextEvaluatorAnswer(scope: "ayah" | "word") {
+  const answer = evaluatorAnswers.length > 1 ? evaluatorAnswers.shift()! : evaluatorAnswers[0] ?? answerByScope;
+  return answer(scope);
+}
+
+/**
+ * `recitation.evaluateWithTutor`, assembled the way the real route assembles it.
+ *
+ * The evaluator itself is canned — transcription is not what these tests are
+ * about — but every step around it is the production one: the session is looked
+ * up by reference, the same guards run, the result is applied to the tutor
+ * through `applyTrustedTutorRecitation`, and a turn that did not land returns no
+ * review at all. Nothing the browser sends can reach the tutor except audio and
+ * a session id.
+ */
+async function trustedRecitation(input: {
+  session: { sessionId: string; revision: number };
+  attempt: { attemptScope: "ayah" | "word" };
+}) {
+  const lookup = getTrustedTutorSession(input.session);
+  if (lookup.status !== "current") return { recitation: null, tutor: lookup.handoff };
+  if (input.attempt.attemptScope === "word" && !lookup.session.activeCorrection) {
+    return { recitation: null, tutor: rejectTrustedTutorRecitation(input.session) };
+  }
+  attempts.push(input.attempt.attemptScope);
+  const recitation = nextEvaluatorAnswer(input.attempt.attemptScope) as Parameters<typeof applyTrustedTutorRecitation>[1]["result"];
+  const tutor = applyTrustedTutorRecitation(input.session, {
+    // The tutor's own position, read from the trusted session — never the
+    // browser's idea of which ayah this recording belongs to.
+    surah: lookup.session.surah,
+    ayah: lookup.session.ayah,
+    result: { ...recitation, attemptScope: input.attempt.attemptScope },
+  });
+  return tutor.status === "updated" ? { recitation, tutor } : { recitation: null, tutor };
+}
 
 beforeEach(() => {
   window.localStorage.clear();
@@ -197,22 +299,16 @@ beforeEach(() => {
   played.length = 0;
   speechCalls.length = 0;
   attempts.length = 0;
-  tutorSessions.clear();
+  evaluatorWillReturn(answerByScope);
+  resetLiveTutorSessionsForTests();
   FakeRecorder.instances.length = 0;
   for (const mock of Object.values(mutationMocks)) mock.mockReset();
 
-  // The engine, run for real against a server-owned session.
-  mutationMocks.tutorStart.mockImplementation(async (input: Record<string, unknown>) => {
-    const turn = createLiveTutorSession({ sessionId: "test-session", ...(input as Record<string, never>) } as Parameters<typeof createLiveTutorSession>[0]);
-    tutorSessions.set(turn.session.sessionId, turn);
-    return turn;
-  });
-  mutationMocks.tutorTurn.mockImplementation(async ({ session, event }: { session: { sessionId: string }; event: LiveTutorEvent }) => {
-    const held = tutorSessions.get(session.sessionId)!;
-    const next = applyLiveTutorEvent(held.session, event);
-    if (next.accepted) tutorSessions.set(next.session.sessionId, next);
-    return next;
-  });
+  // The real procedures, with their real input schemas and their real store.
+  mutationMocks.tutorStart.mockImplementation((input: never) => tutorCaller.start(input));
+  mutationMocks.tutorTurn.mockImplementation((input: never) => tutorCaller.turn(input));
+  mutationMocks.recitationEvaluateWithTutor.mockImplementation(trustedRecitation);
+  // Ordinary Study, for when there is no tutor. Unchanged.
   mutationMocks.recitationEvaluate.mockImplementation(async (input: { attemptScope?: string }) => {
     attempts.push(input.attemptScope ?? "ayah");
     return review();
@@ -279,6 +375,17 @@ async function openStudy(label = en.strings["mode.study"]) {
   await click(tab);
 }
 
+/** Move to one ayah by hand, the way the pagination dots do. */
+async function chooseAyah(number: number) {
+  await click(container.querySelectorAll<HTMLButtonElement>(".study-pagination .dot")[number - 1]);
+}
+
+/** Study, on Al-Fatihah 1:2 — where the reported sequence starts. */
+async function openLesson() {
+  await openStudy();
+  await chooseAyah(AYAH_NUMBER);
+}
+
 async function chooseLanguage(code: string) {
   await click(container.querySelector<HTMLButtonElement>(".language-trigger"));
   const option = Array.from(container.querySelectorAll<HTMLButtonElement>('[role="option"]')).find(
@@ -326,7 +433,7 @@ describe("the learner meets the tutor in Study", () => {
 
   it("puts the ayah, one sentence and one action in front of the learner", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
 
     const ayah = panel()!.querySelector(".tutor-ayah p")!;
     expect(ayah.textContent).toBe(AYAH_ARABIC);
@@ -400,7 +507,7 @@ describe("the lesson runs", () => {
 
   it("asks for the exact word the engine named", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
 
     expect(message()?.textContent).toBe(en.strings["tutor.wordMissed"]);
@@ -412,18 +519,10 @@ describe("the lesson runs", () => {
 
   it("stops calling the word a problem once the engine says it heard it", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
 
-    // The focused attempt goes through. The engine decides this, not the page.
-    mutationMocks.recitationEvaluate.mockImplementation(async (input: { attemptScope?: string }) => {
-      attempts.push(input.attemptScope ?? "ayah");
-      return review({
-        corrections: [],
-        correctionSession: { surah: 1, ayah: 1, targetWordIndex: 3, targetArabic: TARGET, stage: "recite-ayah", recognition: "recognised" },
-        focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
-      });
-    });
+    // The focused attempt goes through. The server decides this, not the page.
     await recordThroughTutor();
 
     expect(message()?.textContent).toBe(en.strings["tutor.wordRecognised"]);
@@ -437,16 +536,8 @@ describe("the lesson runs", () => {
 
   it("makes the full ayah the primary action after the word goes through", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
-    mutationMocks.recitationEvaluate.mockImplementation(async (input: { attemptScope?: string }) => {
-      attempts.push(input.attemptScope ?? "ayah");
-      return review({
-        corrections: [],
-        correctionSession: { surah: 1, ayah: 1, targetWordIndex: 3, targetArabic: TARGET, stage: "recite-ayah", recognition: "recognised" },
-        focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
-      });
-    });
     await recordThroughTutor();
 
     expect(controls()[0].className).toContain("is-primary");
@@ -456,15 +547,11 @@ describe("the lesson runs", () => {
 
   it("makes no accusation when the engine could not tell", async () => {
     await mount();
-    await openStudy();
-    mutationMocks.recitationEvaluate.mockImplementation(async (input: { attemptScope?: string }) => {
-      attempts.push(input.attemptScope ?? "ayah");
-      return review({
-        corrections: [],
-        correctionSession: null,
-        verseFollowing: follow({ state: "uncertain", reason: "noisy_transcript", evidence: "weak", correctionFocus: null }),
-      });
-    });
+    await openLesson();
+    evaluatorWillReturn(() => review({
+      corrections: [], correctionSession: null,
+      verseFollowing: follow({ state: "uncertain", reason: "noisy_transcript", evidence: "weak", correctionFocus: null }),
+    }));
     await recordThroughTutor();
 
     expect(message()?.textContent).toBe(en.strings["tutor.uncertain"]);
@@ -479,14 +566,14 @@ describe("the lesson runs", () => {
 describe("a word attempt is never submitted as an ayah attempt", () => {
   it("records the ayah while the engine is listening for one", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
     expect(attempts).toEqual(["ayah"]);
   });
 
   it("records the word once the engine asks for the word", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
 
     // The engine is now holding a target; the next attempt is scoped to it.
@@ -496,16 +583,8 @@ describe("a word attempt is never submitted as an ayah attempt", () => {
 
   it("returns to the ayah scope when the engine asks for the whole ayah", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
-    mutationMocks.recitationEvaluate.mockImplementation(async (input: { attemptScope?: string }) => {
-      attempts.push(input.attemptScope ?? "ayah");
-      return review({
-        corrections: [],
-        correctionSession: { surah: 1, ayah: 1, targetWordIndex: 3, targetArabic: TARGET, stage: "recite-ayah", recognition: "recognised" },
-        focusedWordResult: { recognition: "recognised", reason: "target_recognised" },
-      });
-    });
     await recordThroughTutor();
     await recordThroughTutor();
 
@@ -518,7 +597,7 @@ describe("a word attempt is never submitted as an ayah attempt", () => {
 describe("hearing the word", () => {
   it("plays the trusted recording of that exact word", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
 
     played.length = 0;
@@ -526,15 +605,19 @@ describe("hearing the word", () => {
     await click(hear);
 
     // Surah, ayah and word index all match the target the engine named.
-    expect(played).toEqual(["https://audio.qurancdn.example/wbw/001_001_003.mp3"]);
+    expect(played).toEqual(["https://audio.qurancdn.example/wbw/001_002_003.mp3"]);
     expect(speechCalls).toEqual([]);
   });
 
   it("offers the ayah honestly when no trusted word recording exists", async () => {
     await mount();
-    // Ayah 2 carries no word recordings in this fixture.
+    // Ayah 3 carries no word recordings in this fixture.
     await openStudy();
-    await click(container.querySelectorAll<HTMLButtonElement>(".study-pagination .dot")[1]);
+    await chooseAyah(3);
+    evaluatorWillReturn(() => review({
+      verseFollowing: follow({ currentAyah: 3, nextAyah: null }),
+      correctionSession: { surah: 1, ayah: 3, targetWordIndex: 1, targetArabic: "ٱلرَّحْمَـٰنِ", stage: "say-word", recognition: "not-recognised" },
+    }));
     await recordThroughTutor();
 
     expect(text()).not.toContain(en.strings["tutor.doHearWord"]);
@@ -543,7 +626,7 @@ describe("hearing the word", () => {
 
   it("plays the selected reciter for the ayah", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
 
     played.length = 0;
@@ -567,7 +650,7 @@ describe("hearing the word", () => {
 describe("the learner cannot walk past an unresolved correction", () => {
   it("offers no continue while the engine is holding a target", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
 
     expect(controls().map((control) => control.textContent)).not.toContainEqual(
@@ -575,6 +658,224 @@ describe("the learner cannot walk past an unresolved correction", () => {
     );
     // And the ayah on screen has not moved.
     expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+  });
+});
+
+/* ---------------- 1–5: the trust boundary the browser cannot cross */
+
+describe("the browser cannot tell the tutor what happened", () => {
+  it("sends only a session id and revision to tutor.turn", async () => {
+    await mount();
+    await openLesson();
+    await click(controls()[0]);
+
+    expect(mutationMocks.tutorTurn).toHaveBeenCalled();
+    for (const [payload] of mutationMocks.tutorTurn.mock.calls) {
+      expect(Object.keys(payload.session).sort()).toEqual(["revision", "sessionId"]);
+      expect(typeof payload.session.sessionId).toBe("string");
+      expect(typeof payload.session.revision).toBe("number");
+    }
+  });
+
+  it("never sends a recitation event to tutor.turn", async () => {
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+    await recordThroughTutor();
+
+    expect(mutationMocks.tutorTurn.mock.calls.length).toBeGreaterThan(0);
+    for (const [payload] of mutationMocks.tutorTurn.mock.calls) {
+      expect(["intent", "timing"]).toContain(payload.event.type);
+      expect(payload.event).not.toHaveProperty("evidence");
+    }
+  });
+
+  it("routes a tutor recording through recitation.evaluateWithTutor", async () => {
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+
+    expect(mutationMocks.recitationEvaluateWithTutor).toHaveBeenCalledTimes(1);
+    expect(mutationMocks.recitationEvaluate).not.toHaveBeenCalled();
+    const [payload] = mutationMocks.recitationEvaluateWithTutor.mock.calls[0];
+    expect(Object.keys(payload).sort()).toEqual(["attempt", "session"]);
+    expect(Object.keys(payload.attempt).sort()).toEqual(
+      ["attemptScope", "audioBase64", "learningLevel", "mimeType", "uiLanguage"],
+    );
+  });
+
+  it("sends the tutor no Quran position, expected text or correction target", async () => {
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+
+    const [payload] = mutationMocks.recitationEvaluateWithTutor.mock.calls[0];
+    const keys = [...Object.keys(payload), ...Object.keys(payload.attempt), ...Object.keys(payload.session)];
+    for (const forbidden of ["expectedArabic", "surah", "ayah", "totalAyahs", "position", "correctionTarget", "previousAyahArabic", "nextAyahArabic"]) {
+      expect(keys, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it("cannot submit a verse-following result or a correction snapshot to the tutor", async () => {
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+
+    // Nothing the page sends anywhere names the evaluator's own conclusions.
+    const everythingSent = JSON.stringify([
+      ...mutationMocks.tutorTurn.mock.calls,
+      ...mutationMocks.recitationEvaluateWithTutor.mock.calls,
+    ]);
+    for (const forbidden of ["verseFollowing", "correctionSession", "focusedWordResult", "shouldAdvance", "recognition", "lastCompletedAyah"]) {
+      expect(everythingSent, forbidden).not.toContain(forbidden);
+    }
+  });
+
+  it("is refused by the real schema if it ever tried to send evidence", async () => {
+    const opened = await tutorCaller.start({
+      mode: "guided-recitation", surah: 1, ayah: AYAH_NUMBER, totalAyahs: TOTAL_AYAHS, learnerLanguage: "en",
+    });
+    const reference = { sessionId: opened.session.sessionId, revision: opened.session.revision };
+    // The public schema has no recitation variant since #57, so this is not a
+    // policy the client is trusted to follow — it is not expressible.
+    await expect(tutorCaller.turn({
+      session: reference,
+      event: { type: "recitation", evidence: { scope: "ayah" } },
+    } as never)).rejects.toThrow();
+    // And a whole session snapshot is refused in place of a reference.
+    await expect(tutorCaller.turn({
+      session: opened.session,
+      event: { type: "intent", intent: "start" },
+    } as never)).rejects.toThrow();
+  });
+});
+
+/* --------------- 6–9: the exact production sequence, end to end */
+
+describe("the رَبِّ sequence, decided by the server", () => {
+  it("holds the ayah, recognises the word, then advances only on the full ayah", async () => {
+    // Attempt 1 misses the word, attempt 2 says it, attempt 3 recites the ayah.
+    evaluatorWillReturn(() => review(), wordRecognised, ayahCompleted);
+    await mount();
+    await openLesson();
+
+    // Attempt 1 — the word is missed. The lesson stays on Ayah 2.
+    await recordThroughTutor();
+    expect(attempts).toEqual(["ayah"]);
+    expect(message()?.textContent).toBe(en.strings["tutor.wordMissed"]);
+    expect(tutorTarget()?.querySelector("p")?.textContent).toBe(TARGET);
+    expect(text()).toContain("Word 3 of 4");
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+
+    // Attempt 2 — the word goes through, scoped to the word. Still Ayah 2, and
+    // nothing has been completed: the teacher now asks for the whole ayah.
+    await recordThroughTutor();
+    expect(attempts).toEqual(["ayah", "word"]);
+    expect(message()?.textContent).toBe(en.strings["tutor.wordRecognised"]);
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+
+    // Attempt 3 — the whole ayah. Only now does the lesson move to Ayah 3, and
+    // the screen follows it rather than leading it.
+    await recordThroughTutor();
+    expect(attempts).toEqual(["ayah", "word", "ayah"]);
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe("ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ");
+    expect(tutorTarget()).toBeNull();
+  });
+
+  it("does not advance when the word alone is recognised", async () => {
+    evaluatorWillReturn(() => review(), wordRecognised);
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+    await recordThroughTutor();
+
+    // Same ayah, and the tutor was never reopened at another position.
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(mutationMocks.tutorStart.mock.calls.map(([input]) => input.ayah)).toEqual([1, AYAH_NUMBER]);
+  });
+
+  it("keeps the correction when the word is still not recognised", async () => {
+    evaluatorWillReturn(() => review(), wordNotRecognised);
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+    await recordThroughTutor();
+
+    expect(tutorTarget()?.querySelector("p")?.textContent).toBe(TARGET);
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+  });
+});
+
+/* ---------------- 10: continue is a request, never a move */
+
+describe("continue cannot move the Quran", () => {
+  it("does not navigate when the learner asks to continue during a correction", async () => {
+    await mount();
+    await openLesson();
+    await recordThroughTutor();
+
+    // Ask the engine to continue directly — the control is deliberately absent
+    // in this state, and the page must not move even so.
+    await act(async () => {
+      const anyControl = controls()[0];
+      anyControl.click();
+    });
+    await settle();
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+  });
+
+  it("does not navigate when the learner continues from a clean position", async () => {
+    await mount();
+    await openLesson();
+    // "Start", then the engine's own continue: neither is a Quran move.
+    await click(controls()[0]);
+    const before = container.querySelector(".tutor-ayah p")?.textContent;
+    const continueControl = controls().find((control) =>
+      (control.textContent ?? "").includes(en.strings["tutor.doContinue"]!),
+    );
+    if (continueControl) await click(continueControl);
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(before);
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+  });
+});
+
+/* --------------------- 11, 12: stale and lost sessions */
+
+describe("when the server no longer agrees", () => {
+  it("takes the server's session back when ours is stale", async () => {
+    await mount();
+    await openLesson();
+    // The lesson moves underneath us: another turn lands, so the revision the
+    // page holds is behind.
+    const held = mutationMocks.tutorStart.mock.results.at(-1)!.value as Promise<{ session: { sessionId: string; revision: number } }>;
+    const { session } = await held;
+    await tutorCaller.turn({ session: { sessionId: session.sessionId, revision: session.revision }, event: { type: "intent", intent: "start" } });
+
+    await click(controls()[0]);
+    const answers = mutationMocks.tutorTurn.mock.results;
+    const last = await (answers.at(-1)!.value as Promise<{ status: string; session: { revision: number } }>);
+    expect(["stale", "updated"]).toContain(last.status);
+    // Whatever it was, the page is now carrying the server's own revision.
+    const nextCall = mutationMocks.tutorTurn.mock.calls.at(-1)![0];
+    expect(typeof nextCall.session.revision).toBe("number");
+  });
+
+  it("creates no progress when the session is lost", async () => {
+    await mount();
+    await openLesson();
+    // The microphone opens against a live lesson, and the store is emptied
+    // while the learner is speaking — exactly what a cold start does.
+    await click(controls().find((control) => (control.textContent ?? "").includes(en.strings["tutor.doStart"]!)));
+    resetLiveTutorSessionsForTests();
+    await click(controls().find((control) => (control.textContent ?? "").includes(en.strings["tutor.doDone"]!)));
+
+    // No review, no advancement, no invented correction — and Study is still
+    // usable, with the Quran exactly where it was.
+    const answer = await (mutationMocks.recitationEvaluateWithTutor.mock.results.at(-1)!.value as Promise<{ recitation: unknown; tutor: { status: string } }>);
+    expect(answer.tutor.status).toBe("lost");
+    expect(answer.recitation).toBeNull();
+    expect(container.textContent).toContain(AYAH_ARABIC);
+    expect(text()).toContain(en.strings["tutor.recordingNotApplied"]);
   });
 });
 
@@ -598,7 +899,7 @@ describe("the tutor teaches in every language", () => {
 
   it.each(SUPPORTED_LANGUAGE_CODES.map((code) => [code]))("keeps the Quran itself unchanged in %s", async (code) => {
     await mount();
-    await openStudy();
+    await openLesson();
     if (code !== "en") await chooseLanguage(code);
     await settle();
 
@@ -622,7 +923,7 @@ describe("accessibility", () => {
 
   it("gives every control a readable label and a real button", async () => {
     await mount();
-    await openStudy();
+    await openLesson();
     await recordThroughTutor();
     for (const control of controls()) {
       expect(control.tagName).toBe("BUTTON");

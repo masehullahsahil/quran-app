@@ -149,6 +149,7 @@ export const strings: TranslatableStrings = {
   "tutor.doStart": "ابدأ",
   // The end of the learner's turn — not pausing, and not stopping.
   "tutor.doDone": "انتهيت",
+    "tutor.recordingNotApplied": "لم يستقبل معلّمك ذلك التسجيل. ابدأ الدرس من جديد.",
   "tutor.doAgain": "أعد",
   "tutor.doRepeatWord": "قل الكلمة",
   "tutor.doHearWord": "استمع إلى الكلمة",

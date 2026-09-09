@@ -147,6 +147,7 @@ export const strings: TranslatableStrings = {
   "tutor.doStart": "پیل",
   // The end of the learner's turn — not pausing, and not stopping.
   "tutor.doDone": "بس دی",
+    "tutor.recordingNotApplied": "ستاسو ښوونکي هغه ثبت وانه خیست. لوست بیا پیل کړئ.",
   "tutor.doAgain": "بیا هڅه",
   "tutor.doRepeatWord": "کلمه ووایاست",
   "tutor.doHearWord": "کلمه واورئ",

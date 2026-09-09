@@ -24,6 +24,7 @@ function session(phase: LiveTutorPhase, patch: Partial<LiveTutorSession> = {}): 
   return {
     sessionId: "s1", revision: 1, mode: "guided-recitation",
     surah: 1, ayah: 2, totalAyahs: 7, expectedWordIndex: 1, lastCompletedAyah: null,
+    attemptsOnCurrentAyah: 0,
     phase, phaseBeforePause: null, activeCorrection: null, lastTutorAction: null,
     hintLevel: 0, learnerLanguage: "en", ...patch,
   };
@@ -44,6 +45,9 @@ const input = (patch: Partial<LiveTutorViewInput> = {}): LiveTutorViewInput => (
   canHearAyah: true,
   isRecording: false,
   isChecking: false,
+  // The screen is on the same ayah as the lesson unless a test says otherwise.
+  displayedSurah: 1,
+  displayedAyah: 2,
   ...patch,
 });
 
@@ -122,6 +126,38 @@ describe("the target is the engine's, or there is none", () => {
   });
 });
 
+describe("a lesson somewhere else says nothing about this ayah", () => {
+  const held = session("correcting-word", { activeCorrection: CORRECTION });
+
+  it("shows no target while the screen and the lesson disagree", () => {
+    // The tutor has advanced and the page has not followed yet, or the learner
+    // paged away. Either way the held word belongs to another ayah, and #50 is
+    // the rule that it must not be counted against the words on screen.
+    const view = liveTutorSessionView(input({ session: held, displayedAyah: 3 }), 2);
+    expect(view.target).toBeNull();
+    expect(view.state).toBe("listening");
+  });
+
+  it("shows no target while the screen is in another surah", () => {
+    const view = liveTutorSessionView(input({ session: held, displayedSurah: 2 }), 4);
+    expect(view.target).toBeNull();
+    expect(view.state).toBe("listening");
+  });
+
+  it("says nothing about a recognised word for an ayah that is not on screen", () => {
+    const recognised = session("recite-ayah", {
+      activeCorrection: { ...CORRECTION, recognition: "recognised", stage: "recite-ayah" },
+    });
+    expect(liveTutorSessionView(input({ session: recognised, displayedAyah: 3 }), 2).state).toBe("listening");
+  });
+
+  it("still teaches when the two agree", () => {
+    const view = liveTutorSessionView(input({ session: held }), 4);
+    expect(view.state).toBe("correction");
+    expect(view.target).toEqual({ arabic: "رَبِّ", wordIndex: 3, totalWords: 4 });
+  });
+});
+
 describe("the recording scope comes from the engine's own request", () => {
   it("is a word for the whole of a correction, not just the turn that asks", () => {
     // The engine says "listen to it" and then "now say it"; both are the same
@@ -137,6 +173,24 @@ describe("the recording scope comes from the engine's own request", () => {
       expect(attemptScopeFor(session("listening"), action(kind, "learner-again")), kind).toBe("ayah");
     }
     expect(attemptScopeFor(session("recite-ayah"), action("ask-full-ayah", "full-ayah-requested"))).toBe("ayah");
+  });
+
+  it("stays an ayah in recite-ayah even though the target is still held", () => {
+    // The correction is not finished — the engine keeps the snapshot — but what
+    // is being asked for is the whole ayah, so that is what is recorded.
+    const held = session("recite-ayah", {
+      activeCorrection: { ...CORRECTION, recognition: "recognised", stage: "recite-ayah" },
+    });
+    for (const kind of ["ask-full-ayah", "repeat-current-instruction", "play-target-word"] as const) {
+      expect(attemptScopeFor(held, action(kind, "target-recognised")), kind).toBe("ayah");
+    }
+  });
+
+  it("is decided by the phase alone, so the action cannot change it", () => {
+    // The server refuses a word attempt with no active target, so the scope has
+    // to follow the phase rather than whatever the last action happened to be.
+    expect(attemptScopeFor(session("listening"), action("ask-target-word", "target-requested"))).toBe("ayah");
+    expect(attemptScopeFor(session("correcting-word", { activeCorrection: CORRECTION }))).toBe("word");
   });
 });
 
