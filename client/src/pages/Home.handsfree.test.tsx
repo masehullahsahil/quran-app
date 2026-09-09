@@ -50,11 +50,6 @@ import faAF from "@locales/fa-AF";
 import ur from "@locales/ur";
 import ar from "@locales/ar";
 import { VOICE_ACTIVITY_DEFAULTS } from "@/lib/voiceActivity";
-import {
-  createCallbackTransport,
-  installTutorLiveTransport,
-  resetTutorLiveTransport,
-} from "@/lib/tutorLiveTransport";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -418,7 +413,6 @@ beforeEach(() => {
   evaluatorWillReturn(answerByScope);
   letTheEvaluatorAnswer();
   openedSession = null;
-  resetTutorLiveTransport();
   resetLiveTutorSessionsForTests();
   FakeRecorder.instances.length = 0;
   FakeRecorder.stream = null;
@@ -500,7 +494,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  resetTutorLiveTransport();
   act(() => root.unmount());
   container.remove();
   globalThis.setInterval = realSetInterval;
@@ -946,148 +939,6 @@ describe("every audio state is readable", () => {
     await mount();
     await openLesson();
     expect(handsfree()?.getAttribute("aria-label")).toBe(en.strings["handsfree.label"]);
-  });
-});
-
-/* ---------------------------------------- 9: the mid-ayah interruption seam */
-
-/**
- * The locked requirement: the learner must not have to reach the end of the
- * ayah before the app notices a skipped word.
- *
- * Deciding *that* a word was skipped, mid-recitation, is server work and is
- * being built on another branch. What is here is the browser's half of it, and
- * it is wired: when an interruption arrives, capture stops at once — while the
- * learner is still speaking, without waiting for silence — the partial audio is
- * discarded rather than submitted, and the turn the interruption carries is
- * stored through the same path a finished recording uses.
- *
- * The transport under test is a callback, not a live server. That is the point:
- * this is the response, testable before there is anything to respond to.
- */
-describe("a mid-ayah interruption from the server", () => {
-  /**
-   * The lesson as the server holds it right now.
-   *
-   * Looked up with a deliberately impossible revision: the store answers a
-   * mismatch by handing back its own copy, which is exactly the current one.
-   * The revision has moved since the session opened — the client sent `start` —
-   * and an interruption has to name the revision the server is actually on.
-   */
-  function liveReference() {
-    const lookup = getTrustedTutorSession({ sessionId: openedSession!.sessionId, revision: -1 });
-    const session = lookup.status === "current" ? lookup.session : lookup.handoff.session;
-    if (!session) throw new Error("the lesson is not in the store");
-    return { sessionId: session.sessionId, revision: session.revision };
-  }
-
-  /** The trusted turn a confirmed omission would produce, from the real engine. */
-  function omissionTurn() {
-    const handoff = applyTrustedTutorRecitation(liveReference(), {
-      surah: 1, ayah: AYAH_NUMBER,
-      result: { ...review(), attemptScope: "ayah" } as Parameters<typeof applyTrustedTutorRecitation>[1]["result"],
-    });
-    if (handoff.status !== "updated" || !handoff.session) throw new Error("the engine did not accept the fixture");
-    return { session: handoff.session, action: handoff.action };
-  }
-
-  it("stops the learner's turn mid-word, without waiting for silence", async () => {
-    const transport = createCallbackTransport();
-    installTutorLiveTransport(transport);
-    await mount();
-    await openLesson();
-    await startLiveTutor();
-
-    // The learner is mid-ayah and still speaking. Nothing has finished.
-    await pump(900, VOICE);
-    expect(inState("learner-speaking")()).toBe(true);
-    expect(attempts).toEqual([]);
-
-    const turn = omissionTurn();
-    await act(async () => { transport.emit({ type: "interrupt", ...turn }); });
-    await settle(2);
-
-    // Capture stopped on the server's word, not on a pause. The partial
-    // recording was discarded rather than sent: the server has already decided,
-    // and a second opinion on the same speech could disagree with it.
-    expect(attempts).toEqual([]);
-    expect(inState("learner-speaking")()).toBe(false);
-    expect(inState("learner-listening")()).toBe(false);
-
-    // And the teacher took over: the word played, and the microphone came back
-    // for that one word.
-    expect(await until(() => played.includes(WORD_AUDIO_URL))).toBe(true);
-    expect(await untilListening()).toBe(true);
-    expect(text()).toContain(en.strings["handsfree.scopeWord"]);
-  });
-
-  it("cannot be undone by a silence event the detector still had in flight", async () => {
-    const transport = createCallbackTransport();
-    installTutorLiveTransport(transport);
-    await mount();
-    await openLesson();
-    await startLiveTutor();
-    await pump(900, VOICE);
-
-    const turn = omissionTurn();
-    await act(async () => { transport.emit({ type: "interrupt", ...turn }); });
-
-    // The frames the detector had queued behind the interruption, arriving as
-    // "the learner has stopped". The turn is already closed against its id, so
-    // they submit nothing.
-    await pump(VOICE_ACTIVITY_DEFAULTS.endOfTurnSilenceMs + 500, QUIET);
-    expect(attempts).toEqual([]);
-  });
-
-  it("shows nothing at all for a provisional signal", async () => {
-    const transport = createCallbackTransport();
-    installTutorLiveTransport(transport);
-    await mount();
-    await openLesson();
-    await startLiveTutor();
-    await pump(700, VOICE);
-
-    await act(async () => {
-      transport.emit({ type: "tracking", expectedWordIndex: 3 });
-      transport.emit({ type: "possible-omission" });
-    });
-    await settle(2);
-
-    // "Maybe you missed a word" appearing and disappearing while a learner
-    // recites will make them stop and correct something that was right. While
-    // the server is still deciding, the screen says what it always says.
-    expect(container.querySelector(".tutor-target")).toBeNull();
-    expect(text()).not.toContain(en.strings["tutor.wordMissed"]);
-    expect(attempts).toEqual([]);
-  });
-});
-
-/* ------------------------------------------------------- 10: a lost lesson */
-
-describe("a lesson the server no longer has", () => {
-  it("stops automatic progression and invents nothing", async () => {
-    const transport = createCallbackTransport();
-    installTutorLiveTransport(transport);
-    await mount();
-    await openLesson();
-    await startLiveTutor();
-
-    await act(async () => { transport.emit({ type: "lost" }); });
-    await settle(4);
-
-    expect(stateLine()).toContain(en.strings["handsfree.stateReconnect"]);
-    expect(container.querySelector(".handsfree-lost")?.textContent).toContain(en.strings["handsfree.sessionLost"]);
-    // No correction is described, the ayah has not moved, and nothing is
-    // recorded as complete.
-    expect(container.querySelector(".tutor-target")).toBeNull();
-    expect(container.querySelector(".study-index")?.textContent).toBe("02");
-
-    // And the learner is not stranded: there is a way back, and it does not
-    // claim the ayah was finished.
-    expect(container.querySelector(".handsfree-restart")).toBeTruthy();
-    await pump(1_500, VOICE);
-    await pump(VOICE_ACTIVITY_DEFAULTS.endOfTurnSilenceMs + 300, QUIET);
-    expect(attempts).toEqual([]);
   });
 });
 

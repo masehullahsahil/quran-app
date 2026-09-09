@@ -34,6 +34,7 @@
  * and never as one synthesised sentence with the word inside it.
  */
 import type { LiveTutorSession, TutorAction } from "@shared/liveTutor";
+import type { LiveListeningDirective } from "@shared/liveRecitation";
 import type { StringKey } from "@locales/index";
 
 /** Which recording the microphone should collect when it re-opens. */
@@ -133,15 +134,55 @@ export type HandsFreePlanInput = {
 };
 
 /**
- * The scope the microphone re-opens in.
+ * The scope the microphone re-opens in, from the engine's phase.
  *
- * Read straight off the engine's phase, exactly as `attemptScopeFor` does for
- * the manual path, and for the same reason (#53): a recording of one word run
- * through the whole-ayah reviewer answers a question the learner was not asked.
- * A guess about what the learner "probably meant" is never consulted.
+ * The same rule `attemptScopeFor` uses for the manual path, and for the same
+ * reason (#53): a recording of one word run through the whole-ayah reviewer
+ * answers a question the learner was not asked. A guess about what the learner
+ * "probably meant" is never consulted.
+ *
+ * Since #61 this is the *fallback*. The engine now states the capture policy
+ * outright — see `scopeForDirective` — and a statement outranks a derivation.
  */
 export function handsFreeScopeFor(session: LiveTutorSession): HandsFreeScope {
   return session.phase === "correcting-word" ? "word" : "ayah";
+}
+
+/**
+ * The scope the server named, or null where it named something that is not
+ * listening at all.
+ *
+ * `nextChannel` arrived with Codex's continuous contract and exists precisely
+ * so the browser does not have to infer capture policy from a phase. Where it
+ * names a listening directive, that is the answer. Where it names playback, an
+ * interruption, or a wait, the plan's own steps decide what happens next and
+ * this returns null.
+ *
+ * It is not merely conformance: `hold-uncertain` while a correction is open is
+ * a word turn, and the phase there is `waiting`, which the fallback reads as an
+ * ayah. The server knows better because it is holding the correction.
+ */
+export function scopeForDirective(directive: LiveListeningDirective): HandsFreeScope | null {
+  switch (directive) {
+    case "listen-for-target-word":
+      return "word";
+    case "listen-for-full-ayah":
+    case "listen-next-ayah":
+    case "keep-listening":
+      return "ayah";
+    // Playback owns the turn, the learner is being interrupted, the lesson is
+    // waiting, or it is over. None of these is a scope.
+    case "play-target-word":
+    case "interrupt-learner":
+    case "wait":
+    case "do-not-listen":
+      return null;
+  }
+}
+
+/** Whether the server has said not to listen at all. */
+export function directiveEndsListening(directive: LiveListeningDirective): boolean {
+  return directive === "do-not-listen";
 }
 
 /**
@@ -154,7 +195,8 @@ export function handsFreeScopeFor(session: LiveTutorSession): HandsFreeScope {
 export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
   const { session, action } = input;
   const key = `${session.sessionId}#${session.revision}`;
-  const scope = handsFreeScopeFor(session);
+  // The server's own statement first, the phase only where it made none.
+  const scope = scopeForDirective(action.nextChannel) ?? handsFreeScopeFor(session);
   const steps: HandsFreeStep[] = [];
 
   const terminalPlan = (extra: HandsFreeStep[] = []): HandsFreePlan => ({
@@ -187,6 +229,9 @@ export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
         steps.push({ kind: "qari-ayah" });
       }
       steps.push(coach("handsfree.nowYouSayIt"));
+      // The directive here is `play-target-word`, which names playback rather
+      // than a scope. What follows the recording is the word, every time — the
+      // engine's own next turn says `listen-for-target-word`.
       return { key, steps, resume: "word", terminal: false };
     }
 
@@ -194,7 +239,7 @@ export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
     // played it, or the learner missed on the word itself.
     case "ask-target-word":
       if (!input.onScreen) return { key, steps: [], resume: scope, terminal: false };
-      return { key, steps: [coach("handsfree.nowYouSayIt")], resume: "word", terminal: false };
+      return { key, steps: [coach("handsfree.nowYouSayIt")], resume: scope, terminal: false };
 
     // The other half of a correction. When the engine is *announcing* that it
     // heard the word, the teacher says so first and then asks — two sentences,
@@ -202,7 +247,7 @@ export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
     case "ask-full-ayah": {
       if (action.reason === "target-recognised") steps.push(coach("tutor.wordRecognised"));
       steps.push(coach("tutor.reciteFullAyah"));
-      return { key, steps, resume: "ayah", terminal: false };
+      return { key, steps, resume: scope, terminal: false };
     }
 
     // The ayah went through and the lesson has moved. One short sentence, then
@@ -211,7 +256,7 @@ export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
       return {
         key,
         steps: action.reason === "ayah-completed" ? [coach("handsfree.goodContinue")] : [],
-        resume: "ayah",
+        resume: scope,
         terminal: false,
       };
 
@@ -271,11 +316,11 @@ export function planIsSilent(plan: HandsFreePlan): boolean {
 }
 
 /**
- * The pacing of a plan.
+ * The pacing of the hands-free lesson.
  *
- * Two numbers, in one place for the same reason the VAD thresholds are: a
- * hands-free lesson is made of timings, and a timing invented at its call site
- * is a timing nobody can find again.
+ * In one place for the same reason the VAD thresholds are: a hands-free lesson
+ * is made of timings, and a timing invented at its call site is a timing nobody
+ * can find again.
  */
 export const HANDS_FREE_TIMING = {
   /**
@@ -295,4 +340,27 @@ export const HANDS_FREE_TIMING = {
   resumeDelayMs: 350,
   /** How long a trusted recording may take to start before it is given up on. */
   playbackTimeoutMs: 8_000,
+  /**
+   * How often rolling audio is cut and sent while the learner is still
+   * reciting.
+   *
+   * This is what makes mid-ayah detection possible at all: the server's
+   * omission rule needs ordered audio *during* the recitation, not a finished
+   * recording. Shorter means the teacher can interrupt sooner; it also means
+   * more transcription requests for the same ayah, and each open chunk is a
+   * whole transcription in v1 rather than a streaming connection. 1.4 seconds
+   * is roughly a short phrase, which is the smallest unit the alignment can say
+   * anything stable about.
+   */
+  interimChunkMs: 1_400,
+  /**
+   * How long to wait for the recorder's last `dataavailable` after `stop()`.
+   *
+   * `MediaRecorder.stop()` delivers one final blob with everything captured
+   * since the last slice, and only then fires `onstop`. Assembling before that
+   * arrives drops the tail of the turn — the final consonant of an ayah, or
+   * most of a one-word answer. So a submitted turn waits, and this is the cap
+   * in case a recorder never reports.
+   */
+  recorderFlushMs: 1_500,
 } as const;

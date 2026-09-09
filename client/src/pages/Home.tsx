@@ -68,10 +68,11 @@ import type {
 import { findWordAudio } from "@/lib/wordAudio";
 import { useRecordingAudio } from "@/hooks/useRecordingAudio";
 import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTutor";
-import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn } from "@/hooks/useContinuousTutorAudio";
+import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn, type InterimTurnAudio } from "@/hooks/useContinuousTutorAudio";
 import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
 import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
-import { interruptHandoff, interruptsCapture, tutorLiveTransport, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
+import { interruptHandoff, interruptsCapture, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
+import { useLiveRecitationStream } from "@/hooks/useLiveRecitationStream";
 import type { MasteryState } from "@shared/memorization";
 import {
   createVerseFollowingPosition,
@@ -1370,6 +1371,22 @@ export default function Home() {
     })();
   }, []);
 
+  /**
+   * Rolling audio, on its way to the tracker.
+   *
+   * The capture hook cuts one of these every `interimChunkMs` while the learner
+   * is speaking an ayah turn; the stream hook drops it when the server would
+   * refuse it. Reached through a ref because the stream is opened *after* the
+   * microphone exists — it needs a live session and an active capture — while
+   * the capture hook needs this handler at the moment it is created.
+   *
+   * Nothing about the Quran travels with it.
+   */
+  const liveStreamRef = useRef<{ sendInterim: (chunk: InterimTurnAudio) => void } | null>(null);
+  const handleInterimAudioRef = useCallback((chunk: InterimTurnAudio) => {
+    liveStreamRef.current?.sendInterim(chunk);
+  }, []);
+
   const handleMicrophoneUnavailable = useCallback(() => {
     // Back to the manual path, which works. Nothing is described as hands-free
     // from here: the component says what happened and Study's own controls are
@@ -1379,6 +1396,7 @@ export default function Home() {
 
   const continuous = useContinuousTutorAudio({
     onTurn: handleFinalisedTurn,
+    onInterim: handleInterimAudioRef,
     onUnavailable: handleMicrophoneUnavailable,
     /**
      * Deliberately no `onTiming`.
@@ -1445,15 +1463,13 @@ export default function Home() {
   });
 
   /**
-   * Codex's live tracking, once it exists.
+   * Codex's live tracking (#61), wired.
    *
-   * Until then this is `NO_LIVE_TRANSPORT`: it accepts everything and emits
-   * nothing, so the lesson runs on finalised turns and the mid-ayah
-   * interruption simply does not fire. What is already wired is the *response*
-   * — an `interrupt` stops learner capture immediately, without waiting for
-   * silence, and stores the trusted turn it carries through the same
-   * `applyHandoff` a finished recording uses. See `lib/tutorLiveTransport.ts`
-   * for the three edits that swap the transport in.
+   * `recitation.startLive` binds a stream to the trusted lesson when the
+   * hands-free session begins; rolling audio goes to
+   * `recitation.ingestLiveAudio` while the learner is still reciting; and the
+   * server decides, alone, whether what it heard amounts to a skipped word.
+   * The browser's whole part in that decision is supplying ordered audio.
    */
   const handleLiveEvent = useCallback((event: LiveTutorServerEvent) => {
     if (interruptsCapture(event)) {
@@ -1468,26 +1484,21 @@ export default function Home() {
       continuousRef.current?.markSessionLost();
       return;
     }
-    // `tracking`, `possible-omission` and `confirmed-omission` are provisional.
-    // Nothing is rendered from them: a learner watching "maybe you missed a
-    // word" appear and disappear will stop and correct something that was
-    // right. While the server is still deciding, the screen says "Listening."
+    // `tracking` and `not-applied` are provisional or bookkeeping. Nothing is
+    // rendered from either: a learner watching "maybe you missed a word" appear
+    // and disappear will stop and correct something that was right, and a
+    // duplicate chunk is not news. While the server is still deciding, the
+    // screen goes on saying "Listening."
   }, []);
 
-  const liveSessionId = tutor.reference?.sessionId ?? null;
-  useEffect(() => {
-    // Read at subscription time rather than captured at mount, so installing a
-    // live transport after start-up is enough to switch the lesson onto it.
-    const transport = tutorLiveTransport();
-    const reference = tutorRef.current.reference;
-    if (!handsFreeOn || !reference || !transport.available) return;
-    transport.open(reference);
-    const unsubscribe = transport.subscribe(handleLiveEvent);
-    return () => {
-      unsubscribe();
-      transport.close();
-    };
-  }, [handsFreeOn, liveSessionId, handleLiveEvent]);
+  const liveStream = useLiveRecitationStream({
+    enabled: handsFreeOn && continuous.active,
+    reference: tutor.reference,
+    learningLevel,
+    uiLanguage: locale as SupportedLanguageCode,
+    onEvent: handleLiveEvent,
+  });
+  liveStreamRef.current = liveStream;
 
   /**
    * The server no longer has this lesson.

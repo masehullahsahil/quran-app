@@ -7,13 +7,18 @@
  * Deciding that is server work — it needs the Quran text, the alignment and the
  * confidence model — and it is being built on another branch.
  *
- * What is here is the browser half, and only the browser half:
+ * That server landed in #61: `recitation.startLive` opens a stream against the
+ * trusted Tutor session, and `recitation.ingestLiveAudio` takes ordered audio
+ * chunks, aligns each server transcript against the canonical ayah, and emits
+ * `word-omitted` only once its stability rule holds. This file is the browser
+ * half, and only the browser half:
  *
  *  * a typed description of what the browser may send (audio, and where in the
  *    turn it came from) and what it may receive (a tracking signal, or an
  *    instruction to interrupt);
- *  * a no-op implementation, which is what runs until that server lands;
- *  * the rule that only a confirmed interruption is ever shown to a learner.
+ *  * the rule that only a confirmed interruption is ever shown to a learner;
+ *  * a no-op implementation, still the default, so a browser that cannot open a
+ *    stream runs the lesson on finalised turns alone.
  *
  * **The asymmetry is the point.** Read `LiveAudioChunk`: it carries audio,
  * ordering and a session reference. It cannot carry a missed word, an expected
@@ -24,22 +29,28 @@
  * server's own decided handoff, which the tutor hook stores exactly as it
  * stores the handoff from a finalised recording.
  *
- * ## Wiring this after Codex's branch lands
+ * There is deliberately **no placeholder transport here any more.** Until #61
+ * landed this file carried an inert `NO_LIVE_TRANSPORT` and a registry to swap
+ * a real one in; both are gone, because the real one exists
+ * (`hooks/useLiveRecitationStream.ts`) and code written as though a shipped
+ * server had not shipped is code that lies about the system. A browser that
+ * cannot open a stream simply has none, and the lesson runs on finalised turns.
  *
- * Three edits, all in this file and its one caller:
+ * ## The types are inherited, not restated
  *
- *  1. replace `NO_LIVE_TRANSPORT` with an implementation that calls the new
- *     live procedure (a tRPC subscription, or a chunk mutation that returns the
- *     latest event) and maps its output onto `LiveTutorServerEvent`;
- *  2. make `LiveTutorServerEvent["handoff"]` the new procedure's own output
- *     type instead of the structural type below, so the contract is inherited
- *     rather than restated;
- *  3. delete nothing else. `useContinuousTutorAudio` already responds to
- *     `interrupt` by finalising capture immediately, and `Home.tsx` already
- *     applies the handoff through the same trusted path a finished recording
- *     uses. No other file needs to know the transport changed.
+ * `LiveListeningDirective`, `LiveWordOmittedEvent` and `LiveInputAcknowledgement`
+ * come from `shared/liveRecitation.ts`. If Codex changes the contract, this file
+ * stops compiling instead of quietly sending the previous generation's payload
+ * — the same rule `useLiveTutor` follows for the turn API.
  */
 import type { TutorAction, LiveTutorSession } from "@shared/liveTutor";
+import type {
+  LiveAudioTurnContract,
+  LiveInputAcknowledgement,
+  LiveListeningDirective,
+  LiveRecitationStreamSnapshot,
+  LiveWordOmittedEvent,
+} from "@shared/liveRecitation";
 
 /** The lesson a chunk belongs to. Reference only, exactly as `tutor.turn`. */
 export type LiveSessionReference = { sessionId: string; revision: number };
@@ -47,23 +58,24 @@ export type LiveSessionReference = { sessionId: string; revision: number };
 /**
  * One slice of learner audio on its way to the server.
  *
- * Every field is about the audio or its place in the stream. There is
- * deliberately nowhere to put a judgement.
+ * Shaped by `LiveAudioTurnContract` from the shared package, plus the audio
+ * itself. Every field is about the recording or its place in the stream, and
+ * there is deliberately nowhere to put a judgement: no missed word, no expected
+ * word, no Quran position, no `shouldAdvance`, no correction result. The
+ * browser has nothing to say about the Quran and this type is what makes that
+ * true rather than a convention.
+ *
+ * The audio is **cumulative within a turn**, not the newest fragment alone. A
+ * `MediaRecorder` timeslice after the first carries no container header, so a
+ * lone fragment does not decode; and the server's stability rule needs every
+ * canonical word before the target accounted for, which needs the whole
+ * utterance so far. Each chunk is therefore a complete, playable recording of
+ * the turn up to that moment.
  */
-export type LiveAudioChunk = {
+export type LiveAudioChunk = Omit<LiveAudioTurnContract, "streamId"> & {
   session: LiveSessionReference;
-  /** 0-based, monotonic within one turn. Lets the server order late arrivals. */
-  sequence: number;
-  /** Milliseconds from the start of the turn to the start of this chunk. */
-  offsetMs: number;
-  /** Length of this chunk. */
-  durationMs: number;
-  /** Whether the turn had ended by the time this chunk was cut. */
-  final: boolean;
-  mimeType: string;
+  mimeType: "audio/webm" | "audio/ogg" | "audio/wav" | "audio/mp4";
   audioBase64: string;
-  /** Which recording the turn is: the engine's scope, never a guess (#53). */
-  scope: "word" | "ayah";
 };
 
 /**
@@ -76,10 +88,19 @@ export type LiveAudioChunk = {
  * answer carries.
  */
 export type LiveTutorServerEvent =
-  | { type: "tracking"; expectedWordIndex: number }
-  | { type: "possible-omission" }
-  | { type: "confirmed-omission"; session: LiveTutorSession; action: TutorAction }
-  | { type: "interrupt"; session: LiveTutorSession; action: TutorAction }
+  /** The stream is following along. Provisional, and never rendered. */
+  | { type: "tracking"; directive: LiveListeningDirective; stream: LiveRecitationStreamSnapshot | null }
+  /**
+   * The chunk was not applied: a duplicate, an out-of-order arrival, a stale
+   * revision, or one the server refused. Not an error the learner sees.
+   */
+  | { type: "not-applied"; acknowledgement: LiveInputAcknowledgement }
+  /**
+   * A confirmed omission, and the instruction to interrupt. Carries the
+   * server's decided turn, exactly as a finished recording's handoff does.
+   */
+  | { type: "interrupt"; omission: LiveWordOmittedEvent; session: LiveTutorSession; action: TutorAction }
+  /** The stream or the lesson is gone. Nothing advances. */
   | { type: "lost" };
 
 /**
@@ -96,6 +117,17 @@ export function isLearnerVisible(event: LiveTutorServerEvent): boolean {
 }
 
 /**
+ * Whether a directive means "keep sending me audio while the learner talks".
+ *
+ * The two the server accepts open chunks for. Anything else — a correction in
+ * progress, playback, a wait, a stopped lesson — and the browser stops
+ * streaming rather than sending chunks the server will refuse.
+ */
+export function acceptsInterimAudio(directive: LiveListeningDirective): boolean {
+  return directive === "keep-listening" || directive === "listen-next-ayah";
+}
+
+/**
  * Whether an event should stop learner capture at once.
  *
  * This is the mid-ayah interruption, and it is not a silence event: the learner
@@ -106,110 +138,11 @@ export function interruptsCapture(event: LiveTutorServerEvent): event is Extract
   return event.type === "interrupt";
 }
 
-export type LiveTransportListener = (event: LiveTutorServerEvent) => void;
-
-export interface TutorLiveTransport {
-  /** True when this transport can actually reach a live server. */
-  readonly available: boolean;
-  open(session: LiveSessionReference): void;
-  send(chunk: LiveAudioChunk): void;
-  close(): void;
-  subscribe(listener: LiveTransportListener): () => void;
-}
-
-/**
- * The transport in use until the live server exists.
- *
- * It accepts everything and emits nothing, so the hands-free lesson runs on
- * finalised turns alone: the learner recites, silence ends the turn, and the
- * correction arrives from `recitation.evaluateWithTutor` as it does today. That
- * is a working lesson, and it is honestly described as one — nothing in the UI
- * claims mid-ayah interruption while this is what is installed.
- */
-export const NO_LIVE_TRANSPORT: TutorLiveTransport = {
-  available: false,
-  open() {},
-  send() {},
-  close() {},
-  subscribe() {
-    return () => {};
-  },
-};
-
-/**
- * The transport the app is currently using.
- *
- * A single registration point rather than an import, for two reasons. The first
- * is the one that matters after Codex's branch lands: the live procedure can be
- * installed from wherever it is defined without `Home.tsx` learning anything
- * about it — `installTutorLiveTransport(myTransport)` at start-up is the whole
- * change. The second is that it makes the *response* to an interruption
- * testable today, before there is a server capable of producing one.
- */
-let installedTransport: TutorLiveTransport = NO_LIVE_TRANSPORT;
-
-/** Install the live transport. Call once, at start-up. */
-export function installTutorLiveTransport(transport: TutorLiveTransport): void {
-  installedTransport = transport;
-}
-
-/** Put the app back on finalised turns alone. */
-export function resetTutorLiveTransport(): void {
-  installedTransport = NO_LIVE_TRANSPORT;
-}
-
-/** Whatever is installed. `NO_LIVE_TRANSPORT` until something else is. */
-export function tutorLiveTransport(): TutorLiveTransport {
-  return installedTransport;
-}
-
-/**
- * A transport backed by a plain callback, for tests and for the adapter Codex's
- * procedure will be dropped into.
- *
- * It exists so the client behaviour that matters — capture stops the moment an
- * interrupt arrives, mid-word, and a stale silence event afterwards changes
- * nothing — is testable today, before there is a server that can produce one.
- */
-export function createCallbackTransport(onChunk?: (chunk: LiveAudioChunk) => void): TutorLiveTransport & {
-  emit: (event: LiveTutorServerEvent) => void;
-  chunks: LiveAudioChunk[];
-  opened: LiveSessionReference[];
-  closed: number;
-} {
-  const listeners = new Set<LiveTransportListener>();
-  const chunks: LiveAudioChunk[] = [];
-  const opened: LiveSessionReference[] = [];
-  return {
-    available: true,
-    chunks,
-    opened,
-    closed: 0,
-    open(session) {
-      opened.push(session);
-    },
-    send(chunk) {
-      chunks.push(chunk);
-      onChunk?.(chunk);
-    },
-    close() {
-      this.closed += 1;
-    },
-    subscribe(listener) {
-      listeners.add(listener);
-      return () => listeners.delete(listener);
-    },
-    emit(event) {
-      for (const listener of Array.from(listeners)) listener(event);
-    },
-  };
-}
-
 /**
  * The trusted turn carried by an interruption, in the shape the tutor hook
  * already stores.
  *
- * Built here rather than in the page so there is exactly one place that says
+ * Built here rather than in the hook so there is exactly one place that says
  * "an interrupt is a trusted turn". It is a *server-decided* session and action
  * being passed through unchanged — nothing is derived, defaulted or repaired on
  * the way past, and if the fields ever stop matching what `tutor.turn` returns
