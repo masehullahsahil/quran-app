@@ -63,12 +63,19 @@ describe("continuous Tutor stream ordering", () => {
       sequence: 1,
       tutorSession: session,
       directive: "keep-listening",
+      replay: { nextChannel: "keep-listening", event: null },
     });
 
     const sameId = reserveContinuousTutorInput(request(stream.streamId, { sequence: 2, audioHash: "audio-2" }));
     const sameAudio = reserveContinuousTutorInput(request(stream.streamId, { sequence: 2, chunkId: "chunk-2" }));
-    expect(sameId.status).toBe("duplicate");
-    expect(sameAudio.status).toBe("duplicate");
+    expect(sameId).toMatchObject({
+      status: "duplicate",
+      replay: { nextChannel: "keep-listening", event: null },
+    });
+    expect(sameAudio).toMatchObject({
+      status: "duplicate",
+      replay: { nextChannel: "keep-listening", event: null },
+    });
   });
 
   it("deduplicates a completed turn without treating its earlier preview as the same input", () => {
@@ -105,6 +112,40 @@ describe("continuous Tutor stream ordering", () => {
       audioHash: "another-hash",
     }));
     expect(duplicate.status).toBe("duplicate");
+  });
+
+  it("does not replay an obsolete outcome after newer input was committed", () => {
+    const session = tutor();
+    const stream = startContinuousTutorStream(session);
+    reserveContinuousTutorInput(request(stream.streamId));
+    commitContinuousTutorInput({
+      streamId: stream.streamId,
+      turnId: "turn-1",
+      chunkId: "chunk-1",
+      sequence: 1,
+      tutorSession: session,
+      directive: "keep-listening",
+      replay: { marker: "first" },
+    });
+    reserveContinuousTutorInput(request(stream.streamId, {
+      sequence: 2,
+      chunkId: "chunk-2",
+      audioHash: "audio-2",
+    }));
+    commitContinuousTutorInput({
+      streamId: stream.streamId,
+      turnId: "turn-1",
+      chunkId: "chunk-2",
+      sequence: 2,
+      tutorSession: session,
+      directive: "keep-listening",
+      replay: { marker: "second" },
+    });
+
+    expect(reserveContinuousTutorInput(request(stream.streamId, {
+      sequence: 3,
+      audioHash: "retry-first",
+    }))).toMatchObject({ status: "duplicate", replay: null });
   });
 
   it("rejects skipped and old sequences without rolling state backward", () => {
