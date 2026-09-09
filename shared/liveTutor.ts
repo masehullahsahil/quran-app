@@ -1,4 +1,5 @@
 import type { SupportedLanguageCode } from "./languages";
+import type { LiveListeningDirective } from "./liveRecitation";
 import { TUTOR_INTENTS, type TutorIntent } from "./tutorConversation";
 import type { VerseFollowingResult } from "./verseFollowing";
 import type {
@@ -95,6 +96,8 @@ export type TutorAction = {
   hintLevel: HintLevel;
   hint: { kind: TutorHintKind; wordIndex: number | null } | null;
   repeatAction: TutorActionKind | null;
+  /** Explicit capture/playback policy; the browser does not infer this from prose. */
+  nextChannel: LiveListeningDirective;
   /** True only when trusted Quran evidence advanced the verse position. */
   canAdvance: boolean;
 };
@@ -196,6 +199,7 @@ function makeAction(
     repeatAction?: TutorActionKind | null;
   } = {},
 ): TutorAction {
+  const canAdvance = options.canAdvance ?? false;
   return {
     kind,
     reason,
@@ -207,8 +211,31 @@ function makeAction(
     hintLevel: session.hintLevel,
     hint: options.hint ?? null,
     repeatAction: options.repeatAction ?? null,
-    canAdvance: options.canAdvance ?? false,
+    nextChannel: nextChannelFor(session, kind, canAdvance),
+    canAdvance,
   };
+}
+
+function nextChannelFor(
+  session: LiveTutorSession,
+  kind: TutorActionKind,
+  canAdvance: boolean,
+): LiveListeningDirective {
+  if (session.phase === "paused" || session.phase === "completed" || session.phase === "stopped") {
+    return "do-not-listen";
+  }
+  if (kind === "play-target-word") return "play-target-word";
+  if (kind === "ask-target-word") return "listen-for-target-word";
+  if (kind === "ask-full-ayah") return "listen-for-full-ayah";
+  if (kind === "continue-recitation") return canAdvance ? "listen-next-ayah" : "keep-listening";
+  if (kind === "resume-session" && session.activeCorrection) {
+    return session.activeCorrection.stage === "recite-ayah" ? "listen-for-full-ayah" : "listen-for-target-word";
+  }
+  if (kind === "listen" || kind === "resume-session" || kind === "wait") return "keep-listening";
+  if (kind === "hold-uncertain") {
+    return session.activeCorrection ? "listen-for-target-word" : "keep-listening";
+  }
+  return "wait";
 }
 
 function transition(
