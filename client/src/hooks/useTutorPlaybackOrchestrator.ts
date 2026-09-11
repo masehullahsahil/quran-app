@@ -27,13 +27,13 @@
  * ## Quran audio is never synthesised, structurally
  *
  * A `qari-word` step plays the URL `#51` supplied; a `qari-ayah` step plays the
- * reciter's file. A `coach` step passes a *locale key* to `speakCoaching`,
- * which refuses any key outside its allowlist. There is no step type that
- * carries Arabic text to a synthesiser, so there is no code path from a plan to
- * a spoken Quran word.
+ * reciter's file. A `coach` step passes a *locale key* to the coaching-voice
+ * provider, which refuses any key outside its allowlist. There is no step type
+ * that carries Arabic text to a synthesiser, so there is no code path from a
+ * plan to a spoken Quran word.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cancelCoachSpeech, speakCoaching } from "@/lib/coachSpeech";
+import { createCoachSpeechProvider, type CoachSpeechProvider } from "@/lib/coachSpeechProvider";
 import { HANDS_FREE_TIMING, type HandsFreePlan, type HandsFreeStep } from "@/lib/handsFreePlan";
 import type { StringKey } from "@locales/index";
 import type { SupportedLanguageCode } from "@shared/languages";
@@ -48,8 +48,8 @@ export type TutorPlaybackInput = {
   wordAudioUrl: string | null;
   /** The selected reciter's ayah, or null. */
   ayahAudioUrl: string | null;
-  /** Resolves a coaching key in the learner's language. */
-  translate: (key: StringKey) => string;
+  /** Resolves a coaching key in the learner's language, with optional params. */
+  translate: (key: StringKey, params?: Record<string, string | number>) => string;
   /** Close capture and gate the detector for the duration of a step. */
   holdForPlayback: (kind: "coach" | "qari") => void;
   /** The app has stopped being audible. */
@@ -96,6 +96,19 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const latest = useRef(input);
   latest.current = input;
+  /**
+   * The teacher's voice: neural when one is configured for the language, the
+   * browser's synthesiser next, on-screen text when neither can speak it.
+   * Created once; the browser provider resolves `window.speechSynthesis`
+   * lazily at speak time, so tests and late platform initialisation work.
+   * Key-only: the provider is handed the plan's key and resolves the sentence
+   * itself through the lesson's `translate` — no text crosses this boundary,
+   * so no Quran text ever can.
+   */
+  const providerRef = useRef<CoachSpeechProvider | null>(null);
+  const provider = providerRef.current ?? (providerRef.current = createCoachSpeechProvider({
+    resolveText: (key, params) => latest.current.translate(key, params),
+  }));
 
   const stopAudio = useCallback(() => {
     const audio = audioRef.current;
@@ -169,11 +182,6 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
 
   const speakLine = useCallback((key: StringKey, run: number) => new Promise<void>((resolve) => {
     let settled = false;
-    // `let`, declared before `settle`, because `settle` can be called
-    // synchronously from inside `speakCoaching` on a platform without a voice
-    // — and a `const` read from its own initialiser is a reference error, not
-    // a missed timer. (The deferred `speak()` means an utterance itself can no
-    // longer settle synchronously, but the shown-only paths still do.)
     let timer: ReturnType<typeof setTimeout> | undefined;
     let silentTimer: ReturnType<typeof setTimeout> | undefined;
     let utteranceEnd: "end" | "error" | null = null;
@@ -198,19 +206,14 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       instrument(resolvedBy, true);
       settle();
     };
-    const outcome = speakCoaching({
-      messageKey: key,
-      text: latest.current.translate(key),
-      language: latest.current.language,
-      muted: latest.current.muted,
-      onDone: () => done(utteranceEnd === "error" ? "onerror" : "onend"),
-      onUtteranceEnd: (reason) => {
-        utteranceEnd = reason;
-      },
-    });
-    setState((current) => ({ ...current, line: key, lineSpoken: outcome.spoken }));
-    if (!outcome.spoken) {
-      // A sentence that was only shown still needs time on screen.
+    const cancelVoice = () => {
+      try {
+        provider.cancel();
+      } catch { /* a provider already torn down */ }
+    };
+    /** The sentence is shown, not spoken: it still gets its time on screen. */
+    const showOnly = () => {
+      setState((current) => ({ ...current, line: key, lineSpoken: false }));
       if (!settled) {
         timer = setTimeout(() => {
           if (settled) return;
@@ -219,39 +222,79 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
         }, HANDS_FREE_TIMING.coachDisplayMs);
       }
       if (runRef.current !== run) settle();
-      return;
-    }
-    // A spoken sentence resolves from `onDone`, with the backstop below for a
-    // voice that never reports finishing. The backstop cancels first: resolving
-    // the step is not the same as stopping the voice, and an utterance that is
-    // still talking when the microphone re-opens would be transcribed as the
-    // learner.
-    if (!settled) timer = setTimeout(() => { cancelCoachSpeech(); done("backstop"); }, HANDS_FREE_TIMING.playbackTimeoutMs);
-    // `{spoken: true}` is never treated as audible. iOS Safari sometimes
-    // swallows an utterance silently — `speak()` returns, the synthesiser never
-    // starts, `onend`/`onerror` never fire — and waiting the full backstop for
-    // it holds the microphone closed while the UI already says "try once
-    // more", inviting recitation into a closed mic and clipping the beginning
-    // of the turn. If the platform reports it is not speaking shortly after
-    // the call, resolve the step at once instead.
-    if (!settled) {
-      silentTimer = setTimeout(() => {
+    };
+    /** The provider is speaking: arm the backstop and the silent-voice check. */
+    const awaitSpeech = () => {
+      setState((current) => ({ ...current, line: key, lineSpoken: true }));
+      // A spoken sentence resolves when the provider reports the utterance
+      // finished, with the backstop below for a voice that never reports
+      // finishing. The backstop cancels first: resolving the step is not the
+      // same as stopping the voice, and an utterance that is still talking
+      // when the microphone re-opens would be transcribed as the learner.
+      if (!settled) timer = setTimeout(() => { cancelVoice(); done("backstop"); }, HANDS_FREE_TIMING.playbackTimeoutMs);
+      // `{spoken: true}` is never treated as audible. iOS Safari sometimes
+      // swallows an utterance silently — `speak()` returns, the synthesiser never
+      // starts, `onend`/`onerror` never fire — and waiting the full backstop for
+      // it holds the microphone closed while the UI already says "try once
+      // more", inviting recitation into a closed mic and clipping the beginning
+      // of the turn. If the platform reports it is not speaking shortly after
+      // the call, resolve the step at once instead.
+      if (!settled) {
+        silentTimer = setTimeout(() => {
+          if (settled) return;
+          const synthesis = typeof window !== "undefined" && "speechSynthesis" in window
+            ? (window.speechSynthesis as unknown as { speaking?: unknown; pending?: unknown } | null)
+            : null;
+          if (synthesis?.speaking === false && synthesis?.pending !== true) {
+            // Not speaking and nothing queued: silent, not slow. Cancel first
+            // for the same reason as the backstop — a voice that starts late
+            // must not sound under the re-opened microphone.
+            cancelVoice();
+            done("silent-immediate");
+          }
+          // Otherwise the voice is starting, still queueing, or the platform
+          // does not report liveness at all: leave the backstop in place.
+        }, SILENT_TTS_CHECK_MS);
+      }
+      if (runRef.current !== run) settle();
+      void provider.speak(
+        {
+          messageKey: key,
+          language: latest.current.language,
+          muted: latest.current.muted,
+        },
+        {
+          onUtteranceEnd: (reason) => {
+            utteranceEnd = reason;
+          },
+        },
+      ).then((outcome) => {
         if (settled) return;
-        const synthesis = typeof window !== "undefined" && "speechSynthesis" in window
-          ? (window.speechSynthesis as unknown as { speaking?: unknown; pending?: unknown } | null)
-          : null;
-        if (synthesis?.speaking === false && synthesis?.pending !== true) {
-          // Not speaking and nothing queued: silent, not slow. Cancel first
-          // for the same reason as the backstop — a voice that starts late
-          // must not sound under the re-opened microphone.
-          cancelCoachSpeech();
-          done("silent-immediate");
+        if (!outcome.spoken) {
+          // The provider claimed the language but failed at speak time — a
+          // neural endpoint that errored, a voice that vanished between the
+          // check and the call. Fall back to showing the sentence rather than
+          // stalling the lesson on a voice that never comes.
+          if (timer !== undefined) { clearTimeout(timer); timer = undefined; }
+          if (silentTimer !== undefined) { clearTimeout(silentTimer); silentTimer = undefined; }
+          instrument("speak-failed", false);
+          showOnly();
+          return;
         }
-        // Otherwise the voice is starting, still queueing, or the platform
-        // does not report liveness at all: leave the backstop in place.
-      }, SILENT_TTS_CHECK_MS);
-    }
-    if (runRef.current !== run) settle();
+        done(utteranceEnd === "error" ? "onerror" : "onend");
+      });
+    };
+    // The provider answers `canSpeak` without I/O in practice, but the
+    // interface allows async, so it is awaited. A provider that cannot speak
+    // the learner's language is skipped before anything is queued — the
+    // sentence is shown, never read in a language the learner did not choose.
+    void (async () => {
+      if (runRef.current !== run || settled) { settle(); return; }
+      const speakable = !latest.current.muted && await provider.canSpeak(latest.current.language);
+      if (runRef.current !== run || settled) { settle(); return; }
+      if (speakable) awaitSpeech();
+      else showOnly();
+    })();
   }), []);
 
   useEffect(() => {
@@ -287,7 +330,7 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
           latest.current.holdForPlayback("coach");
           setState((current) => ({ ...current, step: "coach", performing: true }));
           // A sentence carrying a Quran word is shown and not spoken; the plan
-          // has already marked it, and `speakCoaching` refuses it again.
+          // has already marked it, and the provider refuses it again.
           if (step.speak) {
             await speakLine(step.messageKey, run);
           } else {

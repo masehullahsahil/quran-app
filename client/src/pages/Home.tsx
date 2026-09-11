@@ -50,6 +50,7 @@ import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationA
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
 import { synchronizeLearnerPersistence } from "@/lib/learnerPersistence";
 import type { QuranAwareReview } from "@shared/quranEvaluation";
+import type { CoachSpeechKeyRef } from "@shared/coachSpeech";
 import { resolveTeacherAction, traceTeacherAction, type TeacherAction, type TeachingStep } from "@/lib/teacherAction";
 import { describeStudyTiers } from "@/lib/studyView";
 import { StudyCorrection } from "@/components/StudyCorrection";
@@ -71,6 +72,7 @@ import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTuto
 import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn, type InterimTurnAudio } from "@/hooks/useContinuousTutorAudio";
 import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
 import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
+import { createCoachSpeechProvider, type CoachSpeechProvider, type CoachSpeechTextResolver } from "@/lib/coachSpeechProvider";
 import { interruptHandoff, interruptsCapture, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
 import { useLiveRecitationStream } from "@/hooks/useLiveRecitationStream";
 import type { MasteryState } from "@shared/memorization";
@@ -100,11 +102,17 @@ type RecitationFeedback = {
   encouragement: string;
   nextStep: string;
   spokenGuidance: string;
+  /**
+   * The key reference the coaching voice speaks. Key-only: the client
+   * resolves it with its locale pack — callers hand over a key and
+   * language, never text, so Quran text structurally cannot enter speech.
+   */
+  spokenGuidanceKey: CoachSpeechKeyRef | null;
   wordReviewAvailable: boolean;
   reviewStatus: "available" | "unavailable";
   reviewMessage: string | null;
   /** Stable reason code, rendered in the learner's language. */
-  reviewMessageCode: "transcription_failed" | "no_arabic_returned" | null;
+  reviewMessageCode: "transcription_failed" | "no_arabic_returned" | "focused_target_invalid" | "focused_unclear" | null;
   quranAwareReview: QuranAwareReview;
   verseFollowing: VerseFollowingResult;
   learningPlan: {
@@ -157,9 +165,11 @@ const masteryLabels: Record<MasteryState, StringKey> = {
 
 // The teaching sequence, as a fixed set of steps. Wording per step, no prose.
 // The server names why a review could not be produced; the words are ours.
-const reviewMessageKeys: Record<"transcription_failed" | "no_arabic_returned", StringKey> = {
+const reviewMessageKeys: Record<"transcription_failed" | "no_arabic_returned" | "focused_target_invalid" | "focused_unclear", StringKey> = {
   transcription_failed: "feedback.transcriptionFailed",
   no_arabic_returned: "feedback.noArabicReturned",
+  focused_target_invalid: "feedback.reviewFocusedTargetInvalid",
+  focused_unclear: "feedback.reviewFocusedUnclear",
 };
 
 const teachingStepLabels: Record<TeachingStep, StringKey> = {
@@ -257,24 +267,6 @@ function blobToBase64(blob: Blob): Promise<string> {
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
     reader.readAsDataURL(blob);
   });
-}
-
-/**
- * Speaks English coaching text — practice cues from the recitation review.
- *
- * Never pass Arabic letters, harakat, or Quranic text to this. An English voice
- * has no phoneme for ح ع ص ض ط ظ ق غ and renders them as unrelated English
- * sounds ("Taa" comes out as "Te AA"). Arabic is played from a reciter's
- * recording (see useLetterAudio) or not at all.
- */
-function speakGuidance(text: string) {
-  if (!("speechSynthesis" in window)) return false;
-  window.speechSynthesis.cancel();
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = "en-US";
-  utterance.rate = 0.92;
-  window.speechSynthesis.speak(utterance);
-  return true;
 }
 
 function storedNumberList(key: string): number[] {
@@ -400,6 +392,34 @@ export default function Home() {
   const handsFreeRef = useRef(false);
 
   const { t, locale, letterLesson, manifest } = useLocale();
+
+  /**
+   * The review's coaching voice, in the learner's own language.
+   *
+   * Key-only: the server sends `spokenGuidanceKey`, and the provider resolves
+   * it with the current locale pack — the voice and the screen can never
+   * disagree, and callers hand over keys rather than text, so Quran text
+   * structurally cannot enter speech. Where the platform has no voice for
+   * the language, the sentence stays on screen. Quranic Arabic is played
+   * from a reciter's recording (see useLetterAudio) or not at all: a
+   * synthesiser has no phoneme for ح ع ص ض ط ظ ق غ and renders them as
+   * unrelated sounds.
+   */
+  const resolveTextRef = useRef<CoachSpeechTextResolver>((key, params) => t(key, params));
+  resolveTextRef.current = (key, params) => t(key, params);
+  const guidanceSpeechRef = useRef<CoachSpeechProvider | null>(null);
+  if (!guidanceSpeechRef.current) {
+    guidanceSpeechRef.current = createCoachSpeechProvider({
+      resolveText: (key, params, language) => resolveTextRef.current(key, params, language),
+    });
+  }
+  const speakGuidance = useCallback((ref: CoachSpeechKeyRef | null, language: SupportedLanguageCode) => {
+    if (!ref) return;
+    const provider = guidanceSpeechRef.current;
+    if (!provider) return;
+    provider.cancel();
+    void provider.speak({ messageKey: ref.key, params: ref.params, language });
+  }, []);
   const letterAudio = useLetterAudio();
   const evaluateRecitation = trpc.recitation.evaluate.useMutation();
   /**
@@ -1007,14 +1027,26 @@ export default function Home() {
           });
         }
       }
-      setRecorderMessage(review.wordReviewAvailable ? t("recorder.reviewReady") : review.reviewMessage ?? t("feedback.reviewUnavailable"));
+      // The recorder message is always a locale key: the review's stable reason
+      // code when it has one, otherwise the generic unavailable sentence.
+      // Raw server text (transcription errors, exception messages) is never
+      // shown to the learner — it stays in the response for diagnostics.
+      setRecorderMessage(review.wordReviewAvailable
+        ? t("recorder.reviewReady")
+        : review.reviewMessageCode
+          ? t(reviewMessageKeys[review.reviewMessageCode])
+          : t("feedback.reviewUnavailable"));
       // Study's own coaching voice, and only Study's. In a hands-free lesson
       // the teacher is already speaking — in the learner's own language, in a
       // sequence built around the Quran boundary — and this line reads the
-      // review's English guidance over the top of it. One teacher at a time.
-      if (review.wordReviewAvailable && coachAudioOn && !handsFreeRef.current) speakGuidance(review.spokenGuidance);
+      // review's guidance over the top of it. One teacher at a time.
+      if (review.wordReviewAvailable && coachAudioOn && !handsFreeRef.current) speakGuidance(review.spokenGuidanceKey, locale as SupportedLanguageCode);
     } catch (error) {
-      const message = error instanceof Error ? error.message : t("recorder.reviewFailed");
+      // Never surface a raw exception message: it is English, internal, and
+      // sometimes a network stack trace. The learner gets the locale's
+      // review-failed sentence; the error itself is already in the console.
+      console.warn("[recitation] review request failed", error);
+      const message = t("recorder.reviewFailed");
       setReviewError(message);
       setRecorderMessage(message);
     }
@@ -2027,7 +2059,7 @@ export default function Home() {
                       ? t("notes.observedRecurring", { number: note.wordIndex })
                       : note.kind === "extra-words"
                         ? t("notes.observedExtra", { count: note.count })
-                        : t(note.status === "missing" ? "notes.observedMissing" : "notes.observedReview", { number: note.wordIndex })}{note.kind === "acoustic" && <em> {note.guidance}</em>}</li>)}</ul>
+                        : t(note.status === "missing" ? "notes.observedMissing" : "notes.observedReview", { number: note.wordIndex })}</li>)}</ul>
                   <small><AlertCircle size={13} /> {t("notes.observedBoundary")}</small>
                 </div>}
 
@@ -2044,7 +2076,7 @@ export default function Home() {
                   <div className="feedback-summary"><div><span className="eyebrow">{t(feedback.wordReviewAvailable ? "feedback.available" : "feedback.unavailable")}</span><strong>{feedback.wordReviewAvailable ? `${feedback.matchedCount} / ${feedback.totalWords}` : "—"}</strong><small>{t(feedback.wordReviewAvailable ? "feedback.matched" : "feedback.notRecognised")}</small></div><span className={`feedback-score ${feedback.wordReviewAvailable && feedback.score === 100 ? "is-strong" : ""}`}>{feedback.wordReviewAvailable ? `${feedback.score}%` : "—"}</span></div>
                   <p className="coach-copy">{feedback.encouragement}</p>
                   <p className="next-step"><Volume2 size={16} /><span>{feedback.nextStep}</span></p>
-                  <div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidance)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>
+                  <div className="audio-coach"><div><span className="eyebrow">{t("feedback.coachEyebrow")}</span><p>{t("feedback.coachCopy")}</p></div><button type="button" onClick={() => speakGuidance(feedback.spokenGuidanceKey, locale as SupportedLanguageCode)}><Volume2 size={16} /> {t("feedback.playGuidance")}</button></div>
                   <label className="coach-audio-toggle"><input type="checkbox" checked={coachAudioOn} onChange={(event) => setCoachAudioOn(event.target.checked)} /> {t("feedback.readAloudToggle")}</label>
                 </div>}
 
@@ -2070,16 +2102,15 @@ export default function Home() {
 
                 {feedback && feedback.quranAwareReview.status !== "not_configured" && <div className="notes-block acoustic-review" aria-label={t("feedback.acousticLabel")}>
                   <div className="acoustic-review-header"><div><span className="eyebrow">{t("feedback.acousticLabel")}</span><strong>{feedback.quranAwareReview.status === "available" ? t("feedback.acousticAvailable") : feedback.quranAwareReview.status === "abstained" ? t("feedback.acousticAbstained") : t("feedback.acousticUnavailable")}</strong></div>{feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.confidence !== null && <small>{t("feedback.acousticConfidence", { percent: Math.round(feedback.quranAwareReview.confidence * 100) })}</small>}</div>
-                  {feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.summary && <p>{feedback.quranAwareReview.summary}</p>}
-                  {feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.findings.length > 0 && <div className="acoustic-finding-list">{feedback.quranAwareReview.findings.map((finding, index) => <div className="acoustic-finding" key={`${finding.kind}-${finding.wordIndex ?? "general"}-${index}`}><span>{t(acousticFindingLabels[finding.kind])}</span><p>{finding.guidance}</p>{finding.expectedArabic && <small lang="ar" dir="rtl">{finding.expectedArabic}</small>}</div>)}</div>}
+                  {feedback.quranAwareReview.status === "available" && feedback.quranAwareReview.findings.length > 0 && <div className="acoustic-finding-list">{feedback.quranAwareReview.findings.map((finding, index) => <div className="acoustic-finding" key={`${finding.kind}-${finding.wordIndex ?? "general"}-${index}`}><span>{t(acousticFindingLabels[finding.kind])}</span>{finding.expectedArabic && <small lang="ar" dir="rtl">{finding.expectedArabic}</small>}</div>)}</div>}
                   <small className="acoustic-boundary"><AlertCircle size={13} /> {t("feedback.acousticBoundary")}</small>
                 </div>}
 
                 <div className="notes-block coach-context" aria-label={t("coach.contextLabel")}>
                   {/* The plan is chosen by level, not by wording: the review
-                      response echoes the plan's English text, but what the
+                      response carries the level's key reference, and what the
                       learner reads comes from their own pack, keyed by that
-                      level. */}
+                      level. No plan prose crosses the wire in any language. */}
                   <div><span className="eyebrow">{t("coach.contextEyebrow")}</span><strong>{t(coachPlanKeys.title)}</strong></div>
                   <p>{t(feedback ? coachPlanKeys.focus : coachPlanKeys.lessonGoal)}</p>
                   <div className="coach-loop" aria-label={t("coach.practiceLoopLabel")}>{coachPlanKeys.practiceLoop.map((step) => <span key={step}>{t(step)}</span>)}</div>

@@ -1,3 +1,5 @@
+import type { CoachTextRef } from "./coachLocale";
+
 export type WordStatus = "matched" | "review" | "missing" | "extra";
 
 export type WordAssessment = {
@@ -14,7 +16,12 @@ export type RecitationAssessment = {
   totalWords: number;
   score: number;
   corrections: WordAssessment[];
-  fallbackNextStep: string;
+  /**
+   * The deterministic next step as a locale key, never English text.
+   * Resolved in the learner's language by `createCoachSummary` — the
+   * alignment itself must not choose a language.
+   */
+  fallbackNextStep: CoachTextRef;
 };
 
 const DIACRITICS = /[\u0610-\u061A\u064B-\u065F\u06D6-\u06ED\u0640]/g;
@@ -167,9 +174,9 @@ export function assessRecitationTranscript(expectedArabic: string, transcript: s
   const corrections = [...assessment.filter((word) => word.status !== "matched"), ...extras];
   const score = expectedWords.length ? Math.round((matchedCount / expectedWords.length) * 100) : 0;
   const firstCorrection = corrections[0];
-  const fallbackNextStep = firstCorrection?.wordIndex
-    ? `Replay the reference slowly, then repeat from word ${firstCorrection.wordIndex}.`
-    : "Replay the reference once at a slower pace, then repeat the ayah with the same pauses.";
+  const fallbackNextStep: CoachTextRef = firstCorrection?.wordIndex
+    ? { key: "feedback.nextStepRepeatFromWord", params: { word: firstCorrection.wordIndex } }
+    : { key: "feedback.nextStepReplayReference" };
 
   return {
     expectedWords: assessment,

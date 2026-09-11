@@ -78,7 +78,12 @@ describe("assessRecitationTranscript", () => {
       { status: "matched", wordIndex: 4 },
     ]);
     expect(result).toMatchObject({ matchedCount: 3, score: 75 });
-    expect(result.fallbackNextStep).toContain("word 3");
+    // The next step is a locale key, never English text — the word index
+    // travels as a parameter so the server can resolve it per language.
+    expect(result.fallbackNextStep).toEqual({
+      key: "feedback.nextStepRepeatFromWord",
+      params: { word: 3 },
+    });
   });
 
   it("ignores standalone punctuation tokens from speech transcripts", () => {

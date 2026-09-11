@@ -3,6 +3,8 @@ import type { TrpcContext } from "./_core/context";
 import { resetRecitationRateLimitForTests } from "./recitationRateLimit";
 import { resetLiveTutorSessionsForTests } from "./tutorRouter";
 import { MAX_AUDIO_BYTES } from "@shared/recording";
+import { resolvePack } from "../locales/index";
+import en from "../locales/en";
 
 const originalFetch = global.fetch;
 
@@ -166,13 +168,22 @@ describe("recitation.evaluate", () => {
     expect(result.transcript).toBe(AYAH);
     expect(result.wordReviewAvailable).toBe(true);
     expect(result.score).toBe(100);
-    expect(result.encouragement).toBe("Well recalled.");
+    // Coach feedback is deterministic and locale-backed now: no model prose.
+    expect(result.encouragement).toBe(
+      resolvePack(en).t("feedback.coachPerfectEncouragement"),
+    );
+    // The voice gets key references, not text: params carry no string slot
+    // for Quran to enter through.
+    expect(result.spokenGuidanceKey).toEqual({
+      key: "feedback.coachPerfectSpoken",
+      params: { nextStep: { key: "plan.qaida.afterRecordingCue" } },
+    });
 
-    // No storage traffic at all, and the audio was never re-downloaded.
+    // No storage traffic at all, the audio was never re-downloaded, and no
+    // model is consulted for coach prose.
     expect(calls.some(url => url.includes("/storage/"))).toBe(false);
     expect(calls).toEqual([
       "https://api.openai.com/v1/audio/transcriptions",
-      "https://api.openai.com/v1/chat/completions",
     ]);
   });
 
@@ -186,10 +197,62 @@ describe("recitation.evaluate", () => {
 
     expect(result.reviewStatus).toBe("unavailable");
     expect(result.wordReviewAvailable).toBe(false);
-    expect(result.reviewMessage).toBe("Transcription service request failed");
+    // The learner-facing message travels as a stable code now, rendered from
+    // the locale pack — raw transcription errors are never shown to learners.
+    expect(result.reviewMessageCode).toBe("transcription_failed");
+    expect(result.reviewMessage).toBeNull();
     expect(result.nextStep).toContain("retry now");
     expect(result.transcript).toBe("");
     expect(calls).toEqual(["https://api.openai.com/v1/audio/transcriptions"]);
+  });
+
+  it("serves deterministic locale-keyed coach feedback in every language, never English, never model prose", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+
+    // The stubbed transcript matches the expected ayah exactly, so the
+    // score-100 path applies — the path that used to hardcode English.
+    for (const code of ["en", "ps", "fa-AF", "ur", "ar"] as const) {
+      resetRecitationRateLimitForTests();
+      const result = await appRouter.createCaller(callerContext).recitation.evaluate({
+        ...evaluateInput,
+        uiLanguage: code,
+      });
+
+      const pack = await import(`../locales/${code}/index.ts`).then((m) => m.default);
+      const t = resolvePack(pack).t;
+      const enT = resolvePack(en).t;
+      const afterRecordingCue = t("plan.qaida.afterRecordingCue");
+      expect(result.score).toBe(100);
+      expect(result.encouragement).toBe(t("feedback.coachPerfectEncouragement"));
+      expect(result.nextStep).toBe(afterRecordingCue);
+      expect(result.spokenGuidance).toBe(
+        t("feedback.coachPerfectSpoken", { nextStep: afterRecordingCue }),
+      );
+      // The coaching voice gets the key, not text: display and speech resolve
+      // the same sentence, and no text ever reaches a synthesiser.
+      expect(result.spokenGuidanceKey).toEqual({
+        key: "feedback.coachPerfectSpoken",
+        params: { nextStep: { key: "plan.qaida.afterRecordingCue" } },
+      });
+      expect(result.note).toBe(t("feedback.noteAyahTranscription"));
+
+      if (code !== "en") {
+        // No English leakage: no deterministic sentence may equal the
+        // English pack's rendering.
+        expect(result.encouragement).not.toBe(enT("feedback.coachPerfectEncouragement"));
+        expect(result.nextStep).not.toBe(enT("plan.qaida.afterRecordingCue"));
+        expect(result.spokenGuidance).not.toBe(
+          enT("feedback.coachPerfectSpoken", { nextStep: enT("plan.qaida.afterRecordingCue") }),
+        );
+        expect(result.note).not.toBe(enT("feedback.noteAyahTranscription"));
+      }
+    }
+
+    // The coach summary is deterministic now: no model call for prose.
+    expect(calls.some((url) => url.includes("/chat/completions"))).toBe(false);
   });
 
   it("includes a confidence-gated specialised review when an evaluator is configured", async () => {
@@ -428,7 +491,8 @@ describe("recitation.evaluate", () => {
       correctionSession: null,
       verseFollowing: { shouldAdvance: true, currentAyah: 3, reason: "ayah_completed" },
     });
-    expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(2);
+    // Coach feedback is deterministic now: no model is consulted for prose.
+    expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(0);
   });
 
   it("keeps the target when a focused transcript contains a different word", async () => {
@@ -590,7 +654,6 @@ describe("recitation.evaluate", () => {
 
     expect(calls).toEqual([
       "https://api.openai.com/v1/audio/transcriptions",
-      "https://api.openai.com/v1/chat/completions",
     ]);
   });
 
@@ -612,7 +675,8 @@ describe("recitation.evaluate", () => {
     });
 
     expect(calls.filter(url => url.includes("/audio/transcriptions"))).toHaveLength(4);
-    expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(4);
+    // Coach feedback is deterministic now: no model is consulted for prose.
+    expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(0);
     expect(calls.filter(url => url.includes("/storage/"))).toHaveLength(4);
     expect(warn).toHaveBeenCalledWith("[recitation] evaluate rate limited", expect.objectContaining({
       identityType: "ip",

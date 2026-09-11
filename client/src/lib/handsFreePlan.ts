@@ -81,39 +81,17 @@ export type HandsFreePlan = {
 };
 
 /**
- * The sentences that may be spoken aloud.
+ * The sentences that may be spoken aloud, and the ones that must not be.
  *
- * A closed list, checked by a test. Adding a key here is the only way to make
- * the teacher say something new, which is what keeps a Quran-bearing string
- * from ever reaching the synthesiser by accident.
+ * Both lists live in `@shared/coachSpeech` now: the future neural endpoint
+ * resolves keys server-side and needs the same allowlist the client speaks
+ * from. Re-exported here so existing imports keep working.
  */
-export const SPEAKABLE_COACH_KEYS: readonly StringKey[] = [
-  "tutor.listening",
-  "tutor.wordMissed",
-  "tutor.wordRecognised",
-  "tutor.reciteFullAyah",
-  "tutor.uncertain",
-  "tutor.paused",
-  "tutor.finished",
-  "tutor.offerHint",
-  "handsfree.nowYouSayIt",
-  "handsfree.listenToTheWord",
-  "handsfree.goodContinue",
-  "handsfree.carryOn",
-];
-
-/**
- * Sentences that carry Quran text and are therefore shown, never spoken.
- *
- * Small, and deliberately explicit rather than derived from a scan of the
- * strings: a locale pack in Arabic is Arabic throughout, so "does this string
- * contain Arabic script" cannot tell a coaching sentence from a Quran word.
- * What can is knowing which sentences interpolate `{word}`.
- */
-export const DISPLAY_ONLY_COACH_KEYS: readonly StringKey[] = ["tutor.hintGiven"];
+export { SPEAKABLE_COACH_KEYS, DISPLAY_ONLY_COACH_KEYS, isSpeakableCoachKey } from "@shared/coachSpeech";
+import { DISPLAY_ONLY_COACH_KEYS as DISPLAY_ONLY_KEYS } from "@shared/coachSpeech";
 
 function coach(messageKey: StringKey): CoachStep {
-  return { kind: "coach", messageKey, speak: !DISPLAY_ONLY_COACH_KEYS.includes(messageKey) };
+  return { kind: "coach", messageKey, speak: !DISPLAY_ONLY_KEYS.includes(messageKey) };
 }
 
 export type HandsFreePlanInput = {
