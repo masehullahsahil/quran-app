@@ -7,6 +7,15 @@ import { fileURLToPath } from "node:url";
 import { transcribeAudio, type TranscriptionResponse } from "../server/_core/voiceTranscription";
 import { evaluateQuranAwareAudio } from "../server/quranEvaluator";
 import {
+  captureBuildInfo,
+  createAttemptId,
+  createRunId,
+  renderMarkdownReport,
+  ValidationLedger,
+  type DeviceMetadata,
+} from "../server/validation/validationRun";
+import { recordSampleAttempt } from "../server/validation/attemptRecorder";
+import {
   assessRecitationTranscript,
   hasArabicScript,
   normaliseArabicToken,
@@ -16,7 +25,7 @@ import { createVerseFollowingPosition, followRecitation } from "../shared/verseF
 import { decideTeacherAction, traceTeacherDecision } from "../shared/teacherDecision";
 import type { QuranAwareReview } from "../shared/quranEvaluation";
 
-type RealRecitationSample = {
+export type RealRecitationSample = {
   id: string;
   kind: "correct_ayah" | "skipped_word" | "corrected_after_skip" | "wrong_recitation";
   description: string;
@@ -29,13 +38,38 @@ type RealRecitationSample = {
   omittedWord?: string;
 };
 
-type AudioSource =
+export type AudioSource =
   | { type: "url"; url: string; mimeType: string }
   | { type: "concat-url"; urls: string[]; mimeType: string };
 
+/**
+ * Injectable pipeline dependencies. The default wiring calls the real
+ * implementations (network audio fetch, live transcription, acoustic
+ * evaluation). Tests inject fakes so the flow runs with no live services
+ * and no network. Production behavior with the defaults is unchanged.
+ */
+export type SamplePipelineDeps = {
+  loadAudio: (source: AudioSource) => Promise<Buffer>;
+  transcribe: (args: { audio: Buffer; mimeType: string }) => Promise<TranscriptionResponse | { code: string; error: string }>;
+  evaluateAcoustic: (args: {
+    audioBase64: string;
+    mimeType: string;
+    expectedArabic: string;
+    surah: number;
+    ayah: number;
+    learningLevel: "qaida";
+  }) => Promise<QuranAwareReview>;
+};
+
+export const defaultPipelineDeps: SamplePipelineDeps = {
+  loadAudio,
+  transcribe: ({ audio, mimeType }) => transcribeAudio({ audio, mimeType, language: "ar" }),
+  evaluateAcoustic: (args) => evaluateQuranAwareAudio(args),
+};
+
 type Timings = Record<string, number>;
 
-type SampleReport = {
+export type SampleReport = {
   id: string;
   kind: RealRecitationSample["kind"];
   description: string;
@@ -86,7 +120,7 @@ const fatiha = [
   "صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ",
 ];
 
-const samples: RealRecitationSample[] = [
+export const samples: RealRecitationSample[] = [
   {
     id: "alafasy-001001-correct",
     kind: "correct_ayah",
@@ -182,12 +216,12 @@ async function loadAudio(source: AudioSource): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
-async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
+export async function runSample(sample: RealRecitationSample, deps: SamplePipelineDeps = defaultPipelineDeps): Promise<SampleReport> {
   const latenciesMs: Timings = {};
   const totalStart = performance.now();
 
   const audioStart = performance.now();
-  const audio = await loadAudio(sample.audio);
+  const audio = await deps.loadAudio(sample.audio);
   latenciesMs.audioLoad = elapsedSince(audioStart);
 
   const encodeStart = performance.now();
@@ -195,7 +229,7 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
   latenciesMs.base64Encode = elapsedSince(encodeStart);
 
   const acousticStart = performance.now();
-  const acousticPromise = evaluateQuranAwareAudio({
+  const acousticPromise = deps.evaluateAcoustic({
     audioBase64,
     mimeType: sample.audio.mimeType,
     expectedArabic: sample.expectedArabic,
@@ -208,10 +242,9 @@ async function runSample(sample: RealRecitationSample): Promise<SampleReport> {
   });
 
   const transcriptionStart = performance.now();
-  const transcription = await transcribeAudio({
+  const transcription = await deps.transcribe({
     audio,
     mimeType: sample.audio.mimeType,
-    language: "ar",
   });
   latenciesMs.transcription = elapsedSince(transcriptionStart);
   const quranAwareReview = await acousticPromise;
@@ -352,21 +385,128 @@ function printHumanReport(reports: SampleReport[]): void {
   }
 }
 
-const json = process.argv.includes("--json");
+type CliOptions = {
+  json: boolean;
+  runId: string;
+  correlationId: string | null;
+  deviceMetadata: DeviceMetadata;
+  ledgerOut: string;
+  reportOut: string;
+};
 
-try {
-  const reports: SampleReport[] = [];
-  for (const sample of samples) reports.push(await runSample(sample));
-
-  if (json) console.log(JSON.stringify({ reports, note: "p50/p95 omitted because there are fewer than 20 real samples." }, null, 2));
-  else printHumanReport(reports);
-
-  const correct = reports.find((report) => report.kind === "correct_ayah");
-  if (correct && !correct.evaluationAbstained && correct.matchedWords === 0) {
-    process.exitCode = 1;
-    console.error("Correct real recitation produced zero matched words.");
+export function parseCliArgs(argv: string[]): CliOptions {
+  const valueOf = (flag: string): string | null => {
+    const index = argv.indexOf(flag);
+    return index >= 0 && index + 1 < argv.length ? argv[index + 1] : null;
+  };
+  const deviceMetadata: DeviceMetadata = {};
+  const deviceJson = valueOf("--device-json");
+  if (deviceJson) {
+    try {
+      Object.assign(deviceMetadata, JSON.parse(deviceJson) as Record<string, unknown>);
+    } catch {
+      console.error("--device-json is not valid JSON; ignoring.");
+    }
   }
-} catch (error) {
-  process.exitCode = 1;
-  console.error(error instanceof Error ? error.message : String(error));
+  for (const [flag, key] of [
+    ["--device-name", "deviceName"],
+    ["--browser", "browser"],
+    ["--network", "network"],
+    ["--env-note", "envNote"],
+  ] as const) {
+    const value = valueOf(flag);
+    if (value) deviceMetadata[key] = value;
+  }
+  const runId = valueOf("--run-id") ?? createRunId();
+  const defaultOut = (name: string) => path.join(cacheDir, `${name}-${runId}.json`);
+  return {
+    json: argv.includes("--json"),
+    runId,
+    correlationId: valueOf("--correlation-id"),
+    deviceMetadata,
+    ledgerOut: valueOf("--ledger-out") ?? defaultOut("validation-ledger"),
+    reportOut: valueOf("--report-out") ?? path.join(cacheDir, `validation-report-${runId}.md`),
+  };
+}
+
+export function toSampleAttemptSummary(
+  sample: RealRecitationSample,
+  report: SampleReport,
+): Parameters<typeof recordSampleAttempt>[1] {
+  return {
+    sampleId: sample.id,
+    sampleKind: sample.kind,
+    expectedSurah: sample.expectedSurah,
+    expectedAyah: sample.expectedAyah,
+    teacherDecisionKind: report.teacherDecision.kind,
+    teacherDecisionReason: report.teacherDecision.reason,
+    teacherDecisionEvidenceLevel: report.teacherDecision.evidenceLevel,
+    teacherDecisionFocusWordIndex: report.teacherDecision.focusWordIndex,
+    verseFollowingState: report.verseFollowingState.state,
+    verseFollowingReason: report.verseFollowingState.reason,
+    verseFollowingExpectedWordIndex: report.verseFollowingState.expectedWordIndex,
+    verseFollowingShouldAdvance: report.verseFollowingState.shouldAdvance,
+    matchedWords: report.matchedWords,
+    totalExpectedWords: report.totalExpectedWords,
+    evaluationAbstained: report.evaluationAbstained,
+    abstentionReason: report.abstentionReason,
+    latenciesMs: report.latenciesMs,
+  };
+}
+
+async function main(): Promise<void> {
+  const cli = parseCliArgs(process.argv.slice(2));
+  const ledger = new ValidationLedger({
+    runId: cli.runId,
+    build: captureBuildInfo(),
+    deviceMetadata: cli.deviceMetadata,
+  });
+
+  try {
+    ledger.record("session.start", { sampleCount: samples.length }, { correlationId: cli.correlationId });
+    if (Object.keys(cli.deviceMetadata).length > 0) {
+      ledger.record("device.metadata", cli.deviceMetadata, { correlationId: cli.correlationId });
+    }
+
+    const reports: SampleReport[] = [];
+    for (const sample of samples) {
+      const attemptId = createAttemptId();
+      const report = await runSample(sample);
+      reports.push(report);
+      recordSampleAttempt(ledger, toSampleAttemptSummary(sample, report), {
+        attemptId,
+        correlationId: cli.correlationId,
+      });
+    }
+
+    if (cli.json)
+      console.log(JSON.stringify({ reports, note: "p50/p95 omitted because there are fewer than 20 real samples." }, null, 2));
+    else printHumanReport(reports);
+
+    const correct = reports.find((report) => report.kind === "correct_ayah");
+    if (correct && !correct.evaluationAbstained && correct.matchedWords === 0) {
+      process.exitCode = 1;
+      console.error("Correct real recitation produced zero matched words.");
+    }
+
+    await mkdir(path.dirname(cli.ledgerOut), { recursive: true });
+    await writeFile(cli.ledgerOut, JSON.stringify(ledger.toJSON(), null, 2), "utf8");
+    await writeFile(cli.reportOut, renderMarkdownReport(ledger), "utf8");
+    console.log(`Validation ledger: ${cli.ledgerOut}`);
+    console.log(`Validation report: ${cli.reportOut}`);
+    const verdict = ledger.computeVerdict();
+    console.log(`Validation verdict: ${verdict.status.toUpperCase()} (blockers=${verdict.blockerCount}, serious=${verdict.seriousCount})`);
+    if (verdict.status === "fail") process.exitCode = 1;
+  } catch (error) {
+    process.exitCode = 1;
+    console.error(error instanceof Error ? error.message : String(error));
+  }
+}
+
+const invokedAsScript =
+  typeof process.argv[1] === "string" &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+
+if (invokedAsScript) {
+  await main();
 }
