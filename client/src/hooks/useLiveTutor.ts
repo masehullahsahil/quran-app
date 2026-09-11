@@ -65,22 +65,22 @@ export type LiveTutorController = {
   reference: TutorSessionReference | null;
   sendIntent: (intent: LearnerIntent) => void;
   /**
-   * The same intent, awaited.
+   * Begin the hands-free lesson: the `start` intent, awaited.
    *
-   * Resolves once the server has answered *and* the answer has been stored, so
-   * a caller that needs the lesson to have actually moved before doing
-   * something else can order the two. Resolves null when there is no session or
-   * the turn could not be sent.
-   *
-   * This exists for one caller and one reason. Opening a live recitation stream
-   * names the session *and the revision*, and the server rejects a stale one —
-   * so a stream opened while a `start` intent is still in flight can bind to
-   * the revision that intent is about to replace, be refused, and leave the
-   * lesson silently without live tracking. Awaiting the handoff is the barrier.
-   * Nothing about that ordering may depend on React's rendering speed or on
-   * which request happens to reach the server first.
+   * Resolves once the server has answered *and* the answer has been stored,
+   * so a caller that needs the lesson to have actually moved before doing
+   * something else can order the two — the await is the barrier that keeps
+   * the live stream from binding to the revision this intent replaces. The tutor
+   * sessions live in the API instance's memory, so when that instance is
+   * recycled between Study opening and Start being pressed, the `start`
+   * intent lands somewhere the lesson never existed and comes back `lost`.
+   * In that case the session is re-opened at the same position and the
+   * intent is retried once, still within the one press. Only the final
+   * outcome is stored: a `lost` the retry repairs never reaches the screen,
+   * so the tutor panel does not flicker away and back mid-press. Resolves
+   * null when the lesson could not begin at all.
    */
-  sendIntentAsync: (intent: LearnerIntent) => Promise<TutorHandoff | null>;
+  startLesson: () => Promise<TutorHandoff | null>;
   sendTiming: (timing: TutorTimingEvent) => void;
   /**
    * Take the tutor half of a `recitation.evaluateWithTutor` answer.
@@ -197,6 +197,32 @@ export function useLiveTutor(input: UseLiveTutorInput): LiveTutorController {
   }, [input.enabled, input.surah, input.ayah, input.totalAyahs, input.learnerLanguage, start, remember, clear]);
 
   /**
+   * Send one event and return whatever the server answered, without storing
+   * anything.
+   *
+   * `send` below is the storing variant. `startLesson` needs the raw answer
+   * so a `lost` it is about to repair never touches the screen.
+   */
+  const sendRaw = useCallback(
+    async (event: PublicTutorEvent): Promise<TutorHandoff | null> => {
+      const session = sessionRef.current;
+      if (!session || !advance?.mutateAsync) return null;
+      const answer = await advance
+        .mutateAsync({
+          // Reference only. The lesson itself is the server's, and this is all
+          // it will accept.
+          session: { sessionId: session.sessionId, revision: session.revision },
+          event,
+        })
+        // A failed turn is not a failed lesson: the caller decides what a
+        // null answer means, and the last known state stands untouched.
+        .catch(() => null);
+      return answer;
+    },
+    [advance],
+  );
+
+  /**
    * Send one event and store whatever the server answers.
    *
    * Returns the promise rather than swallowing it, so a caller that needs to
@@ -204,31 +230,91 @@ export function useLiveTutor(input: UseLiveTutorInput): LiveTutorController {
    * every caller that only needs the lesson to move eventually.
    */
   const send = useCallback(
-    (event: PublicTutorEvent): Promise<TutorHandoff | null> => {
-      const session = sessionRef.current;
-      if (!session || !advance?.mutateAsync) return Promise.resolve(null);
-      return Promise.resolve(
-        advance.mutateAsync({
-          // Reference only. The lesson itself is the server's, and this is all
-          // it will accept.
-          session: { sessionId: session.sessionId, revision: session.revision },
-          event,
-        }),
-      )
-        .then((handoff) => {
-          if (!handoff) return null;
-          // Stored before the promise resolves, so anything awaiting this is
-          // guaranteed to see the new revision rather than racing it.
-          remember(handoff);
-          return handoff;
-        })
-        // A failed turn leaves the last known state standing rather than
-        // inventing a new one. The server remains the authority even when it
-        // is unreachable.
-        .catch(() => null);
-    },
-    [advance, remember],
+    (event: PublicTutorEvent): Promise<TutorHandoff | null> =>
+      sendRaw(event).then((handoff) => {
+        if (!handoff) return null;
+        // Stored before the promise resolves, so anything awaiting this is
+        // guaranteed to see the new revision rather than racing it.
+        remember(handoff);
+        return handoff;
+      }),
+    [sendRaw, remember],
   );
+
+  const inputRef = useRef(input);
+  inputRef.current = input;
+
+  /**
+   * Open a fresh session at the position the hook was given, replacing
+   * whatever it held.
+   *
+   * The repair path for a server that no longer has the lesson. The key is
+   * claimed *before* the first await: the open effect watches the same
+   * guards, and a render landing between the guards being touched and the
+   * new session being stored would otherwise open a second session behind
+   * this call. The old turn stays on screen until the new one lands, so the
+   * panel never flickers through an empty state mid-press.
+   *
+   * Resolves null when there is no lesson to open (Study not on screen) or
+   * the server could not be reached; the claim is released then, so the open
+   * effect may try again on a later render the way it already does when the
+   * first open fails.
+   */
+  const reopenSession = useCallback(async (): Promise<LiveTutorSession | null> => {
+    const current = inputRef.current;
+    if (!current.enabled || !start?.mutateAsync) return null;
+    const key = `${current.surah}:${current.ayah}:${current.learnerLanguage}`;
+    lostFor.current = null;
+    openedFor.current = key;
+    sessionRef.current = null;
+    try {
+      const next = await start.mutateAsync({
+        mode: "guided-recitation",
+        surah: current.surah,
+        ayah: current.ayah,
+        totalAyahs: current.totalAyahs,
+        learnerLanguage: current.learnerLanguage,
+      });
+      if (!next) {
+        openedFor.current = null;
+        return null;
+      }
+      sessionRef.current = next.session;
+      setState({ turn: { session: next.session, action: next.action }, status: "updated" });
+      return next.session;
+    } catch {
+      openedFor.current = null;
+      return null;
+    }
+  }, [start]);
+
+  /**
+   * Begin the hands-free lesson, repairing a recycled server on the way.
+   *
+   * A `lost` (or missing) answer to the `start` intent is retried once
+   * against a freshly re-opened session at the same position; anything else
+   * is stored and returned as it arrived. Only the final outcome is
+   * remembered, so a repaired `lost` never unmounts the tutor panel.
+   */
+  const startLesson = useCallback(async (): Promise<TutorHandoff | null> => {
+    const event: PublicTutorEvent = { type: "intent", intent: "start" };
+    const first = await sendRaw(event);
+    if (first && first.status !== "lost") {
+      remember(first);
+      return first;
+    }
+    const session = await reopenSession();
+    if (!session) {
+      // Nothing to repair with. The loss is stored now, and the lesson ends
+      // the way it always has when the tutor is unreachable.
+      if (first) remember(first);
+      return first;
+    }
+    const second = await sendRaw(event);
+    if (second) remember(second);
+    else if (first) remember(first);
+    return second ?? first;
+  }, [sendRaw, reopenSession, remember]);
 
   const session = state.turn?.session ?? null;
   return {
@@ -237,7 +323,7 @@ export function useLiveTutor(input: UseLiveTutorInput): LiveTutorController {
     active: state.turn !== null,
     reference: session ? { sessionId: session.sessionId, revision: session.revision } : null,
     sendIntent: useCallback((intent: LearnerIntent) => { void send({ type: "intent", intent }); }, [send]),
-    sendIntentAsync: useCallback((intent: LearnerIntent) => send({ type: "intent", intent }), [send]),
+    startLesson,
     sendTiming: useCallback((timing: TutorTimingEvent) => { void send({ type: "timing", timing }); }, [send]),
     applyHandoff: remember,
   };
