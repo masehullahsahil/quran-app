@@ -13,6 +13,8 @@ import { createServer } from "http";
 import net from "net";
 import { createApp } from "./app";
 import { serveStatic, setupVite } from "./vite";
+import { summarizeConfigReport, validateConfig } from "./config";
+import { logger } from "./logger";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -34,6 +36,38 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 }
 
 async function startServer() {
+  // Validate production configuration before serving anything. Findings name
+  // variables only — values are never printed. In production, missing
+  // required configuration fails fast instead of serving a broken app; in
+  // development it is a warning so local tooling keeps working.
+  const configReport = validateConfig();
+  if (!configReport.valid) {
+    logger.error({
+      subsystem: "config",
+      operation: "startup",
+      status: "error",
+      errorCategory: "INVALID_CONFIGURATION",
+      message: summarizeConfigReport(configReport),
+      details: {
+        missing: configReport.errors.map((finding) => finding.variable),
+        warnings: configReport.warnings.map((finding) => finding.variable),
+      },
+    });
+    if (process.env.NODE_ENV === "production") {
+      process.exit(1);
+    }
+  } else if (configReport.warnings.length > 0) {
+    logger.warn({
+      subsystem: "config",
+      operation: "startup",
+      status: "ok",
+      message: summarizeConfigReport(configReport),
+      details: { warnings: configReport.warnings.map((finding) => finding.variable) },
+    });
+  } else {
+    logger.info({ subsystem: "config", operation: "startup", status: "ok", message: "configuration valid" });
+  }
+
   const app = createApp();
   const server = createServer(app);
 

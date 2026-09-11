@@ -5,6 +5,22 @@ import type { TrpcContext } from "./context";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  /**
+   * Error shape sent to browsers. Carries the stable code plus the request
+   * correlation ID so a user-visible failure can be traced in server logs.
+   * Strips stack traces unconditionally — tRPC's default formatter includes
+   * them outside production, and they must never reach users.
+   */
+  errorFormatter: ({ shape, ctx }) => {
+    const { stack: _stripped, ...safeData } = shape.data;
+    return {
+      ...shape,
+      data: {
+        ...safeData,
+        correlationId: ctx?.requestId ?? null,
+      },
+    };
+  },
 });
 
 export const router = t.router;
