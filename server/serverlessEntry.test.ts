@@ -61,9 +61,20 @@ describe("vercel.json", () => {
 
   it("routes every server path to the function", () => {
     const sources = config.rewrites.map((rule: { source: string }) => rule.source);
+    expect(sources).toContain("/api/health");
     expect(sources).toContain("/api/trpc/:path*");
     expect(sources).toContain("/api/oauth/:path*");
     expect(sources).toContain("/manus-storage/:path*");
+  });
+
+  it("routes /api/health to the function before the SPA fallback", () => {
+    const rules = config.rewrites as Array<{ source: string; destination: string }>;
+    const healthIndex = rules.findIndex((rule) => rule.source === "/api/health");
+    const fallbackIndex = rules.findIndex((rule) => rule.destination === "/index.html");
+    expect(healthIndex).toBeGreaterThanOrEqual(0);
+    expect(fallbackIndex).toBeGreaterThanOrEqual(0);
+    expect(healthIndex).toBeLessThan(fallbackIndex);
+    expect(rules[healthIndex].destination).toBe("/api/index");
   });
 
   it("falls back to the SPA without swallowing API paths", () => {
