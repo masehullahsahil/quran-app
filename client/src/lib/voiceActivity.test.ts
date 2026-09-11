@@ -280,3 +280,33 @@ describe("the level of one frame", () => {
     expect(frameLevel([])).toBe(0);
   });
 });
+
+describe("hysteresis after a pause", () => {
+  it("needs confident speech to resume a paused turn, and pins that rule", () => {
+    // Characterisation, not a judgement: once the detector has dropped to
+    // "pausing", a resumption below the *enter* threshold does not reset the
+    // silence clock — only sustained speech above it re-opens "speaking".
+    // Whether the enter threshold is the right height for soft speech on real
+    // devices is a calibration question for device validation; this pins the
+    // rule so any re-tuning is deliberate.
+    const spoken = run(armed(), VOICE, 1_000, 0);
+    const pause = run(spoken.state, QUIET, 900, spoken.at);
+    expect(pause.state.phase).toBe("pausing");
+    const silenceAtPause = pause.state.silenceMs;
+
+    const enter = enterThreshold(pause.state);
+    const exit = exitThreshold(pause.state);
+    expect(enter).toBeGreaterThan(exit);
+
+    // Audible, but below the re-entry bar: the silence clock keeps running.
+    const soft = run(pause.state, (enter + exit) / 2, 500, pause.at);
+    expect(soft.state.phase).toBe("pausing");
+    expect(soft.state.silenceMs).toBeGreaterThan(silenceAtPause);
+    expect(soft.events).not.toContain("turn-ended");
+
+    // Sustained speech above the enter bar: the turn resumes.
+    const resumed = run(soft.state, enter * 2 + 0.02, 300, soft.at);
+    expect(resumed.state.phase).toBe("speaking");
+    expect(resumed.state.silenceMs).toBe(0);
+  });
+});

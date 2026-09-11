@@ -50,8 +50,16 @@ export const TUTOR_STATES = [
   "uncertain",
   /** The learner stepped away. */
   "paused",
-  /** The ayah is done. */
+  /** The ayah is done. Only the engine declares this, and only for genuine completion. */
   "complete",
+  /**
+   * The learner ended the lesson before it completed.
+   *
+   * Kept distinct from `complete`: the sign-off for a stopped lesson must not
+   * congratulate, because the engine's last word may have been that there was
+   * too little evidence to move on.
+   */
+  "stopped",
 ] as const;
 
 export type TutorState = (typeof TUTOR_STATES)[number];
@@ -184,6 +192,7 @@ const MESSAGE_KEYS: Record<TutorState, StringKey> = {
   uncertain: "tutor.uncertain",
   paused: "tutor.paused",
   complete: "tutor.finished",
+  stopped: "tutor.stopped",
 };
 
 const PRESENCE: Record<TutorState, TutorPresence> = {
@@ -197,6 +206,7 @@ const PRESENCE: Record<TutorState, TutorPresence> = {
   uncertain: "speaking",
   paused: "waiting",
   complete: "speaking",
+  stopped: "speaking",
 };
 
 /**
@@ -217,6 +227,7 @@ const TURN: Record<TutorState, TutorTurn> = {
   uncertain: "teacher",
   paused: "learner",
   complete: "teacher",
+  stopped: "teacher",
 };
 
 /** The learner-facing name of each intent. Exported so nothing builds a key. */
@@ -270,6 +281,12 @@ function controlsFor(view: TutorSessionView): TutorControlIntent[] {
       return ["resume", "stop"];
     case "complete":
       return ["continue", "stop"];
+    // The lesson is over. The engine answers every intent on a stopped
+    // session with another end-session, so offering controls would be
+    // offering dead buttons; the way back to a new lesson lives outside
+    // the panel.
+    case "stopped":
+      return [];
     default:
       return [];
   }

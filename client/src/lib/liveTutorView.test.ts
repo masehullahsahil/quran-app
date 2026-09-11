@@ -8,6 +8,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { attemptScopeFor, liveTutorSessionView, type LiveTutorViewInput } from "./liveTutorView";
+import { describeTutorView } from "@shared/tutorConversation";
 import type { LiveTutorPhase, LiveTutorSession, TutorAction, TutorActionKind, TutorActionReason } from "@shared/liveTutor";
 import type { CorrectionSessionSnapshot } from "@shared/wordCorrection";
 
@@ -59,7 +60,8 @@ describe("the engine's phase decides the lesson state", () => {
     expect(stateOf({ session: session("listening") })).toBe("listening");
     expect(stateOf({ session: session("paused") })).toBe("paused");
     expect(stateOf({ session: session("completed") })).toBe("complete");
-    expect(stateOf({ session: session("stopped") })).toBe("complete");
+    // A lesson the learner stopped is not a lesson that was completed.
+    expect(stateOf({ session: session("stopped") })).toBe("stopped");
   });
 
   it("shows a correction only while the engine holds one open", () => {
@@ -194,8 +196,7 @@ describe("the recording scope comes from the engine's own request", () => {
   });
 });
 
-describe("audio availability is passed through, never assumed", () => {
-  it("reports what the page found", () => {
+describe("audio availability is passed through, never assumed", () => {  it("reports what the page found", () => {
     const result = liveTutorSessionView(input({ canHearWord: false, canHearAyah: false }), 4);
     expect(result.canHearWord).toBe(false);
     expect(result.canHearAyah).toBe(false);
@@ -209,5 +210,25 @@ describe("audio availability is passed through, never assumed", () => {
       action: action("show-hint", "hint-requested", { hint: { kind: "target-word", wordIndex: 3 } }),
     }), 4);
     expect(shown.hintShown).toBe(true);
+  });
+});
+
+describe("a lesson the learner stopped is not a lesson that was completed", () => {
+  it("never says 'Good' when the engine's last word was insufficient evidence", () => {
+    // Reproduces the reported contradiction: the evaluator says "too little
+    // of this ayah was recognised to move your place", the learner presses
+    // Finish, and the panel reads "Good. We'll stop here for now." The engine
+    // keeps "stopped" and "completed" as distinct phases — the panel must not
+    // collapse them.
+    const view = liveTutorSessionView(input({ session: session("stopped") }), 4);
+    expect(view.state).toBe("stopped");
+    expect(describeTutorView(view).messageKey).toBe("tutor.stopped");
+    expect(describeTutorView(view).messageKey).not.toBe("tutor.finished");
+  });
+
+  it("still congratulates a lesson the engine says was genuinely completed", () => {
+    const view = liveTutorSessionView(input({ session: session("completed") }), 4);
+    expect(view.state).toBe("complete");
+    expect(describeTutorView(view).messageKey).toBe("tutor.finished");
   });
 });

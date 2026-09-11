@@ -79,9 +79,13 @@ function stateFor(input: LiveTutorViewInput): TutorSessionView["state"] {
       return "listening";
     case "paused":
       return "paused";
+    // The engine keeps "stopped" and "completed" as distinct phases: a lesson
+    // the learner ended is not a lesson that was completed, and the panel must
+    // not congratulate it.
     case "completed":
-    case "stopped":
       return "complete";
+    case "stopped":
+      return "stopped";
     case "correcting-word":
       // Only where the screen is showing the ayah the lesson is on. A word
       // being taught somewhere else is not a correction *here*, so the teacher

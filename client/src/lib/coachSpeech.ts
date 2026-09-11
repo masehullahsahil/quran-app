@@ -146,3 +146,20 @@ export function speakCoaching(input: SpeakCoachingInput): CoachSpeechOutcome {
   synthesis.speak(utterance);
   return { spoken: true, voiceLang: voice.lang };
 }
+
+/**
+ * Stop whatever the synthesiser is saying, if anything.
+ *
+ * Used when a coaching line's backstop fires: a voice that never reports
+ * finishing would otherwise keep speaking after the step resolved, and the
+ * microphone re-opens onto it. Cancelling is idempotent — when the voice
+ * already finished there is nothing to stop — and a late `onend`/`onerror`
+ * from the cancelled utterance only re-settles an already-settled step.
+ */
+export function cancelCoachSpeech(synthesis?: SpeechLike | null) {
+  const target = synthesis
+    ?? (typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis : null);
+  try {
+    target?.cancel();
+  } catch { /* the synthesiser is already torn down */ }
+}

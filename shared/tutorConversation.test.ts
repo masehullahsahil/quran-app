@@ -131,12 +131,11 @@ describe("the learner is never shown ten buttons", () => {
   });
 });
 
-describe("whose turn it is", () => {
-  it("gives the learner the turn whenever the teacher is not speaking", () => {
+describe("whose turn it is", () => {  it("gives the learner the turn whenever the teacher is not speaking", () => {
     for (const state of ["ready", "listening", "recite-ayah", "paused"] as const) {
       expect(describeTutorView(view(state)).turn, state).toBe("learner");
     }
-    for (const state of ["checking", "correction", "word-recognised", "hint", "uncertain", "complete"] as const) {
+    for (const state of ["checking", "correction", "word-recognised", "hint", "uncertain", "complete", "stopped"] as const) {
       expect(describeTutorView(view(state)).turn, state).toBe("teacher");
     }
   });
@@ -219,5 +218,24 @@ describe("the view is a pure function of what the engine says", () => {
   it("substitutes the word into a sentence that asks for one", () => {
     expect(describeTutorView(view("hint", { target, hintShown: true })).messageKey).toBe("tutor.hintGiven");
     expect(describeTutorView(view("hint", { target, hintShown: true })).messageParams).toEqual({ word: "رَبِّ" });
+  });
+});
+
+describe("a stopped lesson is not a completed one", () => {
+  it("does not congratulate a lesson the learner ended", () => {
+    // The engine's last word on a stopped lesson may have been that there was
+    // too little evidence to move on; the sign-off must not say "Good".
+    const stopped = describeTutorView(view("stopped"));
+    expect(stopped.messageKey).toBe("tutor.stopped");
+    expect(stopped.messageKey).not.toBe("tutor.finished");
+    expect(en.strings["tutor.stopped"]!.toLowerCase()).not.toContain("good");
+    // And a genuinely completed lesson keeps its congratulation.
+    expect(describeTutorView(view("complete")).messageKey).toBe("tutor.finished");
+  });
+
+  it("offers nothing to press on a stopped lesson", () => {
+    // Every intent on a stopped session is answered with another end-session,
+    // so any control would be a dead button.
+    expect(describeTutorView(view("stopped")).controls).toEqual([]);
   });
 });

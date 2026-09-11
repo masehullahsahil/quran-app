@@ -143,6 +143,7 @@ export const strings: TranslatableStrings = {
   "tutor.uncertain": "این را واضح نشنیدم. یک بار دیگر کوشش کنید.",
   "tutor.paused": "وقت بگیرید. هر وقت خواستید بگویید ادامه بدهیم.",
   "tutor.finished": "خوب است. فعلاً همین‌جا بس می‌کنیم.",
+  "tutor.stopped": "فعلاً متوقف شدیم.",
 
   // The two or three things offered at a time. Never all of them at once.
   "tutor.doStart": "شروع",

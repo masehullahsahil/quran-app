@@ -33,7 +33,7 @@
  * a spoken Quran word.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { speakCoaching } from "@/lib/coachSpeech";
+import { cancelCoachSpeech, speakCoaching } from "@/lib/coachSpeech";
 import { HANDS_FREE_TIMING, type HandsFreePlan, type HandsFreeStep } from "@/lib/handsFreePlan";
 import type { StringKey } from "@locales/index";
 import type { SupportedLanguageCode } from "@shared/languages";
@@ -103,6 +103,16 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
     // from inside `play()` on a source that fails immediately — and a `const`
     // read from its own initialiser is a reference error, not a missed timer.
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = () => {
+      try {
+        audio.pause();
+        // Abort any pending load as well: a play() that was still being
+        // decided when the timeout fired must not start sounding under the
+        // learner's open microphone a moment later.
+        audio.removeAttribute("src");
+        audio.load();
+      } catch { /* the element is already torn down */ }
+    };
     const done = () => {
       if (settled) return;
       settled = true;
@@ -111,13 +121,33 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       audio.onerror = null;
       resolve();
     };
-    timer = setTimeout(done, HANDS_FREE_TIMING.playbackTimeoutMs);
+    // The timeout is a time-to-*start*, not a cap on the recording: once the
+    // reciter is actually audible the step lasts as long as the recording.
+    // Capping it instead would resolve the step while the element keeps
+    // playing, and the microphone would re-open onto the recording — the
+    // learner's next turn would then contain trusted audio as though they had
+    // recited it. When the recording never starts, give up *and* stop the
+    // element, so a late load cannot start playing under the open microphone.
+    timer = setTimeout(() => { stop(); done(); }, HANDS_FREE_TIMING.playbackTimeoutMs);
     audio.onended = done;
     audio.onerror = done;
     audio.src = url;
     audio.currentTime = 0;
-    void Promise.resolve(audio.play?.()).catch(done);
-    if (runRef.current !== run) done();
+    const attempt = audio.play?.();
+    if (attempt && typeof (attempt as Promise<void>).then === "function") {
+      void (attempt as Promise<void>).then(
+        () => {
+          if (timer !== undefined) {
+            clearTimeout(timer);
+            timer = undefined;
+          }
+        },
+        done,
+      );
+    }
+    // If `play()` returned nothing audible, the timeout stays armed and gives
+    // up on schedule; nothing is playing, so there is nothing to stop.
+    if (runRef.current !== run) { stop(); done(); }
   }), []);
 
   const speakLine = useCallback((key: StringKey, run: number) => new Promise<void>((resolve) => {
@@ -142,9 +172,11 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
     setState((current) => ({ ...current, line: key, lineSpoken: outcome.spoken }));
     // A sentence that was only shown still needs time on screen; a spoken one
     // resolves from `onDone`, with this as the backstop for a voice that never
-    // reports finishing.
+    // reports finishing. The backstop cancels first: resolving the step is not
+    // the same as stopping the voice, and an utterance that is still talking
+    // when the microphone re-opens would be transcribed as the learner.
     const dwell = outcome.spoken ? HANDS_FREE_TIMING.playbackTimeoutMs : HANDS_FREE_TIMING.coachDisplayMs;
-    if (!settled) timer = setTimeout(done, dwell);
+    if (!settled) timer = setTimeout(() => { cancelCoachSpeech(); done(); }, dwell);
     if (runRef.current !== run) done();
   }), []);
 
