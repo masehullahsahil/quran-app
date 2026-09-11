@@ -1546,11 +1546,22 @@ export default function Home() {
    * revision itself is never computed here: it arrives on the handoff.
    *
    * Still one press. A second is only ever needed if the server did not answer.
+   *
+   * A recycled server is the same shape of failure with a different cause.
+   * The tutor sessions live in the API instance's memory, so when that
+   * instance is replaced between Study opening and Start being pressed, the
+   * `start` intent lands somewhere the lesson never existed and comes back
+   * `lost`. `startLesson` re-opens the session at the same position and
+   * retries the intent once — still one press — and only stores the final
+   * outcome, so a repaired `lost` never unmounts the tutor panel mid-press.
    */
   const startHandsFree = useCallback(async () => {
     const ready = await continuousRef.current.start();
     if (!ready) return;
-    const handoff = await tutorRef.current.sendIntentAsync("start");
+    // `startLesson` awaits the trusted handoff — the barrier above — and
+    // repairs a `lost` from a recycled server instance by re-opening the
+    // lesson once, still within this press.
+    const handoff = await tutorRef.current.startLesson();
     if (!handoff || handoff.status === "lost") {
       // The lesson did not move, or is gone. Binding a stream now would name a
       // revision we cannot vouch for, so nothing starts: the microphone goes

@@ -885,6 +885,63 @@ describe("starting cannot race the tutor revision", () => {
   });
 });
 
+/* ---- 15b: the server forgot the lesson between Study opening and Start */
+
+/**
+ * The deployed API is a serverless function, and its tutor sessions live in
+ * that instance's memory. When the instance is recycled between Study opening
+ * (which runs `tutor.start`) and the learner pressing Start Live Tutor, the
+ * `start` intent lands on a fresh instance whose session store is empty — the
+ * exact situation `resetLiveTutorSessionsForTests()` below creates. The
+ * browser still holds the reference it was given.
+ *
+ * What the learner saw: the Study screen changed (the tutor panel unmounted
+ * on the `lost` answer), no listening state ever appeared, and the microphone
+ * was handed straight back.
+ */
+describe("a server instance recycled between Study opening and Start", () => {
+  it("re-opens the lesson and starts listening with one press", async () => {
+    await mount();
+    await openLesson();
+
+    const firstSessionId = openedSessionId();
+    expect(firstSessionId).toMatch(/^[0-9a-f-]{36}$/);
+    // The instance that opened this lesson is gone; the next request meets a
+    // fresh, empty session store.
+    resetLiveTutorSessionsForTests();
+
+    await act(async () => { container.querySelector<HTMLButtonElement>(".handsfree-begin")!.click(); });
+
+    // Still one press. The `lost` start intent is repaired by re-opening the
+    // lesson at the same position and retrying the intent, and the learner
+    // ends up listening with the microphone still held. The budget is short
+    // on purpose: the broken path answers `lost` in milliseconds and
+    // listening never arrives, so waiting longer only burns the test timeout.
+    expect(await until(() => inState("learner-listening")() || inState("learner-speaking")(), 2_000)).toBe(true);
+    // The lesson was re-opened — one more `tutor.start`, at the same ayah.
+    // (`openLesson` itself opens one session per ayah it visits: ayah 1 on
+    // entering Study, ayah 2 when the word is tapped.)
+    expect(callsTo("tutor.start")).toHaveLength(3);
+    const firstOpen = callsTo("tutor.start")[1].input as { surah: number; ayah: number };
+    expect(firstOpen.ayah).toBe(AYAH_NUMBER);
+    const reopened = callsTo("tutor.start")[2].input as { surah: number; ayah: number };
+    expect(reopened.surah).toBe(1);
+    expect(reopened.ayah).toBe(AYAH_NUMBER);
+    // The retried intent names the re-opened session, never the forgotten one.
+    const turns = callsTo("tutor.turn");
+    expect(turns.length).toBeGreaterThanOrEqual(2);
+    const retried = turns[turns.length - 1].input.session as { sessionId: string };
+    expect(retried.sessionId).not.toBe(firstSessionId);
+    expect(retried.sessionId).toBe(openedSessionId());
+    // The microphone was granted for the press and never handed back: the
+    // broken behaviour stopped its tracks on the `lost` answer.
+    expect(tracks.length).toBeGreaterThanOrEqual(1);
+    expect(tracks.every((track) => !track.stopped)).toBe(true);
+    // The tutor panel stayed on screen throughout — no `lost` flicker.
+    expect(container.querySelector(".handsfree")).toBeTruthy();
+  });
+});
+
 /* ------------- 16: an ingest response that was lost (BLOCKER 2) */
 
 /**
