@@ -28,6 +28,30 @@ import type { InterimTurnAudio } from "./useContinuousTutorAudio";
 
 const networkDown = () => Promise.reject(new Error("network down"));
 
+/**
+ * Deterministic FileReader.
+ *
+ * The hook encodes interim audio through `blobToBase64`, which uses the real
+ * `FileReader` — and happy-dom's FileReader completes through real timers
+ * that `vi.useFakeTimers()` does not govern (advancing the fake clock never
+ * finishes a read). The test would then depend on wall-clock scheduling for
+ * the first attempt to be dispatched, which is exactly the flake this file
+ * had: under load the retry loop desynchronised from the real attempt count.
+ * This stub resolves through the microtask queue only, so the whole
+ * send → retry → abandon chain is deterministic under fake timers.
+ */
+class DeterministicFileReader {
+  onload: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  result: string | null = null;
+  readAsDataURL(_blob: Blob): void {
+    void Promise.resolve().then(() => {
+      this.result = "data:audio/webm;base64,ZHVtbXktYXVkaW8=";
+      this.onload?.();
+    });
+  }
+}
+
 const startLiveAnswer = {
   stream: { streamId: "stream-1", lastSequence: 0 },
   nextChannel: "keep-listening" as const,
@@ -102,16 +126,14 @@ async function flushAttempt() {
 /**
  * Wait until the first attempt is actually in flight.
  *
- * `sendInterim` encodes the blob through `FileReader`, whose completion is
- * driven by real timers that `vi.useFakeTimers()` does not govern — so under
- * load the first attempt may not have started after a single microtask flush.
- * Starting the bounded retry loop before the first attempt is in flight
- * desynchronises the loop from the hook's real attempt count and the
- * abandonment never fires (flaky `expected [] to have a length of 1`).
- * Polling `awaitingAnswer` — set synchronously when an attempt is dispatched
- * and held through its retries — keeps the loop aligned with reality.
- * Bounded: if the attempt never starts the test fails on its assertions
- * instead of hanging.
+ * `sendInterim` dispatches the first attempt asynchronously (through the
+ * stubbed FileReader above), so the bounded retry loop must not start driving
+ * fake-timer retries before that dispatch has happened — otherwise the loop
+ * desynchronises from the hook's real attempt count. Polling
+ * `awaitingAnswer` — set synchronously when an attempt is dispatched and
+ * held through its retries — keeps the loop aligned with reality. Bounded:
+ * if the attempt never starts the test fails on its assertions instead of
+ * hanging.
  */
 async function waitForFirstAttempt() {
   for (let i = 0; i < 50 && !latest?.awaitingAnswer; i += 1) {
@@ -123,6 +145,7 @@ async function waitForFirstAttempt() {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.stubGlobal("FileReader", DeterministicFileReader);
   latest = null;
   instrumented.length = 0;
 });
@@ -137,6 +160,7 @@ afterEach(async () => {
     container = null;
   }
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
 
@@ -154,8 +178,8 @@ describe("interim stream abandonment", () => {
     await act(async () => {
       latest?.sendInterim(chunk());
     });
-    // The FileReader encoding inside sendInterim is real async work; wait for
-    // the first attempt to be in flight before driving the retry loop.
+    // The first attempt is dispatched asynchronously; wait until it is in
+    // flight before driving the retry loop.
     await waitForFirstAttempt();
 
     // First send fails, then each bounded retry fails the same way.
