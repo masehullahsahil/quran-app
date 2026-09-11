@@ -42,6 +42,7 @@ import {
   tutorRouter,
 } from "../../../server/tutorRouter";
 import type { VerseFollowingResult } from "@shared/verseFollowing";
+import { normalizeForSpeech } from "@/lib/coachSpeechProvider";
 import { SUPPORTED_LANGUAGE_CODES, directionFor } from "@shared/languages";
 import { loadLocale, type LocaleCode } from "@locales/index";
 import en from "@locales/en";
@@ -602,8 +603,8 @@ describe("the hands-free رَبِّ journey", () => {
     // trusted recording of `رَبِّ` plays, and the teacher asks for it.
     expect(attempts).toEqual(["ayah"]);
     expect(played).toContain(WORD_AUDIO_URL);
-    expect(spokenText).toContain(en.strings["tutor.wordMissed"]);
-    expect(spokenText).toContain(en.strings["handsfree.nowYouSayIt"]);
+    expect(spokenText).toContain(normalizeForSpeech(en.strings["tutor.wordMissed"]));
+    expect(spokenText).toContain(normalizeForSpeech(en.strings["handsfree.nowYouSayIt"]));
     // The word was never read by the synthesiser — it was played.
     expect(spokenText.join(" ")).not.toContain(TARGET);
     // And the microphone re-opened by itself, for one word.
@@ -614,8 +615,8 @@ describe("the hands-free رَبِّ journey", () => {
     await recite(700);
 
     expect(attempts).toEqual(["ayah", "word"]);
-    expect(spokenText).toContain(en.strings["tutor.wordRecognised"]);
-    expect(spokenText).toContain(en.strings["tutor.reciteFullAyah"]);
+    expect(spokenText).toContain(normalizeForSpeech(en.strings["tutor.wordRecognised"]));
+    expect(spokenText).toContain(normalizeForSpeech(en.strings["tutor.reciteFullAyah"]));
     expect(text()).toContain(en.strings["handsfree.scopeAyah"]);
 
     // The learner recites the whole ayah.
@@ -624,7 +625,7 @@ describe("the hands-free رَبِّ journey", () => {
     expect(attempts).toEqual(["ayah", "word", "ayah"]);
     // Only now does the screen move, and only because the server said so.
     expect(container.querySelector(".study-index")?.textContent).toBe("03");
-    expect(spokenText).toContain(en.strings["handsfree.goodContinue"]);
+    expect(spokenText).toContain(normalizeForSpeech(en.strings["handsfree.goodContinue"]));
     // Still listening, on the new ayah.
     expect(stateLine()).toContain(en.strings["handsfree.stateListening"]);
   });

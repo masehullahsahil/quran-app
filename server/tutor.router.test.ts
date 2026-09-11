@@ -83,7 +83,7 @@ describe("tutor.start", () => {
       ayah: 8,
       totalAyahs: 7,
       learnerLanguage: "en",
-    })).rejects.toThrow(/surah length/);
+    })).rejects.toThrow(/ayah_exceeds_surah_length/);
   });
 });
 

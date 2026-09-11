@@ -73,7 +73,7 @@ const startInput = z.object({
   totalAyahs: z.number().int().min(1).max(286),
   learnerLanguage: z.enum(SUPPORTED_LANGUAGE_CODES),
 }).strict().superRefine((input, ctx) => {
-  if (input.ayah > input.totalAyahs) ctx.addIssue({ code: "custom", path: ["ayah"], message: "Ayah exceeds the surah length" });
+  if (input.ayah > input.totalAyahs) ctx.addIssue({ code: "custom", path: ["ayah"], message: "ayah_exceeds_surah_length" });
 });
 
 const LIVE_TUTOR_STORE = Symbol.for("quran-app.live-tutor-sessions");

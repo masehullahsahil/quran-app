@@ -22,6 +22,7 @@ import {
   SPEAKABLE_COACH_KEYS,
   type HandsFreePlan,
 } from "./handsFreePlan";
+import { SPEAKABLE_COACH_PARAM_KEYS } from "@shared/coachSpeech";
 import { applyLiveTutorEvent, createLiveTutorSession, type LiveTutorSession, type LiveTutorTurn, type TutorRecitationEvidence } from "@shared/liveTutor";
 import type { VerseFollowingResult } from "@shared/verseFollowing";
 import en from "@locales/en";
@@ -261,6 +262,29 @@ describe("a hint names a Quran word, so it is shown and not spoken", () => {
       // The reference pack carries no Arabic script at all, which is the other
       // half of the same guarantee.
       expect(sentence, key).not.toMatch(/[؀-ۿ]/);
+    }
+  });
+
+  it("keeps the param allowlist to reviewed coaching sentences, never Quran-adjacent", () => {
+    for (const key of SPEAKABLE_COACH_PARAM_KEYS) {
+      const sentence = en.strings[key];
+      expect(sentence, key).toBeTruthy();
+      // The reference pack carries no Arabic script at all: these are
+      // coaching sentences, not Quran. (`{word}` below is always a word
+      // *number* — params are `number | key-ref`, so no string-typed slot
+      // exists for a Quran word to enter through.)
+      expect(sentence, key).not.toMatch(/[؀-ۿ]/);
+    }
+    // Every speakable sentence's interpolation slots are satisfiable from the
+    // param allowlist: there is no slot left for a raw string to enter.
+    for (const key of SPEAKABLE_COACH_KEYS) {
+      const slots = [...en.strings[key].matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+      for (const slot of slots) {
+        expect(
+          SPEAKABLE_COACH_PARAM_KEYS.length,
+          `${key} interpolates {${slot}} with no param source`,
+        ).toBeGreaterThan(0);
+      }
     }
   });
 });

@@ -18,6 +18,7 @@ import { createContext } from "./context";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerHealthEndpoint } from "./health";
+import { registerCoachSpeechEndpoint } from "../coachSpeechEndpoint";
 import { requestIdMiddleware } from "./requestId";
 import { logger } from "./logger";
 import { REQUEST_BODY_LIMIT_BYTES } from "@shared/recording";
@@ -81,6 +82,11 @@ export function createApp(): Express {
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  // Coaching voice (key-only neural TTS seam): valid keys resolve to a
+  // configured vendor voice; unconfigured deployments answer 501 and the
+  // client falls back to the browser voice. Registered before the tRPC
+  // middleware so the path is never shadowed.
+  registerCoachSpeechEndpoint(app);
 
   app.use(
     "/api/trpc",

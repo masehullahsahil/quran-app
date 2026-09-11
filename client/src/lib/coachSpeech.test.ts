@@ -8,10 +8,21 @@
  * equivalent for an English or Urdu voice to reach for (ح ع ص ض ط ظ ق غ), so
  * the result is not an approximation of a reciter — it is a different word,
  * taught as though it were the right one.
+ *
+ * The key check itself lives in `shared/coachSpeech.ts` (and is enforced by
+ * the providers and the `/api/coach-speech` endpoint); this file tests the
+ * utterance mechanics of `speakResolvedCoachingText` and the closed list it
+ * draws from.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { COACH_VOICE_TAGS, findCoachVoice, isSpeakableCoachKey, speakCoaching, type SpeechLike } from "./coachSpeech";
-import { SPEAKABLE_COACH_KEYS } from "./handsFreePlan";
+import {
+  COACH_VOICE_TAGS,
+  findCoachVoice,
+  isSpeakableCoachKey,
+  speakResolvedCoachingText,
+  type SpeechLike,
+} from "./coachSpeech";
+import { SPEAKABLE_COACH_KEYS } from "@shared/coachSpeech";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
 
 const spoken: string[] = [];
@@ -47,27 +58,25 @@ function flushSpeak() {
 }
 
 describe("the closed list of things the teacher may say", () => {
-  it("refuses any key that is not on it", () => {
-    // The second lock. Even a caller that believed it was passing a coaching
-    // sentence cannot get an arbitrary string spoken.
-    const outcome = speakCoaching({
-      messageKey: "tutor.hintGiven", text: "Start from رَبِّ.", language: "en", synthesis,
-    });
-
-    expect(outcome).toEqual({ spoken: false, reason: "not-speakable" });
-    expect(spoken).toEqual([]);
-  });
-
-  it("accepts the coaching sentences the plan produces", () => {
+  it("accepts exactly the coaching sentences the plan produces", () => {
     for (const key of SPEAKABLE_COACH_KEYS) expect(isSpeakableCoachKey(key), key).toBe(true);
+    // tutor.hintGiven interpolates a Quran word: shown, never spoken.
     expect(isSpeakableCoachKey("tutor.hintGiven")).toBe(false);
     expect(isSpeakableCoachKey("study.record")).toBe(false);
   });
 
-  it("says an allowed sentence and reports the voice it used", async () => {
+  it("the plan's re-exported list is the shared allowlist, not a copy", async () => {
+    const plan = await import("./handsFreePlan");
+    expect(plan.SPEAKABLE_COACH_KEYS).toBe(SPEAKABLE_COACH_KEYS);
+    expect(plan.isSpeakableCoachKey).toBe(isSpeakableCoachKey);
+  });
+});
+
+describe("speakResolvedCoachingText", () => {
+  it("says the sentence and reports the voice it used", async () => {
     const done = vi.fn();
-    const outcome = speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis, onDone: done,
+    const outcome = speakResolvedCoachingText({
+      text: "Now you say it.", language: "en", synthesis, onDone: done,
     });
 
     expect(outcome).toEqual({ spoken: true, voiceLang: "en-US" });
@@ -89,9 +98,7 @@ describe("the closed list of things the teacher may say", () => {
       cancel: () => { calls.push("cancel"); },
       getVoices: () => voices as unknown as SpeechSynthesisVoice[],
     };
-    speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: tracked,
-    });
+    speakResolvedCoachingText({ text: "Now you say it.", language: "en", synthesis: tracked });
     // `speak()` itself is never synchronous anymore: a cancel() immediately
     // followed by speak() is what swallows first utterances on iOS Safari.
     // (This fake reports no liveness, so it is treated as unknown and still
@@ -110,9 +117,7 @@ describe("the closed list of things the teacher may say", () => {
       speaking: false,
       pending: false,
     };
-    const outcome = speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: quiet,
-    });
+    const outcome = speakResolvedCoachingText({ text: "Now you say it.", language: "en", synthesis: quiet });
     expect(outcome.spoken).toBe(true);
     await flushSpeak();
     expect(cancel).not.toHaveBeenCalled();
@@ -127,9 +132,7 @@ describe("the closed list of things the teacher may say", () => {
       speaking: true,
       pending: false,
     };
-    speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: busy,
-    });
+    speakResolvedCoachingText({ text: "Now you say it.", language: "en", synthesis: busy });
     expect(calls).toEqual(["cancel"]);
     await flushSpeak();
     expect(calls).toEqual(["cancel", "speak"]);
@@ -144,9 +147,7 @@ describe("the closed list of things the teacher may say", () => {
       cancel,
       getVoices: () => voices as unknown as SpeechSynthesisVoice[],
     };
-    speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: unknown,
-    });
+    speakResolvedCoachingText({ text: "Now you say it.", language: "en", synthesis: unknown });
     expect(cancel).toHaveBeenCalledTimes(1);
     await flushSpeak();
   });
@@ -163,12 +164,12 @@ describe("the closed list of things the teacher may say", () => {
       cancel: () => {},
       getVoices: () => voices as unknown as SpeechSynthesisVoice[],
     };
-    speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "One.", language: "en",
+    speakResolvedCoachingText({
+      text: "One.", language: "en",
       synthesis: ending, onUtteranceEnd: (reason) => settled.push(reason),
     });
-    speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "Two.", language: "en",
+    speakResolvedCoachingText({
+      text: "Two.", language: "en",
       synthesis: failing, onUtteranceEnd: (reason) => settled.push(reason),
     });
     await flushSpeak();
@@ -181,8 +182,8 @@ describe("a language the platform has no voice for", () => {
     // Only an English voice installed, and the lesson is in Pashto. An English
     // voice reading Pashto is not Pashto.
     const done = vi.fn();
-    const outcome = speakCoaching({
-      messageKey: "handsfree.nowYouSayIt", text: "اوس یې تاسو ووایاست.", language: "ps", synthesis, onDone: done,
+    const outcome = speakResolvedCoachingText({
+      text: "اوس یې تاسو ووایاست.", language: "ps", synthesis, onDone: done,
     });
 
     expect(outcome).toEqual({ spoken: false, reason: "no-voice" });
@@ -193,8 +194,8 @@ describe("a language the platform has no voice for", () => {
 
   it("continues the lesson when the platform has no synthesiser at all", () => {
     const done = vi.fn();
-    const outcome = speakCoaching({
-      messageKey: "handsfree.goodContinue", text: "Good. Carry on.", language: "en", synthesis: null, onDone: done,
+    const outcome = speakResolvedCoachingText({
+      text: "Good. Carry on.", language: "en", synthesis: null, onDone: done,
     });
 
     expect(outcome).toEqual({ spoken: false, reason: "unsupported" });
@@ -202,8 +203,8 @@ describe("a language the platform has no voice for", () => {
   });
 
   it("stays silent when the learner turned the voice off", () => {
-    const outcome = speakCoaching({
-      messageKey: "handsfree.goodContinue", text: "Good. Carry on.", language: "en", muted: true, synthesis,
+    const outcome = speakResolvedCoachingText({
+      text: "Good. Carry on.", language: "en", muted: true, synthesis,
     });
 
     expect(outcome).toEqual({ spoken: false, reason: "muted" });

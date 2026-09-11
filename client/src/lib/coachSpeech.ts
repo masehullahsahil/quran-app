@@ -8,13 +8,12 @@
  * repository already has, so that is what is used.
  *
  * **It is never given Quranic Arabic.** Not as a word, not inside a sentence,
- * not as a fallback when a recording is missing. The rule is enforced twice:
- *
- *  1. structurally, by the caller — `handsFreePlan.ts` emits a coaching step as
- *     a *locale key* from a closed list, and Quran text has no locale key;
- *  2. here, by `speakCoaching` refusing any key not on that list.
- *
- * Two locks rather than one because this is the boundary that matters most: an
+ * not as a fallback when a recording is missing. The rule is enforced
+ * structurally: `shared/coachSpeech.ts` defines the speech request as a
+ * locale *key* (`CoachSpeechRequest`) — there is no text parameter for Quran
+ * to travel through — and both the browser provider and the
+ * `/api/coach-speech` endpoint refuse any key not on `SPEAKABLE_COACH_KEYS`.
+ * `tutor.hintGiven`, which interpolates a Quran word, is display-only. An
  * English or Urdu voice reading `رَبِّ` is not an approximation of a reciter, it
  * is a different utterance, and several Arabic phonemes (ح ع ص ض ط ظ ق غ) have
  * no equivalent for it to reach for at all. Where a trusted recording is
@@ -30,9 +29,8 @@
  * the screen whether or not it was spoken. Falling back to *displaying* is
  * always correct; falling back to a wrong voice is not.
  */
-import type { StringKey } from "@locales/index";
 import type { SupportedLanguageCode } from "@shared/languages";
-import { SPEAKABLE_COACH_KEYS } from "./handsFreePlan";
+import { isSpeakableCoachKey } from "@shared/coachSpeech";
 
 /**
  * The BCP 47 tag to ask the platform for, per teaching language.
@@ -52,7 +50,7 @@ export type CoachSpeechOutcome =
   /** Spoken aloud. The sentence is also on screen. */
   | { spoken: true; voiceLang: string }
   /** Shown only, with the reason. Never an error the learner has to act on. */
-  | { spoken: false; reason: "unsupported" | "no-voice" | "not-speakable" | "muted" };
+  | { spoken: false; reason: "unsupported" | "no-voice" | "not-speakable" | "muted" | "provider-unavailable" };
 
 export type SpeechLike = {
   speak: (utterance: SpeechSynthesisUtterance) => void;
@@ -87,14 +85,35 @@ export function findCoachVoice(
 }
 
 /** Whether a message key is one the teacher is allowed to say aloud. */
-export function isSpeakableCoachKey(key: StringKey): boolean {
-  return SPEAKABLE_COACH_KEYS.includes(key);
-}
+export { isSpeakableCoachKey };
 
-export type SpeakCoachingInput = {
-  /** The key, checked against the allowlist. Not the text — the key. */
-  messageKey: StringKey;
-  /** The sentence, already resolved in the learner's language. */
+/**
+ * The voice to speak with, chosen by the caller.
+ *
+ * The default is `findCoachVoice`: strict language-subtag matching, so an
+ * English voice is never chosen for Pashto. A provider may pass its own
+ * picker — for example to prefer natural-sounding voices — but the picker it
+ * passes must keep the same never-substitute rule.
+ */
+export type CoachVoicePicker = (
+  voices: readonly SpeechSynthesisVoice[],
+  language: SupportedLanguageCode,
+) => SpeechSynthesisVoice | null;
+
+/** Slower or faster than the default pace; 1 is the platform's normal rate. */
+export type CoachProsody = { rate: number; pitch: number };
+
+export type SpeakResolvedCoachingTextInput = {
+  /**
+   * The sentence, already resolved in the learner's language.
+   *
+   * The caller vouches that this text may be spoken: for coaching steps that
+   * means the key was on the allowlist; for review guidance it means the text
+   * came from the server's spoken-guidance field, which is explanatory prose
+   * and never Quran. This function does not re-check provenance — it cannot
+   * tell an Arabic coaching sentence from a Quran word by looking — so only
+   * call it with text whose origin is already established.
+   */
   text: string;
   language: SupportedLanguageCode;
   /** The learner turned coaching audio off. */
@@ -108,25 +127,22 @@ export type SpeakCoachingInput = {
    * without this module deciding what either means for the lesson.
    */
   onUtteranceEnd?: (reason: "end" | "error") => void;
+  pickVoice?: CoachVoicePicker;
+  prosody?: CoachProsody;
 };
 
 /**
- * Say one coaching sentence, if it is one that may be said.
+ * Say one resolved coaching sentence, if the platform has a voice for it.
  *
- * Returns synchronously with what happened, so the caller can put the state on
- * screen without waiting for a voice that may never start. `onDone` fires
- * either way, because the hands-free sequence has to continue whether or not
- * the platform had a voice for this language.
+ * This is the shared utterance core behind the coaching-voice providers: one
+ * implementation of the delicate cancel/speak timing, the strict
+ * language-matched voice choice, and the always-fire `onDone` so a missing
+ * voice never stalls the lesson. It performs no allowlist check — the
+ * key-only gate lives in the providers and the `/api/coach-speech` endpoint,
+ * which resolve a key to text and only then call this.
  */
-export function speakCoaching(input: SpeakCoachingInput): CoachSpeechOutcome {
+export function speakResolvedCoachingText(input: SpeakResolvedCoachingTextInput): CoachSpeechOutcome {
   const done = () => input.onDone?.();
-
-  // The second lock. A key that is not on the list is not spoken, whatever the
-  // caller believed it was passing.
-  if (!isSpeakableCoachKey(input.messageKey)) {
-    done();
-    return { spoken: false, reason: "not-speakable" };
-  }
   if (input.muted) {
     done();
     return { spoken: false, reason: "muted" };
@@ -138,7 +154,8 @@ export function speakCoaching(input: SpeakCoachingInput): CoachSpeechOutcome {
     return { spoken: false, reason: "unsupported" };
   }
 
-  const voice = findCoachVoice(synthesis.getVoices() ?? [], input.language);
+  const pickVoice = input.pickVoice ?? findCoachVoice;
+  const voice = pickVoice(synthesis.getVoices() ?? [], input.language);
   if (!voice) {
     // No voice for this language. The sentence is on screen; nothing is read in
     // a language the learner did not choose.
@@ -162,9 +179,10 @@ export function speakCoaching(input: SpeakCoachingInput): CoachSpeechOutcome {
   const utterance = new SpeechSynthesisUtterance(input.text);
   utterance.voice = voice;
   utterance.lang = voice.lang;
-  // Slower than conversation: this is an instruction, often in the learner's
-  // second language, spoken over a phone speaker.
-  utterance.rate = 0.92;
+  // Slower than conversation for instruction in a second language; the
+  // provider may tune this per language.
+  utterance.rate = input.prosody?.rate ?? 0.92;
+  utterance.pitch = input.prosody?.pitch ?? 1;
   utterance.onend = () => {
     input.onUtteranceEnd?.("end");
     done();

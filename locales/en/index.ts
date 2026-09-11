@@ -560,6 +560,7 @@ export const strings = {
   "plan.qaida.loopJoin": "Join",
   "plan.qaida.loopRepeat": "Repeat",
   "plan.qaida.loopReview": "Review",
+  "plan.qaida.afterRecordingCue": "Treat the word review as a practice prompt, then replay the qualified reciter before repeating.",
   "plan.tajweed.title": "Tajweed",
   "plan.tajweed.focus": "Recitation rules — elongation, nasalization, and stopping — with teacher-guided refinement",
   "plan.tajweed.lessonGoal": "Recite with deliberate repetition and identify where to return for focused supervised practice.",
@@ -568,6 +569,7 @@ export const strings = {
   "plan.tajweed.loopRecord": "Record",
   "plan.tajweed.loopLocate": "Locate return",
   "plan.tajweed.loopTeacher": "Repeat with a teacher",
+  "plan.tajweed.afterRecordingCue": "Use the review to locate a missed or uncertain word, then practise that return with a qualified teacher for tajwid correction.",
 
   // -- Study: feedback -----------------------------------------------------
   "feedback.available": "Words recognised",
@@ -575,7 +577,7 @@ export const strings = {
   "feedback.matched": "of this ayah recognised",
   "feedback.notRecognised": "the service did not recognise Arabic words",
   "feedback.coachEyebrow": "AI audio coach",
-  "feedback.coachCopy": "Hear the practice cue in English, then use the qualified reciter for Quranic Arabic.",
+  "feedback.coachCopy": "Hear the practice cue aloud, then use the qualified reciter for Quranic Arabic.",
   "feedback.playGuidance": "Play guidance",
   "feedback.transcriptionFailed": "The recording could not be checked — the speech service did not respond. Check your connection, then record the ayah again.",
   "feedback.noArabicReturned": "No Arabic words were recognised in that recording. Try again in a quieter place, with the microphone close.",
@@ -597,6 +599,37 @@ export const strings = {
   "feedback.acousticPause": "Pause focus",
   "feedback.acousticTajweed": "Rule focus",
   "feedback.acousticBoundary": "Use this as practice guidance only. A qualified teacher should confirm tajwid, articulation, and religious correctness.",
+
+  // -- Server-generated coach text (resolved in the learner's language) ------
+  // Every deterministic sentence the recitation review can produce. The free-
+  // text LLM summary is the only prose not from these keys, and its prompt
+  // instructs the model's language explicitly.
+  "feedback.coachPerfectEncouragement": "The expected words were all recognised. Keep the same calm pace for one more repetition.",
+  "feedback.coachGoodEncouragement": "A good attempt. Keep the ayah together, then return only to the word marked for review.",
+  "feedback.coachPerfectSpoken": "Every expected word was recognised. {nextStep}",
+  "feedback.coachGoodSpoken": "Good attempt. {nextStep}",
+  "feedback.nextStepRepeatFromWord": "Replay the reference slowly, then repeat from word {word}.",
+  "feedback.nextStepReplayReference": "Replay the reference once at a slower pace, then repeat the ayah with the same pauses.",
+  "feedback.focusedInvalidEncouragement": "This focused attempt could not be connected to the marked word.",
+  "feedback.focusedInvalidNextStep": "Return to the current ayah and select its marked word again.",
+  "feedback.focusedInvalidSpoken": "The marked word could not be verified. Return to the current ayah and try again.",
+  "feedback.reviewFocusedTargetInvalid": "The correction target did not match the current ayah.",
+  "feedback.unavailableEncouragement": "Your recording was received, but a reliable word-by-word result is not available for this attempt.",
+  "feedback.unavailableSpoken": "A reliable word-by-word result is not available for this attempt. Listen once more, then try recording again in a quiet place.",
+  "feedback.transcriptionFailedNextStep": "Check your connection and microphone, then record the ayah again. The app could not complete this review, but you can retry now.",
+  "feedback.noArabicNextStep": "Try the ayah again in a quiet place. Keep the microphone close and recite one ayah at a calm pace.",
+  "feedback.focusedRecognisedNext": "The expected target word was recognised in the transcript. Now recite the full ayah.",
+  "feedback.focusedNotRecognisedNext": "The expected target word was not recognised. Listen to the marked word, then say only that word again.",
+  "feedback.focusedUnclearNext": "The focused transcript was unclear. Keep the marked word and try that word again.",
+  "feedback.focusedRecognisedEncouragement": "The expected word was recognised.",
+  "feedback.focusedKeepFocusedEncouragement": "Keep the correction focused on the marked word.",
+  "feedback.reviewFocusedUnclear": "The focused transcript did not provide clear evidence about the target word.",
+  "feedback.noteFocusedTargetInvalid": "No audio, transcript, acoustic finding, or ayah score was evaluated because the focused correction target was invalid.",
+  "feedback.noteFocusedTargetActive": "The focused target remains active. No ayah score was calculated, and no acoustic or pronunciation claim was made.",
+  "feedback.noteNoWordScore": "No word score was calculated for this attempt. The app will preserve the recording controls so you can retry immediately.",
+  "feedback.noteFocusedChecks": "This focused result checks only whether the expected word was recognised in transcription. It does not calculate an ayah score or assess pronunciation, tajwid, makhraj, madd, ghunnah, or harakah acoustically.",
+  "feedback.noteAyahAcoustic": "Word recall is based on transcription. The additional acoustic observation is confidence-gated practice guidance, not certification of tajwid, makharij, melody, religious correctness, or a replacement for a qualified teacher.",
+  "feedback.noteAyahTranscription": "This is a word-recall aid based on speech transcription. It does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
 
   // -- Memorise ------------------------------------------------------------
   "memorise.eyebrow": "Recall gently",

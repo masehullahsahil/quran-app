@@ -5,6 +5,7 @@ import {
   type QuranEvaluationFindingKind,
 } from "@shared/quranEvaluation";
 import type { LearningLevel } from "@shared/learningPath";
+import type { SupportedLanguageCode } from "@shared/languages";
 import { ENV } from "./_core/env";
 
 const MINIMUM_CONFIDENCE = 0.75;
@@ -21,6 +22,12 @@ type QuranEvaluatorRequest = {
   surah: number;
   ayah: number;
   learningLevel: LearningLevel;
+  /**
+   * The learner's interface language. The service writes the summary and
+   * finding guidance the learner reads, so it needs the language to write
+   * them in — without it the prose defaults to the model's own language.
+   */
+  uiLanguage: SupportedLanguageCode;
 };
 
 type UnknownRecord = Record<string, unknown>;

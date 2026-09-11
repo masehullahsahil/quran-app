@@ -4,13 +4,13 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getSessionCookieOptions } from "./_core/cookies";
 import type { TrpcContext } from "./_core/context";
-import { invokeLLM } from "./_core/llm";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { transcribeAudio } from "./_core/voiceTranscription";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
-import { SUPPORTED_LANGUAGES, SUPPORTED_LANGUAGE_CODES, type SupportedLanguageCode } from "@shared/languages";
+import { SUPPORTED_LANGUAGE_CODES, type SupportedLanguageCode } from "@shared/languages";
+import { coachText, resolveCoachTextRef, type CoachTextRef } from "./coachLocale";
 import {
   DEFAULT_RECITER_ID,
   DEFAULT_TRANSLATION_ID,
@@ -286,75 +286,61 @@ const durableAttempt = memorizationAttemptInput.transform(({ stability: _stabili
  * from there. These three fields are shown in Teacher notes, never as the
  * primary instruction — see docs/ai-teacher-decisions.md.
  */
-type CoachSummary = { encouragement: string; nextStep: string; spokenGuidance: string };
+type CoachSummary = {
+  encouragement: string;
+  nextStep: string;
+  spokenGuidance: string;
+  /**
+   * The key reference the coaching voice speaks. Speech is key-only: the
+   * client resolves this with its locale pack (browser voice) or sends it to
+   * the neural endpoint, which resolves it server-side. No text is ever sent
+   * to a synthesiser, so Quran text structurally cannot enter speech.
+   */
+  spokenGuidanceKey: CoachTextRef;
+};
 
-async function createCoachSummary(input: {
+/**
+ * Deterministic coach feedback, fully locale-backed.
+ *
+ * Every sentence comes from a locale key resolved in the learner's language.
+ * There is deliberately no model-generated prose here: learner-facing Tutor
+ * feedback must come from locale keys in all five languages, and a prompt
+ * asking a model to "reply in Urdu" is not that guarantee. The feedback is
+ * derived from authoritative outcomes — score, the alignment's next step,
+ * level — and the alignment never chooses a language; it hands over key
+ * references that are resolved here, where `uiLanguage` is known.
+ */
+function createCoachSummary(input: {
   score: number;
-  matchedCount: number;
-  totalWords: number;
-  corrections: Array<{ expected: string; heard: string | null; status: string; wordIndex: number | null }>;
-  fallbackNextStep: string;
+  fallbackNextStep: CoachTextRef;
   learningLevel: LearningLevel;
   uiLanguage: SupportedLanguageCode;
-}): Promise<CoachSummary> {
-  const plan = getLearningCoachPlan(input.learningLevel);
-  const fallback: CoachSummary = {
-    encouragement: input.score === 100
-      ? "The expected words were all recognised. Keep the same calm pace for one more repetition."
-      : "A good attempt. Keep the ayah together, then return only to the word marked for review.",
-    nextStep: input.score === 100 ? plan.afterRecordingCue : input.fallbackNextStep,
-    spokenGuidance: input.score === 100
-      ? `Every expected word was recognised. ${plan.afterRecordingCue}`
-      : `Good attempt. ${input.fallbackNextStep}`,
+}): CoachSummary {
+  const language = input.uiLanguage;
+  // The deterministic feedback is fully locale-backed: every sentence comes
+  // from a key in the learner's language. The alignment never chooses a
+  // language; it hands over key references and they are resolved here.
+  //
+  // Speech params are key references, not resolved strings: `nextStep` names
+  // a key on SPEAKABLE_COACH_PARAM_KEYS, so there is no string-typed slot for
+  // Quran text to enter through. The display strings below are resolved here
+  // for the screen; the voice resolves the same keys independently.
+  const afterRecordingCueKey = `plan.${input.learningLevel}.afterRecordingCue` as const;
+  const perfect = input.score === 100;
+  const spokenGuidanceKey: CoachTextRef = perfect
+    ? { key: "feedback.coachPerfectSpoken", params: { nextStep: { key: afterRecordingCueKey } } }
+    : { key: "feedback.coachGoodSpoken", params: { nextStep: input.fallbackNextStep } };
+  return {
+    encouragement: coachText(
+      language,
+      perfect ? "feedback.coachPerfectEncouragement" : "feedback.coachGoodEncouragement",
+    ),
+    nextStep: perfect
+      ? coachText(language, afterRecordingCueKey)
+      : resolveCoachTextRef(language, input.fallbackNextStep),
+    spokenGuidance: resolveCoachTextRef(language, spokenGuidanceKey),
+    spokenGuidanceKey,
   };
-
-  try {
-    const response = await invokeLLM({
-      model: "gpt-5-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Reply in ${SUPPORTED_LANGUAGES[input.uiLanguage].englishName}. ` + "You are a respectful Quran learning assistant. Give concise supportive feedback strictly from supplied text-alignment data. Never claim to assess tajwid, makharij, melody, vowel length, pronunciation, or religious correctness from this data. Do not invent an error: every word you mention must appear in the supplied corrections. Do not tell the learner to move on to another ayah, and do not contradict the supplied next step — the app decides what comes next, and your text is shown as a note beside that decision. Use plain English. Include a short spokenGuidance field that is safe to read aloud in English. Never use the assistant to recite or synthesize Quranic Arabic.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            matchedWords: input.matchedCount,
-            totalWords: input.totalWords,
-            score: input.score,
-            learningLevel: input.learningLevel,
-            lessonGoal: plan.lessonGoal,
-            focus: plan.focus,
-            corrections: input.corrections.slice(0, 3),
-            fallbackNextStep: input.fallbackNextStep,
-          }),
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "recitation_coach_summary",
-          strict: true,
-          schema: {
-            type: "object",
-            properties: {
-              encouragement: { type: "string" },
-              nextStep: { type: "string" },
-              spokenGuidance: { type: "string" },
-            },
-            required: ["encouragement", "nextStep", "spokenGuidance"],
-            additionalProperties: false,
-          },
-        },
-      },
-    });
-    const content = response.choices[0]?.message.content;
-    if (!content || typeof content !== "string") return fallback;
-    return JSON.parse(content) as CoachSummary;
-  } catch (error) {
-    console.warn("[recitation] Coach summary unavailable; using deterministic guidance", error);
-    return fallback;
-  }
 }
 
 function focusedVerseFollowing(input: {
@@ -599,7 +585,6 @@ export const appRouter = router({
           recitationScoreScope: "none" as const,
           focusedWordResult,
           correctionSession: null,
-          reviewMessageCode: null,
           verseFollowing: focusedVerseFollowing({
             surah: input.surah,
             ayah: input.ayah,
@@ -614,17 +599,19 @@ export const appRouter = router({
           totalWords: 0,
           score: 0,
           corrections: [],
-          fallbackNextStep: "Return to the current ayah and select its marked word again.",
+          fallbackNextStep: { key: "feedback.focusedInvalidNextStep" },
           transcript: "",
-          encouragement: "This focused attempt could not be connected to the marked word.",
-          nextStep: "Return to the current ayah and select its marked word again.",
-          spokenGuidance: "The marked word could not be verified. Return to the current ayah and try again.",
+          encouragement: coachText(input.uiLanguage, "feedback.focusedInvalidEncouragement"),
+          nextStep: coachText(input.uiLanguage, "feedback.focusedInvalidNextStep"),
+          spokenGuidance: coachText(input.uiLanguage, "feedback.focusedInvalidSpoken"),
+          spokenGuidanceKey: { key: "feedback.focusedInvalidSpoken" },
           wordReviewAvailable: false,
           reviewStatus: "unavailable" as const,
-          reviewMessage: "The correction target did not match the current ayah.",
+          reviewMessage: null,
+          reviewMessageCode: "focused_target_invalid" as const,
           quranAwareReview: EMPTY_QURAN_AWARE_REVIEW,
           learningPlan: learningPlanResult,
-          note: "No audio, transcript, acoustic finding, or ayah score was evaluated because the focused correction target was invalid.",
+          note: coachText(input.uiLanguage, "feedback.noteFocusedTargetInvalid"),
         };
       }
       // The recorder enforces the size before upload. This shared decoder is
@@ -673,6 +660,9 @@ export const appRouter = router({
             surah: input.surah,
             ayah: input.ayah,
             learningLevel: input.learningLevel,
+            // The external evaluator writes the summary and finding guidance
+            // the learner reads; it needs the language to write them in.
+            uiLanguage: input.uiLanguage,
           })
         : Promise.resolve(EMPTY_QURAN_AWARE_REVIEW);
       const transcription = await transcribeAudio({
@@ -687,7 +677,7 @@ export const appRouter = router({
        * and for server logs, but no learner-facing surface reads them: the
        * Study view renders `reviewMessageCode` through its locale pack.
        */
-      const unavailableReview = (reviewMessage: string, transcript: string, nextStep: string, reviewMessageCode: "transcription_failed" | "no_arabic_returned") => ({
+      const unavailableReview = (reviewMessage: string | null, transcript: string, nextStep: CoachTextRef, reviewMessageCode: "transcription_failed" | "no_arabic_returned") => ({
         attemptScope: input.attemptScope,
         recitationScoreScope: "none" as const,
         focusedWordResult: input.attemptScope === "word"
@@ -720,33 +710,34 @@ export const appRouter = router({
         corrections: [],
         fallbackNextStep: nextStep,
         transcript,
-        encouragement: "Your recording was received, but a reliable word-by-word result is not available for this attempt.",
-        nextStep,
-        spokenGuidance: "A reliable word-by-word result is not available for this attempt. Listen once more, then try recording again in a quiet place.",
+        encouragement: coachText(input.uiLanguage, "feedback.unavailableEncouragement"),
+        nextStep: resolveCoachTextRef(input.uiLanguage, nextStep),
+        spokenGuidance: coachText(input.uiLanguage, "feedback.unavailableSpoken"),
+        spokenGuidanceKey: { key: "feedback.unavailableSpoken" },
         wordReviewAvailable: false,
         reviewStatus: "unavailable" as const,
         reviewMessage,
         quranAwareReview,
         learningPlan: learningPlanResult,
         note: input.attemptScope === "word"
-          ? "The focused target remains active. No ayah score was calculated, and no acoustic or pronunciation claim was made."
-          : "No word score was calculated for this attempt. The app will preserve the recording controls so you can retry immediately.",
+          ? coachText(input.uiLanguage, "feedback.noteFocusedTargetActive")
+          : coachText(input.uiLanguage, "feedback.noteNoWordScore"),
       });
 
       if ("error" in transcription) {
         return unavailableReview(
-          transcription.error,
+          null,
           "",
-          "Check your connection and microphone, then record the ayah again. The app could not complete this review, but you can retry now.",
+          { key: "feedback.transcriptionFailedNextStep" },
           "transcription_failed",
         );
       }
 
       if (!hasArabicScript(transcription.text)) {
         return unavailableReview(
-          "The speech service did not return Arabic words for this recording.",
+          null,
           transcription.text,
-          "Try the ayah again in a quiet place. Keep the microphone close and recite one ayah at a calm pace.",
+          { key: "feedback.noArabicNextStep" },
           "no_arabic_returned",
         );
       }
@@ -762,18 +753,18 @@ export const appRouter = router({
           wordIndex: focusedTarget.targetWordIndex,
         };
         const reviewable = recognition !== "unknown";
-        const nextStep = recognition === "recognised"
-          ? "The expected target word was recognised in the transcript. Now recite the full ayah."
+        const nextStep: CoachTextRef = recognition === "recognised"
+          ? { key: "feedback.focusedRecognisedNext" }
           : recognition === "not-recognised"
-            ? "The expected target word was not recognised. Listen to the marked word, then say only that word again."
-            : "The focused transcript was unclear. Keep the marked word and try that word again.";
+            ? { key: "feedback.focusedNotRecognisedNext" }
+            : { key: "feedback.focusedUnclearNext" };
 
         return {
           attemptScope: input.attemptScope,
           recitationScoreScope: reviewable ? "word" as const : "none" as const,
           focusedWordResult,
           correctionSession: focusedCorrectionSession(focusedTarget, recognition),
-          reviewMessageCode: null,
+          reviewMessageCode: recognition === "unknown" ? "focused_unclear" as const : null,
           verseFollowing: focusedVerseFollowing({
             surah: input.surah,
             ayah: input.ayah,
@@ -791,16 +782,17 @@ export const appRouter = router({
           fallbackNextStep: nextStep,
           transcript: transcription.text,
           encouragement: recognition === "recognised"
-            ? "The expected word was recognised."
-            : "Keep the correction focused on the marked word.",
-          nextStep,
-          spokenGuidance: nextStep,
+            ? coachText(input.uiLanguage, "feedback.focusedRecognisedEncouragement")
+            : coachText(input.uiLanguage, "feedback.focusedKeepFocusedEncouragement"),
+          nextStep: resolveCoachTextRef(input.uiLanguage, nextStep),
+          spokenGuidance: resolveCoachTextRef(input.uiLanguage, nextStep),
+          spokenGuidanceKey: nextStep,
           wordReviewAvailable: reviewable,
           reviewStatus: "available" as const,
-          reviewMessage: recognition === "unknown" ? "The focused transcript did not provide clear evidence about the target word." : null,
+          reviewMessage: null,
           quranAwareReview: EMPTY_QURAN_AWARE_REVIEW,
           learningPlan: learningPlanResult,
-          note: "This focused result checks only whether the expected word was recognised in transcription. It does not calculate an ayah score or assess pronunciation, tajwid, makhraj, madd, ghunnah, or harakah acoustically.",
+          note: coachText(input.uiLanguage, "feedback.noteFocusedChecks"),
         };
       }
 
@@ -820,7 +812,7 @@ export const appRouter = router({
           ? assessRecitationTranscript(input.nextAyahArabic, transcription.text)
           : null,
       });
-      const coach = await createCoachSummary({ ...assessment, learningLevel: input.learningLevel, uiLanguage: input.uiLanguage });
+      const coach = createCoachSummary({ ...assessment, learningLevel: input.learningLevel, uiLanguage: input.uiLanguage });
 
       return {
         ...assessment,
@@ -836,12 +828,13 @@ export const appRouter = router({
         encouragement: coach.encouragement,
         nextStep: coach.nextStep,
         spokenGuidance: coach.spokenGuidance,
+        spokenGuidanceKey: coach.spokenGuidanceKey,
         wordReviewAvailable: true,
         reviewStatus: "available" as const,
         reviewMessage: null,
         note: quranAwareReview.status === "available"
-          ? "Word recall is based on transcription. The additional acoustic observation is confidence-gated practice guidance, not certification of tajwid, makharij, melody, religious correctness, or a replacement for a qualified teacher."
-          : "This is a word-recall aid based on speech transcription. It does not judge tajwid, makharij, vowel length, melody, or replace a qualified teacher.",
+          ? coachText(input.uiLanguage, "feedback.noteAyahAcoustic")
+          : coachText(input.uiLanguage, "feedback.noteAyahTranscription"),
       };
     };
 
