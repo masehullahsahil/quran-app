@@ -58,6 +58,12 @@ export type SpeechLike = {
   speak: (utterance: SpeechSynthesisUtterance) => void;
   cancel: () => void;
   getVoices: () => SpeechSynthesisVoice[];
+  /**
+   * The platform's own liveness report. Real synthesisers have both; a fake
+   * that does not is treated as unknown, never as quiet.
+   */
+  speaking?: boolean;
+  pending?: boolean;
 };
 
 /**
@@ -96,6 +102,12 @@ export type SpeakCoachingInput = {
   synthesis?: SpeechLike | null;
   /** Called when the utterance finishes, or immediately when it is not spoken. */
   onDone?: () => void;
+  /**
+   * Finer-grained than `onDone`: which utterance event settled the step.
+   * Lets the caller distinguish a voice that finished from one that errored,
+   * without this module deciding what either means for the lesson.
+   */
+  onUtteranceEnd?: (reason: "end" | "error") => void;
 };
 
 /**
@@ -134,16 +146,37 @@ export function speakCoaching(input: SpeakCoachingInput): CoachSpeechOutcome {
     return { spoken: false, reason: "no-voice" };
   }
 
-  synthesis.cancel();
+  // Never cancel blindly. On iOS Safari a synchronous `cancel()` immediately
+  // followed by `speak()` is one way a first utterance goes silent: the
+  // synthesiser reports nothing, the caller waits on an `onend` that never
+  // fires, and the microphone stays closed while the learner is already
+  // reciting. So the queue is cleared only when the synthesiser reports
+  // something actually in it; a synthesiser that reports nothing at all is
+  // treated as unknown and cleared as before, because a queue that cannot be
+  // seen is safer cleared than spoken over.
+  const busy = synthesis.speaking === true || synthesis.pending === true;
+  const reportsState = typeof synthesis.speaking === "boolean" || typeof synthesis.pending === "boolean";
+  if (!reportsState || busy) {
+    synthesis.cancel();
+  }
   const utterance = new SpeechSynthesisUtterance(input.text);
   utterance.voice = voice;
   utterance.lang = voice.lang;
   // Slower than conversation: this is an instruction, often in the learner's
   // second language, spoken over a phone speaker.
   utterance.rate = 0.92;
-  utterance.onend = done;
-  utterance.onerror = done;
-  synthesis.speak(utterance);
+  utterance.onend = () => {
+    input.onUtteranceEnd?.("end");
+    done();
+  };
+  utterance.onerror = () => {
+    input.onUtteranceEnd?.("error");
+    done();
+  };
+  // A separate task, never back-to-back with `cancel()`. The return value is
+  // unchanged — `{spoken: true}` still means "handed to the synthesiser", not
+  // "audible" — and the caller must not treat it as audibility.
+  setTimeout(() => synthesis.speak(utterance), 0);
   return { spoken: true, voiceLang: voice.lang };
 }
 

@@ -58,6 +58,11 @@ export type TutorPlaybackInput = {
   listen: (scope: "word" | "ayah") => void;
   /** False stops the sequence dead — paused, stopped, or no session. */
   enabled: boolean;
+  /**
+   * Additive validation instrumentation. Ignored when unset; never changes
+   * playback behavior.
+   */
+  onInstrument?: (kind: "tts.step" | "mic.reopened", details: Record<string, unknown>) => void;
 };
 
 export type TutorPlaybackState = {
@@ -70,6 +75,18 @@ export type TutorPlaybackState = {
   /** True while any step of a plan is running. */
   performing: boolean;
 };
+
+/**
+ * How long after `speak()` the orchestrator waits before deciding a voice
+ * that reports `speaking === false` is silent rather than slow to start.
+ *
+ * A named setting, not an inline number. Short enough that a swallowed
+ * utterance does not hold the microphone closed while the learner is already
+ * reciting; long enough for a real voice to have started. A platform that
+ * does not report `speaking` at all is never judged by this — the backstop
+ * below stays its only limit.
+ */
+export const SILENT_TTS_CHECK_MS = 400;
 
 export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPlaybackState {
   const [state, setState] = useState<TutorPlaybackState>({ line: null, lineSpoken: false, step: null, performing: false });
@@ -152,32 +169,89 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
 
   const speakLine = useCallback((key: StringKey, run: number) => new Promise<void>((resolve) => {
     let settled = false;
-    // The same reason as in `playTrusted`, and the one that actually bites: a
-    // synthesiser that finishes an utterance synchronously calls `onDone`
-    // before this function has reached its own timer.
+    // `let`, declared before `settle`, because `settle` can be called
+    // synchronously from inside `speakCoaching` on a platform without a voice
+    // — and a `const` read from its own initialiser is a reference error, not
+    // a missed timer. (The deferred `speak()` means an utterance itself can no
+    // longer settle synchronously, but the shown-only paths still do.)
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const done = () => {
+    let silentTimer: ReturnType<typeof setTimeout> | undefined;
+    let utteranceEnd: "end" | "error" | null = null;
+    const startedAt = Date.now();
+    const instrument = (resolvedBy: string, spoken: boolean) => {
+      latest.current.onInstrument?.("tts.step", {
+        key,
+        spoken,
+        resolvedBy,
+        audibleMs: Date.now() - startedAt,
+      });
+    };
+    const settle = () => {
       if (settled) return;
       settled = true;
       if (timer !== undefined) clearTimeout(timer);
+      if (silentTimer !== undefined) clearTimeout(silentTimer);
       resolve();
+    };
+    const done = (resolvedBy: "onend" | "onerror" | "backstop" | "silent-immediate") => {
+      if (settled) return;
+      instrument(resolvedBy, true);
+      settle();
     };
     const outcome = speakCoaching({
       messageKey: key,
       text: latest.current.translate(key),
       language: latest.current.language,
       muted: latest.current.muted,
-      onDone: done,
+      onDone: () => done(utteranceEnd === "error" ? "onerror" : "onend"),
+      onUtteranceEnd: (reason) => {
+        utteranceEnd = reason;
+      },
     });
     setState((current) => ({ ...current, line: key, lineSpoken: outcome.spoken }));
-    // A sentence that was only shown still needs time on screen; a spoken one
-    // resolves from `onDone`, with this as the backstop for a voice that never
-    // reports finishing. The backstop cancels first: resolving the step is not
-    // the same as stopping the voice, and an utterance that is still talking
-    // when the microphone re-opens would be transcribed as the learner.
-    const dwell = outcome.spoken ? HANDS_FREE_TIMING.playbackTimeoutMs : HANDS_FREE_TIMING.coachDisplayMs;
-    if (!settled) timer = setTimeout(() => { cancelCoachSpeech(); done(); }, dwell);
-    if (runRef.current !== run) done();
+    if (!outcome.spoken) {
+      // A sentence that was only shown still needs time on screen.
+      if (!settled) {
+        timer = setTimeout(() => {
+          if (settled) return;
+          instrument("display", false);
+          settle();
+        }, HANDS_FREE_TIMING.coachDisplayMs);
+      }
+      if (runRef.current !== run) settle();
+      return;
+    }
+    // A spoken sentence resolves from `onDone`, with the backstop below for a
+    // voice that never reports finishing. The backstop cancels first: resolving
+    // the step is not the same as stopping the voice, and an utterance that is
+    // still talking when the microphone re-opens would be transcribed as the
+    // learner.
+    if (!settled) timer = setTimeout(() => { cancelCoachSpeech(); done("backstop"); }, HANDS_FREE_TIMING.playbackTimeoutMs);
+    // `{spoken: true}` is never treated as audible. iOS Safari sometimes
+    // swallows an utterance silently — `speak()` returns, the synthesiser never
+    // starts, `onend`/`onerror` never fire — and waiting the full backstop for
+    // it holds the microphone closed while the UI already says "try once
+    // more", inviting recitation into a closed mic and clipping the beginning
+    // of the turn. If the platform reports it is not speaking shortly after
+    // the call, resolve the step at once instead.
+    if (!settled) {
+      silentTimer = setTimeout(() => {
+        if (settled) return;
+        const synthesis = typeof window !== "undefined" && "speechSynthesis" in window
+          ? (window.speechSynthesis as unknown as { speaking?: unknown; pending?: unknown } | null)
+          : null;
+        if (synthesis?.speaking === false && synthesis?.pending !== true) {
+          // Not speaking and nothing queued: silent, not slow. Cancel first
+          // for the same reason as the backstop — a voice that starts late
+          // must not sound under the re-opened microphone.
+          cancelCoachSpeech();
+          done("silent-immediate");
+        }
+        // Otherwise the voice is starting, still queueing, or the platform
+        // does not report liveness at all: leave the backstop in place.
+      }, SILENT_TTS_CHECK_MS);
+    }
+    if (runRef.current !== run) settle();
   }), []);
 
   useEffect(() => {
@@ -230,6 +304,7 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       }
       if (cancelled()) return;
       latest.current.releasePlayback();
+      const playbackEndedAt = Date.now();
       setState((current) => ({ ...current, step: null, performing: false }));
       if (!plan.resume || plan.terminal) return;
       // The beat before the microphone opens. Without it the learner's turn
@@ -237,6 +312,12 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       await wait(HANDS_FREE_TIMING.resumeDelayMs);
       if (cancelled()) return;
       latest.current.listen(plan.resume);
+      // Validation instrumentation: the microphone actually re-opened, and how
+      // long after playback ended. A gap here is where recitation gets lost.
+      latest.current.onInstrument?.("mic.reopened", {
+        scope: plan.resume,
+        msSincePlaybackEnd: Date.now() - playbackEndedAt,
+      });
     })();
   }, [input.plan, input.enabled, playTrusted, speakLine, stopAudio]);
 

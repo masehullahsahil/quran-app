@@ -94,6 +94,11 @@ export type UseLiveRecitationStreamInput = {
   uiLanguage: SupportedLanguageCode;
   /** Every server answer, already mapped. The caller decides what to show. */
   onEvent: (event: LiveTutorServerEvent) => void;
+  /**
+   * Additive validation instrumentation. Called when the live path gives up
+   * after its bounded retries. Never changes streaming behavior.
+   */
+  onInstrument?: (kind: "interim.abandoned", details: Record<string, unknown>) => void;
 };
 
 /**
@@ -141,6 +146,12 @@ export type LiveRecitationStream = {
   sendInterim: (chunk: InterimTurnAudio) => void;
   /** True while a request's outcome is unknown. Diagnostics only. */
   awaitingAnswer: boolean;
+  /**
+   * True once the live path was given up on for this session after its bounded
+   * retries. A non-blocking UI indicator: the lesson continues on finalised
+   * turns, and the learner is never stuck waiting on a stream that is gone.
+   */
+  interimAbandoned: boolean;
 };
 
 /** A blob as the routes want it: base64, without the data-URL prefix. */
@@ -177,6 +188,7 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
   const [open, setOpen] = useState(false);
   const [directive, setDirective] = useState<LiveListeningDirective>("wait");
   const [awaitingAnswer, setAwaitingAnswer] = useState(false);
+  const [interimAbandoned, setInterimAbandoned] = useState(false);
 
   const streamIdRef = useRef<string | null>(null);
   /** The last sequence the server says it applied. The next one is this plus 1. */
@@ -294,8 +306,13 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
         if (request.attempts >= LIVE_RETRY.maxAttempts) {
           // Bounded. The live path is down; the lesson continues on finalised
           // turns, and nothing about the Quran is invented to cover the gap.
+          // This was previously silent, which made "the tutor stopped
+          // interrupting mid-ayah" indistinguishable from "the learner stopped
+          // making mistakes". Record the give-up and raise the indicator.
           unresolvedRef.current = null;
           abandonedRef.current = true;
+          setInterimAbandoned(true);
+          latest.current.onInstrument?.("interim.abandoned", { attempts: request.attempts });
           closeStream();
           return;
         }
@@ -330,6 +347,7 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     if (!input.enabled || !reference || !startLive?.mutateAsync || abandonedRef.current) {
       if (!input.enabled || !reference) {
         abandonedRef.current = false;
+        setInterimAbandoned(false);
         closeStream();
       }
       return;
@@ -337,6 +355,9 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     const key = `${reference.sessionId}#${reference.revision}`;
     if (openedForRef.current === key || streamIdRef.current) return;
     openedForRef.current = key;
+    // A new session gets a clean indicator; a previous abandonment must not
+    // linger into a lesson that has a working stream again.
+    setInterimAbandoned(false);
 
     void Promise.resolve(startLive.mutateAsync({ session: reference }))
       .then((answer) => {
@@ -417,5 +438,5 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
       });
   }, [attempt, ingest]);
 
-  return { open, directive, sendInterim, awaitingAnswer };
+  return { open, directive, sendInterim, awaitingAnswer, interimAbandoned };
 }

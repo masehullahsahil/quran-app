@@ -75,4 +75,55 @@ describe("createClientValidationLog", () => {
     expect(log.toJSON().runId).toBe("run_test");
     expect(log.toJSON().eventCount).toBe(4);
   });
+
+  it("records mic reopen timing after playback", () => {
+    const log = createClientValidationLog({ runId: "run_test" });
+    const event = log.recordMicReopened("ayah", { attemptId: "att_1" }, { msSincePlaybackEnd: 412 });
+    expect(event.type).toBe("mic.reopened");
+    expect(event.details).toMatchObject({ scope: "ayah", msSincePlaybackEnd: 412 });
+    expect(event.attemptId).toBe("att_1");
+  });
+});
+
+describe("pipeline instrumentation", () => {
+  it("carries tts.step, vad, capture, and interim events on the client.event channel", () => {
+    const log = createClientValidationLog({ runId: "run_test" });
+    log.recordInstrumentation("tts.step", {
+      key: "handsfree.nowYouSayIt",
+      spoken: true,
+      resolvedBy: "silent-immediate",
+      audibleMs: 403,
+    });
+    log.recordInstrumentation("vad.turnOpened", { noiseFloor: 0.002, enterThreshold: 0.0158 });
+    log.recordInstrumentation("vad.turnEnded", {
+      reason: "silence",
+      voicedMs: 2100,
+      silenceMs: 1850,
+      noiseFloor: 0.004,
+    });
+    log.recordInstrumentation("capture.turnSettled", { blobBytes: 18432, chunkCount: 3, reason: "turn-ended" });
+    log.recordInstrumentation("interim.abandoned", { attempts: 3 });
+
+    const events = log.events;
+    expect(events.map((event) => event.type)).toEqual([
+      "client.event",
+      "client.event",
+      "client.event",
+      "client.event",
+      "client.event",
+    ]);
+    expect(events[0]?.details).toMatchObject({ kind: "tts.step", resolvedBy: "silent-immediate" });
+    expect(events[1]?.details).toMatchObject({ kind: "vad.turnOpened", noiseFloor: 0.002 });
+    expect(events[2]?.details).toMatchObject({ kind: "vad.turnEnded", reason: "silence", voicedMs: 2100 });
+    expect(events[3]?.details).toMatchObject({ kind: "capture.turnSettled", blobBytes: 18432, chunkCount: 3 });
+    expect(events[4]?.details).toMatchObject({ kind: "interim.abandoned", attempts: 3 });
+  });
+
+  it("keeps instrumentation numeric: no audio, no transcripts, no PII in the helpers' contract", () => {
+    // The helpers take plain detail objects; the ledger's sanitizer is what
+    // enforces the denylist. This pins the intended shape: counts and timings.
+    const log = createClientValidationLog({ runId: "run_test" });
+    const event = log.recordInstrumentation("capture.turnSettled", { blobBytes: 100, chunkCount: 1, reason: "x" });
+    expect(Object.keys(event.details).sort()).toEqual(["blobBytes", "chunkCount", "kind", "reason"]);
+  });
 });

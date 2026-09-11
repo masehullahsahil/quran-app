@@ -265,6 +265,7 @@ export const strings: TranslatableStrings = {
   "dock.practise": "تدرّب",
   "dock.recall": "استذكر",
   "notes.summary": "ملاحظات المعلم",
+  "notes.previousAttempt": "هذا يصف محاولة سابقة — لقد تقدّم الدرس منذ ذلك الحين.",
   "language.label": "لغة الواجهة",
 
   "mastery.new": "جديدة",

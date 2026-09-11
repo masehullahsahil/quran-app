@@ -263,6 +263,7 @@ export const strings: TranslatableStrings = {
   "dock.practise": "مشق",
   "dock.recall": "دہرائیں",
   "notes.summary": "استاد کے نوٹس",
+  "notes.previousAttempt": "یہ ایک پچھلی کوشش کی وضاحت ہے — سبق اس کے بعد آگے بڑھ چکا ہے۔",
   "language.label": "انٹرفیس کی زبان",
 
   "mastery.new": "نئی",

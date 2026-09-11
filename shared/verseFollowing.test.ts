@@ -316,3 +316,35 @@ describe("followRecitation — scope", () => {
     expect(result).not.toHaveProperty("confidence");
   });
 });
+
+describe("followRecitation — the full ayah is required after a correction", () => {
+  it("a suffix-only attempt does not complete the ayah when the full ayah is owed (T4)", () => {
+    // Al-Fatihah 1:2 has four words; the learner missed word 3 (رَبِّ), heard
+    // the correction, and was asked for the whole ayah. The engine resets the
+    // pointer to word 1, so the attempt is measured against all four words.
+    const result = follow(at(2, { expectedWordIndex: 1 }), "رب العالمين");
+
+    expect(result.reason).not.toBe("ayah_completed");
+    expect(result.shouldAdvance).toBe(false);
+    expect(result.currentAyah).toBe(2);
+  });
+
+  it("documents the defect the pointer reset disarms: a stale pointer lets the tail complete the ayah", () => {
+    // Before the reset, the pointer still sat on the missed word, so the
+    // resume-mid-ayah window measured only the remaining words — and the
+    // two-word tail alone passed. This is the hole the reset closes: the
+    // window is correct for ordinary mid-ayah splits, but a correction retry
+    // must be judged from word 1.
+    const result = follow(at(2, { expectedWordIndex: 3 }), "رب العالمين");
+
+    expect(result.reason).toBe("ayah_completed");
+    expect(result.shouldAdvance).toBe(true);
+  });
+
+  it("a genuinely complete retry still advances with the pointer at word 1", () => {
+    const result = follow(at(2, { expectedWordIndex: 1 }), "الحمد لله رب العالمين");
+
+    expect(result.reason).toBe("ayah_completed");
+    expect(result.shouldAdvance).toBe(true);
+  });
+});

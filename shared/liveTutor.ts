@@ -1,7 +1,7 @@
 import type { SupportedLanguageCode } from "./languages";
 import type { LiveListeningDirective } from "./liveRecitation";
 import { TUTOR_INTENTS, type TutorIntent } from "./tutorConversation";
-import type { VerseFollowingResult } from "./verseFollowing";
+import type { VerseFollowingReason, VerseFollowingResult } from "./verseFollowing";
 import type {
   CorrectionSessionSnapshot,
   FocusedWordResult,
@@ -233,7 +233,15 @@ function nextChannelFor(
   }
   if (kind === "listen" || kind === "resume-session" || kind === "wait") return "keep-listening";
   if (kind === "hold-uncertain") {
-    return session.activeCorrection ? "listen-for-target-word" : "keep-listening";
+    // The reopen scope follows the correction stage, exactly like resume: a
+    // learner who owes the full ayah must not be dropped into a word turn,
+    // and a learner who owes the word must not be asked for the ayah. A
+    // scope mismatch is rejected by the trusted route and would stall the
+    // lesson, so this mirrors the resume-session check above.
+    if (session.activeCorrection) {
+      return session.activeCorrection.stage === "recite-ayah" ? "listen-for-full-ayah" : "listen-for-target-word";
+    }
+    return "keep-listening";
   }
   return "wait";
 }
@@ -421,6 +429,13 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
           activeCorrection: correction,
           attemptsOnCurrentAyah: evidence.verseFollowing.attemptsOnCurrentAyah,
           hintLevel: 0,
+          // The learner was asked for the FULL ayah, from its first word. The
+          // word pointer left over from the miss (e.g. 3 after missing word 3)
+          // must not survive: followRecitation's resume-mid-ayah window would
+          // otherwise let a suffix-only attempt ("words 3-4 of 4") score full
+          // coverage and complete the ayah without words 1-2 ever being
+          // recited. A one-word correction never means the ayah is complete.
+          expectedWordIndex: 1,
         },
         "ask-full-ayah",
         "target-recognised",
@@ -503,9 +518,14 @@ function applyRecitation(session: LiveTutorSession, evidence: TutorRecitationEvi
     );
   }
   if (follow.evidence === "none" || follow.evidence === "weak" || follow.state === "uncertain") {
+    // While the learner still owes the full ayah after a correction, the
+    // lesson is still "recite the ayah": dropping to "waiting" would erase the
+    // pending instruction from the panel. The plan still speaks the
+    // uncertainty first, then restates the full-ayah requirement.
+    const stillOwesAyah = session.activeCorrection?.stage === "recite-ayah";
     return transition(
       session,
-      { phase: "waiting", attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah },
+      { phase: stillOwesAyah ? "recite-ayah" : "waiting", attemptsOnCurrentAyah: follow.attemptsOnCurrentAyah },
       "hold-uncertain",
       "recitation-uncertain",
       "uncertain",
@@ -557,4 +577,59 @@ export function traceLiveTutorTurn(event: LiveTutorEvent | null, turn: LiveTutor
     ayah: turn.session.ayah,
     targetWordIndex: turn.action.targetWordIndex,
   };
+}
+
+/**
+ * The single authoritative result of one tutor turn.
+ *
+ * Produced server-side from the turn the engine already decided and attached
+ * to the response. The panel, Tutor speech, Teacher Notes, progression, and
+ * the evaluator display all derive from this one value instead of each
+ * re-interpreting the evidence — so they cannot disagree about whether an
+ * attempt succeeded. A null outcome means "no verdict": the turn carried no
+ * recitation judgement (a pause, a repeat, a rejection), and surfaces keep
+ * their neutral phase-derived rendering rather than inventing one.
+ */
+export type TutorRecitationOutcome =
+  | "accepted"
+  | "correction_required"
+  | "insufficient_evidence"
+  | "retry"
+  | "ambiguous"
+  | "stopped";
+
+export function recitationOutcome(
+  turn: Pick<LiveTutorTurn, "session" | "action" | "accepted">,
+  verseFollowingReason?: VerseFollowingReason | null,
+): TutorRecitationOutcome | null {
+  if (!turn.accepted) return null;
+  const { session, action } = turn;
+  if (session.phase === "stopped" || action.kind === "end-session") return "stopped";
+  if (action.kind === "complete-session") return "accepted";
+  if (action.kind === "continue-recitation") {
+    // canAdvance is only ever set on ayah-completed; the reason check makes
+    // the success signal explicit rather than trusting the flag alone.
+    return action.reason === "ayah-completed" && action.canAdvance ? "accepted" : "retry";
+  }
+  if (
+    action.kind === "play-target-word" ||
+    action.kind === "ask-target-word" ||
+    action.kind === "ask-full-ayah"
+  ) {
+    return "correction_required";
+  }
+  if (action.kind === "hold-uncertain") {
+    // The attempt fit a neighbouring ayah better than the expected one: not
+    // a hearing failure, a position ambiguity. Either way nothing advances.
+    return verseFollowingReason === "previous_ayah_repeated" ||
+      verseFollowingReason === "next_ayah_started_early"
+      ? "ambiguous"
+      : "insufficient_evidence";
+  }
+  if (action.kind === "offer-hint" || action.kind === "show-hint") {
+    return session.activeCorrection ? "correction_required" : "retry";
+  }
+  // listen, wait, pause-session, resume-session, refresh-session,
+  // repeat-current-instruction: no recitation verdict was reached.
+  return null;
 }

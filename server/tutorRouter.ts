@@ -113,6 +113,19 @@ export function getTrustedTutorSession(reference: TutorSessionReference): TutorS
 }
 
 /** Internal bridge only: no public schema accepts this evidence object. */
+/**
+ * The word pointer the authoritative evaluation boundary feeds to
+ * followRecitation. While the learner owes the full ayah after a correction,
+ * the pointer is forced to the ayah's first word: the engine resets it on the
+ * word-recognised transition, but every other path into recite-ayah
+ * (from-beginning and continue intents, partial retries) funnels through the
+ * same boundary, and a stale pointer would let the resume-mid-ayah window
+ * complete the ayah from a suffix-only attempt.
+ */
+export function authoritativeRecitationWordIndex(session: LiveTutorSession): number {
+  return session.activeCorrection?.stage === "recite-ayah" ? 1 : session.expectedWordIndex;
+}
+
 export function applyTrustedTutorRecitation(
   reference: TutorSessionReference,
   attempt: TrustedTutorRecitation,

@@ -888,6 +888,7 @@ describe("recitation.evaluateWithTutor", () => {
     });
     expect(lost).toEqual({
       recitation: null,
+      outcome: null,
       tutor: {
         status: "lost",
         accepted: false,

@@ -148,6 +148,35 @@ export type ClientValidationEventType =
   | "client.event"
   | "note";
 
+/**
+ * Client-side pipeline instrumentation, carried on the generic `client.event`
+ * channel. Numeric only — no raw audio, no transcripts — per the ledger
+ * policy. These exist so a real-device run can distinguish the three failure
+ * classes: CAPTURE (the mic/VAD never delivered audio), TRANSCRIPTION (audio
+ * arrived but Whisper failed), and MATCHING/DECISION (the server abstained on
+ * weak evidence, working as designed).
+ */
+export type ClientInstrumentationKind =
+  /** One coach TTS step: how it resolved and how long it was audible. */
+  | "tts.step"
+  /** A VAD turn opened: the room the detector thinks it is in. */
+  | "vad.turnOpened"
+  /** A VAD turn ended: why, and how much voice it held. */
+  | "vad.turnEnded"
+  /** A captured turn settled: what the recorder actually produced. */
+  | "capture.turnSettled"
+  /** The live interim stream gave up after bounded retries. */
+  | "interim.abandoned";
+
+/** How one coach TTS step resolved. `display` is a shown-only sentence. */
+export type TtsStepResolution = "onend" | "onerror" | "backstop" | "silent-immediate" | "display";
+
+/** Additive instrumentation callback for hooks. Ignored when unset. */
+export type ClientInstrumentFn = (
+  kind: ClientInstrumentationKind | "mic.reopened",
+  details: Record<string, unknown>,
+) => void;
+
 export type ClientValidationEvent = {
   seq: number;
   t: string;
@@ -206,8 +235,20 @@ export function createClientValidationLog(opts: { runId: string; correlationId?:
     recordMicReopened(
       scope?: string,
       recordOpts: { attemptId?: string | null; correlationId?: string | null } = {},
+      extraDetails: Record<string, unknown> = {},
     ) {
-      return record("mic.reopened", scope ? { scope } : {}, recordOpts);
+      return record("mic.reopened", { ...(scope ? { scope } : {}), ...extraDetails }, recordOpts);
+    },
+    /**
+     * Generic pipeline instrumentation on the `client.event` channel. Numeric
+     * only — callers must not put audio, transcripts, or PII in `details`.
+     */
+    recordInstrumentation(
+      kind: ClientInstrumentationKind,
+      details: Record<string, unknown> = {},
+      recordOpts: { attemptId?: string | null; correlationId?: string | null } = {},
+    ) {
+      return record("client.event", { kind, ...details }, recordOpts);
     },
     /**
      * Records the SERVER's held position from a live stream snapshot carried

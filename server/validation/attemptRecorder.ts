@@ -10,7 +10,9 @@
  * - A false correction on a known-correct sample is a SERIOUS safety issue.
  * - Raw transcripts are never written to the ledger (word indexes only).
  */
-import { ValidationLedger, type RecordOptions } from "./validationRun";
+import { ValidationLedger, classifyAttemptFailure, type RecordOptions } from "./validationRun";
+
+export type TranscriptionOutcome = "ok" | "failed" | "timeout";
 
 export type SampleAttemptSummary = {
   sampleId: string;
@@ -34,6 +36,19 @@ export type SampleAttemptSummary = {
   abstentionReason: string | null;
   /** Stage latencies in ms (transcription, acoustic, alignment, decision, total). */
   latenciesMs: Record<string, number | undefined>;
+  /**
+   * Three-class instrumentation (numeric only — no audio, no transcripts).
+   * Optional so older callers keep working; included in `attempt.completed`
+   * when present.
+   */
+  /** How the transcription call itself resolved, and how long it took. */
+  transcription?: { outcome: TranscriptionOutcome; latencyMs: number };
+  /** Whisper's own diagnostics: mean no_speech_prob and clip duration. */
+  whisper?: { noSpeechProbMean: number | null; durationSec: number };
+  /** What the client sent: byte count and container, never the bytes. */
+  audio?: { bytes: number; mimeType: string };
+  /** Word count of the transcript. A count, never the words. */
+  transcriptWordCount?: number;
 };
 
 /** Teacher decision kinds that constitute a learner correction. */
@@ -93,6 +108,20 @@ export function recordSampleAttempt(
       shouldAdvance: summary.verseFollowingShouldAdvance,
       latenciesMs: summary.latenciesMs,
       audioDerived,
+      // Three-class instrumentation, when the caller supplied it. The label is
+      // diagnostic: it describes what already happened and never gates
+      // release behavior.
+      ...(summary.transcription ? { transcription: { ...summary.transcription } } : {}),
+      ...(summary.whisper ? { whisper: { ...summary.whisper } } : {}),
+      ...(summary.audio ? { audio: { ...summary.audio } } : {}),
+      ...(summary.transcriptWordCount !== undefined ? { transcriptWordCount: summary.transcriptWordCount } : {}),
+      failureClass: classifyAttemptFailure({
+        transcriptionOutcome: summary.transcription?.outcome,
+        noSpeechProbMean: summary.whisper?.noSpeechProbMean,
+        durationSec: summary.whisper?.durationSec,
+        transcriptWordCount: summary.transcriptWordCount,
+        verseFollowingReason: summary.verseFollowingReason,
+      }),
     },
     recordOpts,
   );
