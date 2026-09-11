@@ -13,6 +13,7 @@
     "format": "prettier --write .",
     "test": "node scripts/run-vitest.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
+    "smoke:deployed": "node scripts/smoke-deployed.mjs",
     "benchmark:recitation": "tsx scripts/recitation-benchmark.ts",
     "audit:production": "pnpm audit --prod --audit-level=moderate",
     "verify:qaida": "tsx scripts/verify-qaida-quran.ts",
