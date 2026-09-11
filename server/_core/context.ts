@@ -1,11 +1,18 @@
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
+import { generateRequestId } from "./requestId";
 
 export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  /**
+   * Request correlation ID. Always set for HTTP requests (the
+   * requestIdMiddleware runs before tRPC); optional so direct callers in
+   * tests are unaffected.
+   */
+  requestId?: string;
 };
 
 export async function createContext(
@@ -24,5 +31,6 @@ export async function createContext(
     req: opts.req,
     res: opts.res,
     user,
+    requestId: opts.req.requestId ?? generateRequestId(),
   };
 }

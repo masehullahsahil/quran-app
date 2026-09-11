@@ -98,3 +98,148 @@ Not production-verified / launch blockers:
 6. Distributed `recitation.evaluate` rate limiting requires the production Redis/REST rate-limit store variables above; automated tests verify the abstraction and fallback behavior, not an externally provisioned store.
 7. OpenAI project budgets, usage alerts, and any hard provider spending caps must be configured and verified in the OpenAI dashboard by the deployment owner.
 
+## Production operations: health, config, logging, correlation, smoke tests
+
+Added after PR #62. This section covers the operational surface for the
+deployed app. It changes no Quran-learning behavior: no alignment, scoring,
+tajweed, curriculum, or live-recitation logic was touched.
+
+### Health endpoint
+
+`GET /api/health` (registered in `server/_core/app.ts`, routed to the
+serverless function via `vercel.json`).
+
+Response shape (all fields safe to expose):
+
+```json
+{
+  "status": "healthy",
+  "service": "quran-reading-experience",
+  "build": { "commit": "<VERCEL_GIT_COMMIT_SHA or unknown>", "vercelEnv": "<VERCEL_ENV or unknown>" },
+  "environment": "<NODE_ENV or unknown>",
+  "timestamp": "2026-09-11T00:00:00.000Z",
+  "uptimeSeconds": 123,
+  "config": { "valid": true, "errors": 0, "warnings": 1 },
+  "checks": [
+    { "name": "database", "status": "up", "critical": true, "latencyMs": 42 },
+    { "name": "authentication", "status": "configured", "critical": true },
+    { "name": "quranContentApi", "status": "up", "critical": false, "latencyMs": 310 },
+    { "name": "acousticEvaluator", "status": "not_configured", "critical": false },
+    { "name": "transcription", "status": "configured", "critical": false }
+  ]
+}
+```
+
+Service states: `up` / `down` for probed services (database `SELECT 1`,
+HTTP reachability of the Quran content API and the acoustic evaluator),
+`configured` / `not_configured` for presence checks that are never probed
+(auth variables, OpenAI key — no spend is ever triggered by the health
+endpoint).
+
+### Health states
+
+- `healthy` — every critical check passes. Optional services may be down or
+  unconfigured without changing this.
+- `degraded` — a critical check is down/not configured, or required
+  configuration is missing. The app still responds; HTTP status stays 200
+  and the state is carried in the body.
+- `unavailable` — the health handler itself failed (HTTP 503 with a
+  correlation ID). Reserved for "we could not even answer".
+
+Critical vs optional: the database and authentication configuration are
+critical (the signed-in learner-persistence flow needs them). The Quran
+content API, acoustic evaluator, and transcription are optional — a
+temporary failure there surfaces per-service but never makes the whole site
+look offline. The existing tRPC `system.health` query is unchanged and
+remains a trivial liveness probe.
+
+The endpoint never exposes secrets, tokens, passwords, connection strings,
+raw environment-variable values, or user information.
+
+### Configuration validation
+
+`server/_core/config.ts` exports `validateConfig(env)`, a pure,
+deterministic function (fully unit-tested, no live services):
+
+- required: `DATABASE_URL`, `JWT_SECRET`, `OAUTH_SERVER_URL`,
+  `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID`;
+- optional: `OPENAI_API_KEY` (+ base URL/timeouts), `QURAN_API_BASE_URL`,
+  analytics pair, forge variables — safe to omit;
+- feature-specific: `QURAN_EVALUATOR_URL`/`QURAN_EVALUATOR_API_KEY`
+  (acoustic evaluation), `RECITATION_RATE_LIMIT_REDIS_REST_URL` +
+  `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` (distributed rate limiting),
+  `VITE_ANALYTICS_ENDPOINT` + `VITE_ANALYTICS_WEBSITE_ID` (analytics).
+  Half-configured pairs produce warnings; out-of-range numeric timeouts
+  warn and fall back to defaults.
+
+Findings name the variable and the problem only — values are never printed.
+The long-running server (`server/_core/index.ts`) validates at startup,
+logs a structured summary, and exits non-zero in production when required
+variables are missing (development only warns, so local tooling keeps
+working). On Vercel the same report feeds the health endpoint's `config`
+section. `LOG_LEVEL` (`debug`/`info`/`warn`/`error`, default `debug`) is
+the only logging knob.
+
+### Correlation IDs
+
+`server/_core/requestId.ts` assigns every request an `x-request-id`
+(`req_<nanoid>`), returned as a response header on all routes. A
+client-supplied ID is honored only if it matches a strict safe pattern
+(prevents header/log injection); otherwise a fresh ID is generated. The ID
+flows into the tRPC context, the structured logs, the tRPC error formatter
+(`error.data.correlationId`), and the Express error handler, so an error
+shown in the browser can be traced through server logs. Error responses
+carry stable codes and safe messages — never stack traces.
+
+### Logging behavior
+
+`server/_core/logger.ts` is a dependency-free JSON-lines logger. Each entry
+has `timestamp`, `level`, `subsystem`, `message`, and optional `operation`,
+`requestId`, `status`, `errorCategory`, `details`. Errors go to stderr,
+everything else to stdout. It is used by the health endpoint, config
+validation, request lifecycle, and the tRPC/Express error handlers.
+
+Never logged: audio recordings, transcripts, auth tokens, passwords,
+secrets, connection strings, cookies, raw request bodies, or unnecessary
+personal data. The existing `console.*` calls elsewhere were deliberately
+left as-is to keep this change behavior-neutral.
+
+### Smoke test
+
+```sh
+SMOKE_BASE_URL=https://<your-app>.vercel.app pnpm smoke:deployed
+```
+
+`scripts/smoke-deployed.mjs` runs read-only checks against the deployed
+app: homepage/app shell (`/`), SPA fallback route (`/curriculum-audit`),
+`/api/health` (valid report + `x-request-id` header + no leak markers),
+the public tRPC `system.health` query (proves `/api/trpc` routing), a
+static curriculum asset (`/audio/letters/alif.mp3`), and a safe 404 for an
+unknown API path. Every check asserts its expected HTTP code; any failure
+exits non-zero.
+
+What it verifies: the deployment serves the app, client routing works, the
+serverless function is alive, health reporting works, static assets
+resolve, and (on Vercel only) unknown API paths return the platform 404.
+
+What it intentionally does NOT test: OAuth sign-in callbacks,
+protected/authenticated tRPC procedures, or any write path (no progress
+submission, no user-record changes, no messages, no memorization-history
+or curriculum changes). Those need real credentials and are excluded so
+the harness can never alter user data or weaken authentication.
+
+### Troubleshooting workflow
+
+1. `curl -i $APP_URL/api/health` — note `status` and the `x-request-id`
+   response header.
+2. If `degraded`, read `checks[]`: a critical `down`/`not_configured`
+   entry names the subsystem; `config.errors` counts missing required
+   variables (names only — check the deployment's env settings).
+3. Optional services `down` while `status` is `healthy`: expected during
+   third-party outages; the app keeps serving from cache/fallbacks.
+4. For a user-visible error: take the correlation ID from the error
+   response (or the `x-request-id` header) and search server logs for
+   `"requestId":"<id>"` to find the matching structured entries.
+5. Re-run `pnpm smoke:deployed` after any deploy or config change; it is
+   read-only and safe to run repeatedly.
+

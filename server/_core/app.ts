@@ -11,12 +11,15 @@
  * The dev-only wiring stays in `_core/index.ts`, which the serverless entry
  * never touches.
  */
-import express, { type Express } from "express";
+import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
+import { registerHealthEndpoint } from "./health";
+import { requestIdMiddleware } from "./requestId";
+import { logger } from "./logger";
 import { REQUEST_BODY_LIMIT_BYTES } from "@shared/recording";
 
 /**
@@ -29,11 +32,52 @@ import { REQUEST_BODY_LIMIT_BYTES } from "@shared/recording";
  */
 const JSON_BODY_LIMIT = `${REQUEST_BODY_LIMIT_BYTES}b`;
 
+/**
+ * Final error handler for non-tRPC routes (health, OAuth, storage proxy,
+ * body-parser failures). Returns a stable error code, a safe user-facing
+ * message, and the correlation ID — never a stack trace or internals.
+ */
+function safeErrorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
+  const statusRaw = (err as { status?: unknown; statusCode?: unknown }).status
+    ?? (err as { statusCode?: unknown }).statusCode;
+  const status = typeof statusRaw === "number" && statusRaw >= 400 && statusRaw < 600 ? statusRaw : 500;
+  const requestId = req.requestId;
+
+  logger.error({
+    subsystem: "http",
+    operation: `${req.method} ${req.path}`,
+    requestId,
+    status: "error",
+    errorCategory: status >= 500 ? "INTERNAL_ERROR" : "CLIENT_ERROR",
+    message: status >= 500 ? "request failed" : "request rejected",
+    details: { httpStatus: status },
+  });
+
+  if (res.headersSent) return;
+  res.status(status).json({
+    error: {
+      code: status === 400 ? "BAD_REQUEST" : status === 404 ? "NOT_FOUND" : "INTERNAL_ERROR",
+      message:
+        status >= 500
+          ? "Something went wrong on our side. Please try again."
+          : "The request could not be processed.",
+      correlationId: requestId ?? null,
+    },
+  });
+}
+
 export function createApp(): Express {
   const app = express();
 
+  // Correlation first: every request (even rejected ones) gets an ID.
+  app.use(requestIdMiddleware);
+
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(express.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
+
+  // Production health endpoint. Registered before other routes so it is
+  // never shadowed by a catch-all (see _core/vite.ts in local mode).
+  registerHealthEndpoint(app);
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
@@ -43,8 +87,21 @@ export function createApp(): Express {
     createExpressMiddleware({
       router: appRouter,
       createContext,
+      onError: ({ error, path, ctx }) => {
+        logger.error({
+          subsystem: "trpc",
+          operation: path ?? "unknown",
+          requestId: ctx?.requestId,
+          status: "error",
+          errorCategory: error.code,
+          message: `tRPC ${path ?? "unknown"} failed: ${error.code}`,
+        });
+      },
     }),
   );
+
+  // Safe error responses for everything else.
+  app.use(safeErrorHandler);
 
   return app;
 }

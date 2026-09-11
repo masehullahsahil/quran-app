@@ -53,6 +53,11 @@ jobs:
       - name: Smoke test production shell
         run: pnpm smoke:production
 
+      - name: Check deployed smoke-test script syntax
+        # node --check only parses the script; it never runs it, so CI stays
+        # independent of any live deployment or third-party service.
+        run: node --check scripts/smoke-deployed.mjs
+
       - name: Verify production readiness
         run: pnpm verify:production-readiness
 

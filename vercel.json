@@ -9,6 +9,7 @@
     }
   },
   "rewrites": [
+    { "source": "/api/health", "destination": "/api/index" },
     { "source": "/api/trpc/:path*", "destination": "/api/index" },
     { "source": "/api/oauth/:path*", "destination": "/api/index" },
     { "source": "/manus-storage/:path*", "destination": "/api/index" },
