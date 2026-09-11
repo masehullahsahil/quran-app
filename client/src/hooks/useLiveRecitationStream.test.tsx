@@ -99,6 +99,28 @@ async function flushAttempt() {
   });
 }
 
+/**
+ * Wait until the first attempt is actually in flight.
+ *
+ * `sendInterim` encodes the blob through `FileReader`, whose completion is
+ * driven by real timers that `vi.useFakeTimers()` does not govern — so under
+ * load the first attempt may not have started after a single microtask flush.
+ * Starting the bounded retry loop before the first attempt is in flight
+ * desynchronises the loop from the hook's real attempt count and the
+ * abandonment never fires (flaky `expected [] to have a length of 1`).
+ * Polling `awaitingAnswer` — set synchronously when an attempt is dispatched
+ * and held through its retries — keeps the loop aligned with reality.
+ * Bounded: if the attempt never starts the test fails on its assertions
+ * instead of hanging.
+ */
+async function waitForFirstAttempt() {
+  for (let i = 0; i < 50 && !latest?.awaitingAnswer; i += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   latest = null;
@@ -132,6 +154,9 @@ describe("interim stream abandonment", () => {
     await act(async () => {
       latest?.sendInterim(chunk());
     });
+    // The FileReader encoding inside sendInterim is real async work; wait for
+    // the first attempt to be in flight before driving the retry loop.
+    await waitForFirstAttempt();
 
     // First send fails, then each bounded retry fails the same way.
     for (let attempt = 0; attempt < LIVE_RETRY.maxAttempts; attempt += 1) {
@@ -159,6 +184,9 @@ describe("interim stream abandonment", () => {
     await act(async () => {
       latest?.sendInterim(chunk());
     });
+    // Wait for the first attempt to be in flight so the single retry below is
+    // a real retry, not a vacuous pass before anything was sent.
+    await waitForFirstAttempt();
 
     // One failed attempt and one retry: not abandoned yet.
     await flushAttempt();
