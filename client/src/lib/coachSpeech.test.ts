@@ -41,6 +41,11 @@ beforeEach(() => {
   (globalThis as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance = FakeUtterance;
 });
 
+/** `speak()` is deferred to a separate task; let it run. */
+function flushSpeak() {
+  return new Promise((resolve) => setTimeout(resolve, 10));
+}
+
 describe("the closed list of things the teacher may say", () => {
   it("refuses any key that is not on it", () => {
     // The second lock. Even a caller that believed it was passing a coaching
@@ -59,15 +64,115 @@ describe("the closed list of things the teacher may say", () => {
     expect(isSpeakableCoachKey("study.record")).toBe(false);
   });
 
-  it("says an allowed sentence and reports the voice it used", () => {
+  it("says an allowed sentence and reports the voice it used", async () => {
     const done = vi.fn();
     const outcome = speakCoaching({
       messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis, onDone: done,
     });
 
     expect(outcome).toEqual({ spoken: true, voiceLang: "en-US" });
+    // The utterance is handed to the synthesiser on a separate task, never
+    // back-to-back with cancel().
+    expect(spoken).toEqual([]);
+    await flushSpeak();
     expect(spoken).toEqual(["Now you say it."]);
     expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it("never treats {spoken: true} as audible: the utterance goes out on a later task", async () => {
+    const calls: string[] = [];
+    const tracked: SpeechLike = {
+      speak: (utterance) => {
+        calls.push("speak");
+        utterance.onend?.(new Event("end") as SpeechSynthesisEvent);
+      },
+      cancel: () => { calls.push("cancel"); },
+      getVoices: () => voices as unknown as SpeechSynthesisVoice[],
+    };
+    speakCoaching({
+      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: tracked,
+    });
+    // `speak()` itself is never synchronous anymore: a cancel() immediately
+    // followed by speak() is what swallows first utterances on iOS Safari.
+    // (This fake reports no liveness, so it is treated as unknown and still
+    // cleared — the point here is only that speak is deferred.)
+    expect(calls).toEqual(["cancel"]);
+    await flushSpeak();
+    expect(calls).toEqual(["cancel", "speak"]);
+  });
+
+  it("does not cancel a synthesiser that reports nothing playing", async () => {
+    const cancel = vi.fn();
+    const quiet: SpeechLike = {
+      speak: () => {},
+      cancel,
+      getVoices: () => voices as unknown as SpeechSynthesisVoice[],
+      speaking: false,
+      pending: false,
+    };
+    const outcome = speakCoaching({
+      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: quiet,
+    });
+    expect(outcome.spoken).toBe(true);
+    await flushSpeak();
+    expect(cancel).not.toHaveBeenCalled();
+  });
+
+  it("still clears a synthesiser that is already speaking before the new sentence", async () => {
+    const calls: string[] = [];
+    const busy: SpeechLike = {
+      speak: () => { calls.push("speak"); },
+      cancel: () => { calls.push("cancel"); },
+      getVoices: () => voices as unknown as SpeechSynthesisVoice[],
+      speaking: true,
+      pending: false,
+    };
+    speakCoaching({
+      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: busy,
+    });
+    expect(calls).toEqual(["cancel"]);
+    await flushSpeak();
+    expect(calls).toEqual(["cancel", "speak"]);
+  });
+
+  it("clears when the synthesiser does not report liveness at all", async () => {
+    // A fake without speaking/pending is unknown, never quiet: the old
+    // behavior is kept rather than risking talking over a hidden queue.
+    const cancel = vi.fn();
+    const unknown: SpeechLike = {
+      speak: () => {},
+      cancel,
+      getVoices: () => voices as unknown as SpeechSynthesisVoice[],
+    };
+    speakCoaching({
+      messageKey: "handsfree.nowYouSayIt", text: "Now you say it.", language: "en", synthesis: unknown,
+    });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    await flushSpeak();
+  });
+
+  it("reports whether the utterance ended or errored", async () => {
+    const settled: string[] = [];
+    const ending: SpeechLike = {
+      speak: (utterance) => { utterance.onend?.(new Event("end") as SpeechSynthesisEvent); },
+      cancel: () => {},
+      getVoices: () => voices as unknown as SpeechSynthesisVoice[],
+    };
+    const failing: SpeechLike = {
+      speak: (utterance) => { utterance.onerror?.(new Event("error") as SpeechSynthesisEvent); },
+      cancel: () => {},
+      getVoices: () => voices as unknown as SpeechSynthesisVoice[],
+    };
+    speakCoaching({
+      messageKey: "handsfree.nowYouSayIt", text: "One.", language: "en",
+      synthesis: ending, onUtteranceEnd: (reason) => settled.push(reason),
+    });
+    speakCoaching({
+      messageKey: "handsfree.nowYouSayIt", text: "Two.", language: "en",
+      synthesis: failing, onUtteranceEnd: (reason) => settled.push(reason),
+    });
+    await flushSpeak();
+    expect(settled).toEqual(["end", "error"]);
   });
 });
 

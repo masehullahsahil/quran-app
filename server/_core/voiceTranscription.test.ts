@@ -118,4 +118,99 @@ describe("transcribeAudio", () => {
     expect(result).toMatchObject({ code: "SERVICE_ERROR", details: "OPENAI_API_KEY is not set" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("retries once on a network failure, then succeeds", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockImplementation(stubTranscriptionFetch());
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
+
+    expect("error" in result).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries once on a timeout abort, then surfaces the failure", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const timeout = new DOMException("The operation was aborted.", "AbortError");
+    const fetchMock = vi.fn().mockRejectedValue(timeout);
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
+
+    // Bounded: exactly one retry, never an unbounded loop.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({ code: "SERVICE_ERROR" });
+  });
+
+  it("does not retry a non-network failure", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const fetchMock = vi.fn().mockRejectedValue(new Error("something else broke"));
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ code: "SERVICE_ERROR" });
+  });
+
+  it("never retries an empty transcription result", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    // A 200 with no text: an empty answer, not a network failure.
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ task: "transcribe", language: "ar", duration: 0, text: "", segments: [] }), {
+        status: 200,
+      }),
+    );
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ code: "SERVICE_ERROR" });
+  });
+});
+
+describe("summarizeWhisperResponse", () => {
+  it("reads the mean no_speech_prob across segments", async () => {
+    const { summarizeWhisperResponse } = await import("./voiceTranscription");
+    const summary = summarizeWhisperResponse({
+      task: "transcribe",
+      language: "ar",
+      duration: 2.5,
+      text: "بسم الله",
+      segments: [
+        { id: 0, seek: 0, start: 0, end: 1, text: "a", tokens: [], temperature: 0, avg_logprob: -1, compression_ratio: 1, no_speech_prob: 0.9 },
+        { id: 1, seek: 0, start: 1, end: 2.5, text: "b", tokens: [], temperature: 0, avg_logprob: -1, compression_ratio: 1, no_speech_prob: 0.7 },
+      ],
+    });
+
+    expect(summary.noSpeechProbMean).toBeCloseTo(0.8, 6);
+    expect(summary.durationSec).toBe(2.5);
+  });
+
+  it("reports null when there are no segments to read", async () => {
+    const { summarizeWhisperResponse } = await import("./voiceTranscription");
+    const summary = summarizeWhisperResponse({
+      task: "transcribe",
+      language: "ar",
+      duration: 0.4,
+      text: "",
+      segments: [],
+    });
+
+    expect(summary.noSpeechProbMean).toBeNull();
+    expect(summary.durationSec).toBe(0.4);
+  });
 });

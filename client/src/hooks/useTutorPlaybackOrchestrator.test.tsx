@@ -21,7 +21,7 @@ import React, { act } from "react";
 
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useTutorPlaybackOrchestrator, type TutorPlaybackInput } from "./useTutorPlaybackOrchestrator";
+import { useTutorPlaybackOrchestrator, SILENT_TTS_CHECK_MS, type TutorPlaybackInput } from "./useTutorPlaybackOrchestrator";
 import { HANDS_FREE_TIMING, type HandsFreePlan } from "@/lib/handsFreePlan";
 
 /* -------------------------------------------------------------- the fakes */
@@ -97,9 +97,9 @@ function baseInput(overrides: Partial<TutorPlaybackInput> = {}): TutorPlaybackIn
   };
 }
 
-function renderOrchestrator(plan: HandsFreePlan) {
+function renderOrchestrator(plan: HandsFreePlan, overrides: Partial<TutorPlaybackInput> = {}) {
   function Probe() {
-    useTutorPlaybackOrchestrator(baseInput({ plan }));
+    useTutorPlaybackOrchestrator(baseInput({ plan, ...overrides }));
     return null;
   }
   container = document.createElement("div");
@@ -192,6 +192,84 @@ describe("a trusted recording that outlasts the playback backstop", () => {
     expect(events).toContain("audio-src-removed");
     expect(events).toContain("listen:ayah");
     expect(events.indexOf("audio-pause")).toBeLessThan(events.indexOf("listen:ayah"));
+  });
+});
+
+describe("a coaching voice that swallows the utterance silently", () => {
+  it("resolves the coach step promptly instead of holding the mic closed for the full backstop", async () => {
+    // iOS Safari: speak() accepts the utterance, nothing is audible,
+    // speaking stays false, onend/onerror never fire.
+    (globalThis as { speechSynthesis?: unknown }).speechSynthesis = {
+      ...silentSynthesis,
+      speaking: false,
+      pending: false,
+    };
+    const instrumented: Array<{ kind: string; details: Record<string, unknown> }> = [];
+    const plan: HandsFreePlan = {
+      key: "s1#silent",
+      steps: [{ kind: "coach", messageKey: "handsfree.nowYouSayIt", speak: true }],
+      resume: "word",
+      terminal: false,
+    };
+    await renderOrchestrator(plan, {
+      onInstrument: (kind, details) => {
+        instrumented.push({ kind, details });
+      },
+    });
+
+    // Past the silent-voice check and the re-open beat, but far short of the
+    // 8s backstop: the step must already have resolved and the mic re-opened,
+    // or the learner recites into a closed mic and the turn is clipped.
+    await act(async () => {
+      vi.advanceTimersByTime(SILENT_TTS_CHECK_MS + 100);
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(HANDS_FREE_TIMING.resumeDelayMs + 50);
+    });
+
+    expect(events).toContain("listen:word");
+    // The backstop never fired: only the silent-step cancel ran.
+    expect(events.filter((event) => event === "synth-cancel")).toHaveLength(1);
+
+    const tts = instrumented.find((event) => event.kind === "tts.step");
+    expect(tts?.details).toMatchObject({
+      key: "handsfree.nowYouSayIt",
+      spoken: true,
+      resolvedBy: "silent-immediate",
+    });
+    expect(tts?.details.audibleMs).toBeLessThan(HANDS_FREE_TIMING.playbackTimeoutMs);
+
+    const reopened = instrumented.find((event) => event.kind === "mic.reopened");
+    expect(reopened?.details).toMatchObject({ scope: "word" });
+    expect(reopened?.details.msSincePlaybackEnd).toBeLessThan(HANDS_FREE_TIMING.playbackTimeoutMs);
+  });
+
+  it("leaves the backstop in place when the platform does not report liveness", async () => {
+    // speaking is unknown (no field): the step must NOT resolve early, or a
+    // voice that was merely slow to start would be cut off.
+    (globalThis as { speechSynthesis?: unknown }).speechSynthesis = silentSynthesis;
+    const instrumented: Array<{ kind: string; details: Record<string, unknown> }> = [];
+    const plan: HandsFreePlan = {
+      key: "s1#unknown",
+      steps: [{ kind: "coach", messageKey: "handsfree.nowYouSayIt", speak: true }],
+      resume: "word",
+      terminal: false,
+    };
+    await renderOrchestrator(plan, {
+      onInstrument: (kind, details) => {
+        instrumented.push({ kind, details });
+      },
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(SILENT_TTS_CHECK_MS + 100);
+    });
+    expect(events.filter((event) => event.startsWith("listen:"))).toEqual([]);
+
+    await runPastBackstop();
+    expect(events).toContain("listen:word");
+    const tts = instrumented.find((event) => event.kind === "tts.step");
+    expect(tts?.details).toMatchObject({ spoken: true, resolvedBy: "backstop" });
   });
 });
 

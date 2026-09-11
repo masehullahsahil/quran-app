@@ -336,3 +336,200 @@ describe("hints and future timing events", () => {
     });
   });
 });
+
+import {
+  inconsistentLiveTutorTurn,
+  recitationOutcome,
+  type LiveTutorTurn,
+} from "./liveTutor";
+import type { VerseFollowingReason } from "./verseFollowing";
+
+describe("correction state machine — the full ayah is required after a correction", () => {
+  /** Session after the missed word was recognised: the engine asked for the full ayah. */
+  function reciteAyahSession(): LiveTutorSession {
+    const correction = enterCorrection();
+    const wordTurn = applyLiveTutorEvent(correction.session, { type: "recitation", evidence: correctedWord("recognised") });
+    expect(wordTurn.action.kind).toBe("ask-full-ayah");
+    return wordTurn.session;
+  }
+
+  /** A retry that is too weak to judge: only the corrected word was said. */
+  function weakAyahRetry(): TutorRecitationEvidence {
+    return ayahEvidence({
+      verseFollowing: follow({
+        state: "uncertain",
+        evidence: "weak",
+        reason: "too_little_evidence",
+        correctionFocus: null,
+        expectedWordIndex: 1,
+      }),
+      correctionSession: null,
+    });
+  }
+
+  it("resets the word pointer when the word is recognised, so the retry is judged as a full ayah (T3)", () => {
+    const correction = enterCorrection();
+    // The miss left the pointer on the missed word.
+    expect(correction.session.expectedWordIndex).toBe(3);
+    const wordTurn = applyLiveTutorEvent(correction.session, { type: "recitation", evidence: correctedWord("recognised") });
+    expect(wordTurn.action.kind).toBe("ask-full-ayah");
+    expect(wordTurn.session.phase).toBe("recite-ayah");
+    // Asking for the full ayah resets the pointer to the first word: a later
+    // attempt is measured against the whole ayah, never a leftover window.
+    expect(wordTurn.session.expectedWordIndex).toBe(1);
+  });
+
+  it("a word-only retry never advances and keeps the full-ayah requirement (T1)", () => {
+    const session = reciteAyahSession();
+    const turn = applyLiveTutorEvent(session, { type: "recitation", evidence: weakAyahRetry() });
+
+    expect(turn.action.kind).toBe("hold-uncertain");
+    expect(turn.action.canAdvance).toBe(false);
+    expect(turn.session.ayah).toBe(2);
+    // The lesson still owes the full ayah: phase, correction and the scope the
+    // mic reopens in all say so.
+    expect(turn.session.phase).toBe("recite-ayah");
+    expect(turn.session.activeCorrection?.stage).toBe("recite-ayah");
+    expect(turn.action.nextChannel).toBe("listen-for-full-ayah");
+  });
+
+  it("a correct full-ayah retry advances and clears the correction (T2)", () => {
+    const session = reciteAyahSession();
+    const turn = applyLiveTutorEvent(session, { type: "recitation", evidence: completedAyahEvidence() });
+
+    expect(turn.action.kind).toBe("continue-recitation");
+    expect(turn.action.canAdvance).toBe(true);
+    expect(turn.session.ayah).toBe(3);
+    expect(turn.session.activeCorrection).toBeNull();
+  });
+
+  it("hold-uncertain reopens the mic in the word scope while the word is still owed (T5 control)", () => {
+    const correction = enterCorrection();
+    const turn = applyLiveTutorEvent(correction.session, { type: "recitation", evidence: correctedWord("unknown") });
+
+    expect(turn.action.kind).toBe("hold-uncertain");
+    expect(turn.action.nextChannel).toBe("listen-for-target-word");
+  });
+});
+
+describe("recitationOutcome — one authoritative verdict per turn", () => {
+  function verdict(turn: LiveTutorTurn, reason: VerseFollowingReason | null = null) {
+    return recitationOutcome({ session: turn.session, action: turn.action, accepted: turn.accepted }, reason);
+  }
+
+  function reciteAyahSession(): LiveTutorSession {
+    const correction = enterCorrection();
+    return applyLiveTutorEvent(correction.session, { type: "recitation", evidence: correctedWord("recognised") }).session;
+  }
+
+  function weakAyahRetry(): TutorRecitationEvidence {
+    return ayahEvidence({
+      verseFollowing: follow({
+        state: "uncertain",
+        evidence: "weak",
+        reason: "too_little_evidence",
+        correctionFocus: null,
+        expectedWordIndex: 1,
+      }),
+      correctionSession: null,
+    });
+  }
+
+  it("accepted only when an ayah completed with advancement", () => {
+    const turn = applyLiveTutorEvent(reciteAyahSession(), { type: "recitation", evidence: completedAyahEvidence() });
+    expect(verdict(turn)).toBe("accepted");
+  });
+
+  it("correction_required while a correction is open", () => {
+    const correction = enterCorrection();
+    expect(verdict(correction)).toBe("correction_required");
+    const wordTurn = applyLiveTutorEvent(correction.session, { type: "recitation", evidence: correctedWord("recognised") });
+    expect(verdict(wordTurn)).toBe("correction_required");
+  });
+
+  it("insufficient_evidence for an uncertain turn, never accepted", () => {
+    const turn = applyLiveTutorEvent(reciteAyahSession(), { type: "recitation", evidence: weakAyahRetry() });
+    expect(verdict(turn)).toBe("insufficient_evidence");
+    expect(turn.action.canAdvance).toBe(false);
+  });
+
+  it("ambiguous when the weak attempt fit a neighbouring ayah", () => {
+    const turn = applyLiveTutorEvent(reciteAyahSession(), { type: "recitation", evidence: weakAyahRetry() });
+    expect(verdict(turn, "previous_ayah_repeated")).toBe("ambiguous");
+    expect(verdict(turn, "next_ayah_started_early")).toBe("ambiguous");
+    // Without a neighbour reason the same turn is uncertain, not ambiguous.
+    expect(verdict(turn, "too_little_evidence")).toBe("insufficient_evidence");
+  });
+
+  it("retry for partial progress with no correction open", () => {
+    const turn = applyLiveTutorEvent(started(), {
+      type: "recitation",
+      evidence: ayahEvidence({
+        verseFollowing: follow({ reason: "partial_progress", evidence: "partial", correctionFocus: null }),
+        correctionSession: null,
+      }),
+    });
+    expect(turn.action.kind).toBe("continue-recitation");
+    expect(verdict(turn)).toBe("retry");
+  });
+
+  it("stopped for a stopped lesson, never a success", () => {
+    const stopped = applyLiveTutorEvent(started(), { type: "intent", intent: "stop" });
+    expect(verdict(stopped)).toBe("stopped");
+  });
+
+  it("null for a rejected turn: no verdict, never a stale success", () => {
+    const rejected = inconsistentLiveTutorTurn(started());
+    expect(rejected.accepted).toBe(false);
+    expect(verdict(rejected)).toBeNull();
+  });
+
+  it("null for non-verdict turns such as a pause", () => {
+    const paused = applyLiveTutorEvent(started(), { type: "intent", intent: "pause" });
+    expect(verdict(paused)).toBeNull();
+  });
+});
+
+describe("tutor/evaluator agreement invariant", () => {
+  it("the verdict signals success exactly when the turn advances or completes the surah", () => {
+    const weakRetry = (): TutorRecitationEvidence =>
+      ayahEvidence({
+        verseFollowing: follow({
+          state: "uncertain",
+          evidence: "weak",
+          reason: "too_little_evidence",
+          correctionFocus: null,
+          expectedWordIndex: 1,
+        }),
+        correctionSession: null,
+      });
+
+    const correction = enterCorrection();
+    const wordOk = applyLiveTutorEvent(correction.session, { type: "recitation", evidence: correctedWord("recognised") });
+    const reciteSession = wordOk.session;
+    const turns = [
+      correction,
+      wordOk,
+      // A word-only attempt during the full-ayah correction.
+      applyLiveTutorEvent(reciteSession, { type: "recitation", evidence: weakRetry() }),
+      // A supported full-ayah retry.
+      applyLiveTutorEvent(reciteSession, { type: "recitation", evidence: completedAyahEvidence() }),
+      // The learner stops instead of retrying.
+      applyLiveTutorEvent(reciteSession, { type: "intent", intent: "stop" }),
+      // A rejected turn carries no verdict at all.
+      inconsistentLiveTutorTurn(reciteSession),
+    ];
+
+    for (const turn of turns) {
+      const outcome = recitationOutcome(
+        { session: turn.session, action: turn.action, accepted: turn.accepted },
+        null,
+      );
+      const signalsSuccess = turn.action.canAdvance || turn.action.kind === "complete-session";
+      expect(
+        { kind: turn.action.kind, outcome, signalsSuccess },
+        `verdict and advancement disagree on ${turn.action.kind}`,
+      ).toMatchObject({ outcome: signalsSuccess ? "accepted" : expect.not.stringMatching(/^accepted$/) });
+    }
+  });
+});

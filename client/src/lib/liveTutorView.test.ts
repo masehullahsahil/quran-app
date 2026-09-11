@@ -232,3 +232,35 @@ describe("a lesson the learner stopped is not a lesson that was completed", () =
     expect(describeTutorView(view).messageKey).toBe("tutor.finished");
   });
 });
+
+describe("insufficient evidence never renders as success", () => {
+  it("no phase reachable from a weak attempt shows 'Good'", () => {
+    // After an uncertain turn the engine holds in one of these phases: the
+    // panel must never congratulate the learner for an attempt the evaluator
+    // could not judge.
+    const phases: LiveTutorPhase[] = ["waiting", "recite-ayah", "correcting-word", "listening", "ready", "paused"];
+    for (const phase of phases) {
+      const view = liveTutorSessionView(
+        input({
+          session: session(phase, {
+            activeCorrection: phase === "recite-ayah" || phase === "correcting-word" ? { ...CORRECTION, stage: "recite-ayah" } : null,
+          }),
+          action: action("hold-uncertain", "recitation-uncertain"),
+        }),
+        4,
+      );
+      expect(view.state, `phase ${phase}`).not.toBe("complete");
+      expect(describeTutorView(view).messageKey, `phase ${phase}`).not.toBe("tutor.finished");
+    }
+  });
+
+  it("only a genuinely completed lesson says 'Good'", () => {
+    const phases: LiveTutorPhase[] = [
+      "ready", "listening", "correcting-word", "recite-ayah", "waiting", "paused", "stopped",
+    ];
+    for (const phase of phases) {
+      const view = liveTutorSessionView(input({ session: session(phase) }), 4);
+      expect(describeTutorView(view).messageKey, `phase ${phase}`).not.toBe("tutor.finished");
+    }
+  });
+});

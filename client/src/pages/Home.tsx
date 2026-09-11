@@ -56,7 +56,7 @@ import { StudyCorrection } from "@/components/StudyCorrection";
 import { LiveTutorPanel } from "@/components/LiveTutorPanel";
 import { useLiveTutor } from "@/hooks/useLiveTutor";
 import { attemptScopeFor, liveTutorSessionView } from "@/lib/liveTutorView";
-import type { LearnerIntent } from "@shared/liveTutor";
+import type { LearnerIntent, TutorRecitationOutcome } from "@shared/liveTutor";
 import { FINISH_TURN, type TutorControlIntent } from "@shared/tutorConversation";
 import { deriveCorrectionLesson, type AttemptScope, type RetainedTarget } from "@/lib/correctionSession";
 import type {
@@ -351,7 +351,15 @@ export default function Home() {
    * changing and the effect firing is a render that must also be safe. Hence
    * `feedback` below: derived, not stored, so there is no such frame.
    */
-  const [reviewedAttempt, setReviewedAttempt] = useState<{ surah: number; ayah: number; review: RecitationFeedback } | null>(null);
+  const [reviewedAttempt, setReviewedAttempt] = useState<{
+    surah: number;
+    ayah: number;
+    review: RecitationFeedback;
+    /** The server's single authoritative verdict for the turn that produced this review (tutor lessons). */
+    outcome: TutorRecitationOutcome | null;
+    /** Tutor session revision that produced this review; a newer tutor turn means the lesson moved on. */
+    revision: number | null;
+  } | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [learningLevel, setLearningLevel] = useState<LearningLevel>("qaida");
   const [selectedLetter, setSelectedLetter] = useState(0);
@@ -852,17 +860,21 @@ export default function Home() {
 
   const reviewRecording = async (blob: Blob, attemptScope: AttemptScope, correctionTargetAtStart?: CorrectionTarget) => {
     if (!activeVerse) return;
-    setLessonStage("review");
-    // Checked before encoding: base64 inflates the payload by a third, and a
-    // serverless host rejects an oversized body before our code can explain
-    // why. Failing here means the learner gets a recovery path instead of a dead
-    // request.
+    // Checked before the lesson stage moves: an empty capture means nothing
+    // was recorded, so there is nothing to review — the lesson stays where it
+    // was and the learner is told to try again, instead of stranding the UI in
+    // a "review" stage for an attempt that never existed.
     if (!blob.size) {
       const message = t("recorder.empty");
       setReviewError(message);
       setRecorderMessage(message);
       return;
     }
+    setLessonStage("review");
+    // Checked before encoding: base64 inflates the payload by a third, and a
+    // serverless host rejects an oversized body before our code can explain
+    // why. Failing here means the learner gets a recovery path instead of a dead
+    // request.
     if (isRecordingTooLarge(blob.size)) {
       const message = t("recorder.tooLarge", {
         size: formatMegabytes(blob.size),
@@ -901,6 +913,11 @@ export default function Home() {
        */
       const tutorReference = tutorRef.current.reference;
       let result;
+      // The server's verdict for this attempt, bound to the review as one
+      // unit: the notes below must never describe a different attempt than
+      // the one the panel just answered.
+      let attemptOutcome: TutorRecitationOutcome | null = null;
+      let attemptRevision: number | null = null;
       if (tutorReference) {
         const handoff = await evaluateWithTutor.mutateAsync({
           session: tutorReference,
@@ -923,6 +940,8 @@ export default function Home() {
           return;
         }
         result = handoff.recitation;
+        attemptOutcome = handoff.outcome ?? null;
+        attemptRevision = handoff.tutor.session?.revision ?? null;
       } else {
         result = await evaluateRecitation.mutateAsync({
           expectedArabic: activeVerse.arabic,
@@ -956,7 +975,7 @@ export default function Home() {
         focusedWordResult: rawReview.focusedWordResult ?? null,
         correctionSession: rawReview.correctionSession ?? null,
       };
-      setReviewedAttempt({ surah: surahNumber, ayah: activeVerse.number, review });
+      setReviewedAttempt({ surah: surahNumber, ayah: activeVerse.number, review, outcome: attemptOutcome, revision: attemptRevision });
       setCorrectionSession(review.correctionSession);
       if (attemptScope === "ayah") setPosition(toVerseFollowingPosition(review.verseFollowing));
       // This is the sole history write point: the recorder's finalized server
@@ -1990,6 +2009,15 @@ export default function Home() {
                   Collapsed by default, and never carrying a warning of its own. */}
               <details className="teacher-notes">
                 <summary><span>{t("notes.summary")}</span><small>{t("notes.hint")}</small></summary>
+
+                {/* The review below belongs to an earlier tutor turn when the
+                    lesson has since moved on: a stale review presented as the
+                    current attempt is how the panel and the notes ended up
+                    disagreeing. Historical findings are labeled as such. */}
+                {tutorView && reviewedAttempt && reviewedAttempt.revision !== null && tutor.turn &&
+                  tutor.turn.session.revision > reviewedAttempt.revision && (
+                  <p className="notes-block notes-previous-attempt"><small>{t("notes.previousAttempt")}</small></p>
+                )}
 
                 {studyTiers.notes.includes("observations") && <div className="notes-block notes-observed">
                   <div><span className="eyebrow">{t("notes.observedLabel")}</span></div>

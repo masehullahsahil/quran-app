@@ -455,6 +455,105 @@ export class ValidationLedger {
 }
 
 // ---------------------------------------------------------------------------
+// Three-class failure classification (diagnostic only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Provisional cutoffs for the three-class failure label below.
+ *
+ * DIAGNOSTIC ONLY. These never gate release behavior, never change what the
+ * tutor says, and never decide advancement — they only label what already
+ * happened so a human reviewer can tell a capture problem from a Whisper
+ * problem from a deliberate conservative abstention. Like every other
+ * threshold comparison in this module, they live in the report layer, labeled
+ * as provisional, revisable after the first real-device baseline.
+ */
+export const FAILURE_CLASSIFICATION_CUTOFFS = {
+  /**
+   * Mean `no_speech_prob` at or above this suggests the clip held no voice.
+   * Whisper's own number, not an app judgement.
+   */
+  highNoSpeechProb: 0.7,
+  /**
+   * A high-`no_speech_prob` clip at or below this duration is treated as
+   * capture-side: an empty or too-short chunk, a mic that never re-opened, a
+   * turn clipped before the learner began.
+   */
+  shortDurationSec: 1.0,
+  /**
+   * Minimum transcript words (count only — the ledger never keeps the words)
+   * for the matching/decision label.
+   */
+  minTranscriptWords: 2,
+} as const;
+
+/**
+ * The three failure classes a real-device run must distinguish.
+ *
+ * - `transcription-failure`: audio reached the server but Whisper failed or
+ *   timed out.
+ * - `capture-failure`: the audio itself carried no voice — the mic/VAD never
+ *   delivered the recitation.
+ * - `matching-decision`: transcription worked and the server deliberately
+ *   abstained on weak evidence. Working as designed, not a failure of the
+ *   pipeline; it is labeled so it is never misread as one.
+ */
+export type AttemptFailureClass = "transcription-failure" | "capture-failure" | "matching-decision";
+
+/**
+ * Verse-following reasons that mean the server deliberately abstained rather
+ * than risk a wrong correction or advance. Conservative by design.
+ */
+export const CONSERVATIVE_ABSTENTION_REASONS: ReadonlySet<string> = new Set([
+  "too_little_evidence",
+  "no_transcript",
+  "noisy_transcript",
+]);
+
+export type AttemptFailureInput = {
+  transcriptionOutcome?: "ok" | "failed" | "timeout";
+  noSpeechProbMean?: number | null;
+  durationSec?: number;
+  /** Word count of the transcript. A count, never the words. */
+  transcriptWordCount?: number;
+  verseFollowingReason?: string;
+};
+
+/**
+ * Labels one attempt with its failure class, or null when no rule matches.
+ *
+ * The rules, in order:
+ * 1. the transcription call did not succeed → transcription failure;
+ * 2. it succeeded but Whisper heard no voice in a short clip → capture failure;
+ * 3. it succeeded with real words and the server abstained → matching/decision.
+ */
+export function classifyAttemptFailure(input: AttemptFailureInput): AttemptFailureClass | null {
+  const { transcriptionOutcome, noSpeechProbMean, durationSec, transcriptWordCount, verseFollowingReason } = input;
+  if (transcriptionOutcome !== undefined && transcriptionOutcome !== "ok") {
+    return "transcription-failure";
+  }
+  if (transcriptionOutcome === "ok") {
+    if (
+      noSpeechProbMean !== undefined &&
+      noSpeechProbMean !== null &&
+      noSpeechProbMean >= FAILURE_CLASSIFICATION_CUTOFFS.highNoSpeechProb &&
+      durationSec !== undefined &&
+      durationSec <= FAILURE_CLASSIFICATION_CUTOFFS.shortDurationSec
+    ) {
+      return "capture-failure";
+    }
+    if (
+      (transcriptWordCount ?? 0) >= FAILURE_CLASSIFICATION_CUTOFFS.minTranscriptWords &&
+      verseFollowingReason !== undefined &&
+      CONSERVATIVE_ABSTENTION_REASONS.has(verseFollowingReason)
+    ) {
+      return "matching-decision";
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Derived-analysis types
 // ---------------------------------------------------------------------------
 

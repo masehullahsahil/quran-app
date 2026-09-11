@@ -461,6 +461,7 @@ export const strings = {
 
   // -- Study: teacher notes (secondary detail) ------------------------------
   "notes.summary": "Teacher notes",
+  "notes.previousAttempt": "This describes an earlier attempt — the lesson has moved on since.",
   "notes.observedLabel": "What this attempt showed",
   "notes.observedMissing": "Word {number} was not heard.",
   "notes.observedReview": "Word {number} came through differently.",

@@ -245,12 +245,16 @@ describe("the room", () => {
 });
 
 describe("arming and disarming", () => {
-  it("keeps the room's level across turns but nothing else", () => {
+  it("keeps the room's level across turns that closed on silence, but nothing else", () => {
     const noisy = run(armed(), 0.02, 3_000, 0);
     const spoken = run(noisy.state, VOICE, 900, noisy.at);
-    const next = armVoiceActivity(spoken.state);
+    // The turn has to actually end — on silence — for the floor to carry. A
+    // floor measured during quiet is the room; anything else is the learner.
+    const ended = run(spoken.state, QUIET, VOICE_ACTIVITY_DEFAULTS.endOfTurnSilenceMs + 200, spoken.at);
+    expect(ended.events).toContain("turn-ended");
+    const next = armVoiceActivity(disarmVoiceActivity(ended.state));
 
-    expect(next.noiseFloor).toBeCloseTo(spoken.state.noiseFloor, 6);
+    expect(next.noiseFloor).toBeCloseTo(ended.state.noiseFloor, 6);
     expect(next.voicedMs).toBe(0);
     expect(next.elapsedMs).toBe(0);
     expect(next.announced.speechStarted).toBe(false);
@@ -261,6 +265,53 @@ describe("arming and disarming", () => {
     const idle = disarmVoiceActivity(armed());
     const loud = run(idle, VOICE, 5_000, 0);
     expect(loud.events).toEqual([]);
+  });
+});
+
+describe("the noise floor after a turn that did not close on silence", () => {
+  it("re-learns the room after an interruption instead of carrying a voice-adapted floor", () => {
+    // Three seconds of recitation drive the floor up onto the voice.
+    const spoken = run(armed(), VOICE, 3_000, 0);
+    expect(spoken.state.phase).toBe("speaking");
+    expect(spoken.state.noiseFloor).toBeGreaterThan(VOICE_ACTIVITY_DEFAULTS.minNoiseFloor);
+    const carriedEnter = enterThreshold(spoken.state);
+
+    // The server interrupts mid-recitation: correction playback. The turn is
+    // disarmed while the learner is still speaking — no trailing silence.
+    const interrupted = disarmVoiceActivity(spoken.state);
+    const next = armVoiceActivity(interrupted);
+
+    expect(next.noiseFloor).toBe(VOICE_ACTIVITY_DEFAULTS.minNoiseFloor);
+    expect(enterThreshold(next)).toBeLessThan(carriedEnter);
+
+    // The word turn that follows is usually a single softly-said corrected
+    // word. Under the carried floor it would never cross the enter threshold;
+    // on the re-learnt floor it does.
+    const softWord = 0.05;
+    expect(softWord).toBeLessThan(carriedEnter);
+    expect(softWord).toBeGreaterThan(enterThreshold(next));
+    const said = run(next, softWord, 300, 0);
+    expect(said.events).toContain("speech-started");
+    expect(said.state.phase).toBe("speaking");
+  });
+
+  it("resets the floor after the safety cap ends a turn", () => {
+    const loud = run(armed(), VOICE, VOICE_ACTIVITY_DEFAULTS.maxTurnMs + 500, 0);
+    expect(loud.events).toContain("max-turn");
+    expect(loud.state.noiseFloor).toBeGreaterThan(VOICE_ACTIVITY_DEFAULTS.minNoiseFloor);
+
+    const next = armVoiceActivity(loud.state);
+    expect(next.noiseFloor).toBe(VOICE_ACTIVITY_DEFAULTS.minNoiseFloor);
+  });
+
+  it("does not reset the floor when a silence-closed turn is disarmed and re-armed", () => {
+    // The normal path: turn ends on silence, something disarms the idle
+    // detector afterwards, the next turn still inherits the room.
+    const spoken = run(armed(), VOICE, 1_200, 0);
+    const ended = run(spoken.state, QUIET, VOICE_ACTIVITY_DEFAULTS.endOfTurnSilenceMs + 200, spoken.at);
+    expect(ended.events).toContain("turn-ended");
+    const next = armVoiceActivity(disarmVoiceActivity(ended.state));
+    expect(next.noiseFloor).toBeCloseTo(ended.state.noiseFloor, 6);
   });
 });
 

@@ -264,9 +264,15 @@ export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
       return { key, steps: input.canPlayAyah ? [{ kind: "qari-ayah" }] : [], resume: scope, terminal: false };
 
     // The teacher could not tell. No claim about the recitation is made, and
-    // the learner is asked again rather than corrected.
-    case "hold-uncertain":
-      return { key, steps: [coach("tutor.uncertain")], resume: scope, terminal: false };
+    // the learner is asked again rather than corrected. While the learner
+    // still owes the full ayah after a correction, the uncertainty alone
+    // would leave them guessing what to do next — so the pending instruction
+    // is restated. Explanatory speech only, never Quran audio.
+    case "hold-uncertain": {
+      steps.push(coach("tutor.uncertain"));
+      if (session.activeCorrection?.stage === "recite-ayah") steps.push(coach("tutor.reciteFullAyah"));
+      return { key, steps, resume: scope, terminal: false };
+    }
 
     case "offer-hint":
       return { key, steps: [coach("tutor.offerHint")], resume: scope, terminal: false };
@@ -294,8 +300,15 @@ export function handsFreePlanFor(input: HandsFreePlanInput): HandsFreePlan {
       return { ...inner, key };
     }
 
-    case "resume-session":
-      return { key, steps: [coach("handsfree.carryOn")], resume: scope, terminal: false };
+    case "resume-session": {
+      steps.push(coach("handsfree.carryOn"));
+      // A resume in the middle of a correction restates what is pending: the
+      // bare "carrying on" alone left learners thinking the correction was
+      // finished. Explanatory speech only, never Quran audio.
+      if (session.activeCorrection?.stage === "recite-ayah") steps.push(coach("tutor.reciteFullAyah"));
+      else if (session.activeCorrection) steps.push(coach("handsfree.nowYouSayIt"));
+      return { key, steps, resume: scope, terminal: false };
+    }
 
     // Ordinary listening. The teacher is quiet; that is the point.
     case "listen":

@@ -24,6 +24,7 @@ import {
   createVerseFollowingPosition,
   followRecitation,
   type VerseFollowingPosition,
+  type VerseFollowingReason,
   type VerseFollowingResult,
 } from "@shared/verseFollowing";
 import { evaluateQuranAwareAudio } from "./quranEvaluator";
@@ -44,13 +45,15 @@ import { getLearnerSnapshot, insertMemorizationAttempt, mergeQaidaProgress } fro
 import {
   applyTrustedTutorLiveOmission,
   applyTrustedTutorRecitation,
+  authoritativeRecitationWordIndex,
   getTrustedTutorSession,
   rejectTrustedTutorRecitation,
   tutorRouter,
   tutorSessionReferenceSchema,
   type TutorHandoffResult,
 } from "./tutorRouter";
-import type { LiveTutorSession } from "@shared/liveTutor";
+import type { LiveTutorSession, TutorRecitationOutcome } from "@shared/liveTutor";
+import { recitationOutcome } from "@shared/liveTutor";
 import {
   abortContinuousTutorInput,
   commitContinuousTutorInput,
@@ -437,7 +440,11 @@ async function trustedTutorRecitationInput(
     previousAyahArabic: context.previousAyahArabic ?? undefined,
     nextAyahArabic: context.nextAyahArabic ?? undefined,
     position: {
-      expectedWordIndex: session.expectedWordIndex,
+      // Forced through the exported boundary below so every path into the
+      // full-ayah correction stage is measured from the ayah's first word.
+      // Defense in depth for the product rule: a one-word correction never
+      // completes the ayah.
+      expectedWordIndex: authoritativeRecitationWordIndex(session),
       lastCompletedAyah: session.lastCompletedAyah,
       state: session.activeCorrection ? "correcting" : "following",
       attemptsOnCurrentAyah: session.attemptsOnCurrentAyah,
@@ -452,6 +459,24 @@ async function trustedTutorRecitationInput(
         }
       : undefined,
   };
+}
+
+/**
+ * The single authoritative outcome for one tutor turn, attached server-side so
+ * the panel, Tutor speech, Teacher Notes, progression, and the evaluator
+ * display all derive from the same verdict instead of re-interpreting the
+ * evidence independently. Null means "no verdict" (lost/stale/rejected turn):
+ * surfaces must show the attempt as not applied, never a stale success.
+ */
+function tutorOutcome(
+  tutor: TutorHandoffResult,
+  verseFollowingReason: VerseFollowingReason | null = null,
+): TutorRecitationOutcome | null {
+  if (tutor.status === "lost" || tutor.session === null) return null;
+  return recitationOutcome(
+    { session: tutor.session, action: tutor.action, accepted: tutor.accepted },
+    verseFollowingReason,
+  );
 }
 
 export const appRouter = router({
@@ -827,6 +852,7 @@ export const appRouter = router({
       timing: LiveAudioTiming;
       recitation: Awaited<ReturnType<typeof evaluateRecitationAttempt>> | null;
       tutor: TutorHandoffResult | null;
+      outcome: TutorRecitationOutcome | null;
     };
 
     const liveAcknowledgement = (
@@ -855,7 +881,7 @@ export const appRouter = router({
       evaluate: publicProcedure.input(recitationInput).mutation(evaluateRecitationAttempt),
       evaluateWithTutor: publicProcedure.input(tutorRecitationInput).mutation(async ({ ctx, input }) => {
         const lookup = getTrustedTutorSession(input.session);
-        if (lookup.status !== "current") return { recitation: null, tutor: lookup.handoff };
+        if (lookup.status !== "current") return { recitation: null, tutor: lookup.handoff, outcome: tutorOutcome(lookup.handoff) };
 
         let trustedInput: RecitationEvaluationInput | null;
         try {
@@ -868,7 +894,8 @@ export const appRouter = router({
           });
         }
         if (!trustedInput) {
-          return { recitation: null, tutor: rejectTrustedTutorRecitation(input.session) };
+          const rejected = rejectTrustedTutorRecitation(input.session);
+          return { recitation: null, tutor: rejected, outcome: tutorOutcome(rejected) };
         }
 
         const recitation = await evaluateRecitationAttempt({ ctx, input: trustedInput });
@@ -880,9 +907,10 @@ export const appRouter = router({
 
         // The session may change while transcription is in flight. Never hand a
         // now-stale completion result to the browser as an accepted tutor turn.
+        // The outcome travels with the pair so every surface reads one verdict.
         return tutor.status === "updated"
-          ? { recitation, tutor }
-          : { recitation: null, tutor };
+          ? { recitation, tutor, outcome: tutorOutcome(tutor, recitation.verseFollowing.reason) }
+          : { recitation: null, tutor, outcome: tutorOutcome(tutor) };
       }),
       startLive: publicProcedure.input(liveTutorStartInput).mutation(({ input }) => {
         const lookup = getTrustedTutorSession(input.session);
@@ -929,6 +957,7 @@ export const appRouter = router({
             timing: replay?.timing ?? liveTiming(timingBase),
             recitation: replay?.recitation ?? null,
             tutor: replay?.tutor ?? null,
+            outcome: replay?.outcome ?? null,
           };
         }
 
@@ -944,6 +973,7 @@ export const appRouter = router({
             timing: liveTiming(timingBase),
             recitation: null,
             tutor: lookup.handoff,
+            outcome: tutorOutcome(lookup.handoff),
           };
         }
 
@@ -961,6 +991,7 @@ export const appRouter = router({
             timing: liveTiming(timingBase),
             recitation: null,
             tutor: null,
+            outcome: null,
           };
         }
 
@@ -975,6 +1006,7 @@ export const appRouter = router({
             });
             if (!trustedInput) {
               abortContinuousTutorInput(input.streamId, input.sequence);
+              const rejectedInput = rejectTrustedTutorRecitation(input.session);
               return {
                 acknowledgement: liveAcknowledgement("rejected", input, reservation.snapshot.lastSequence),
                 stream: reservation.snapshot,
@@ -983,7 +1015,8 @@ export const appRouter = router({
                 nextChannel: "wait" as const,
                 timing: liveTiming(timingBase),
                 recitation: null,
-                tutor: rejectTrustedTutorRecitation(input.session),
+                tutor: rejectedInput,
+                outcome: tutorOutcome(rejectedInput),
               };
             }
 
@@ -1004,6 +1037,7 @@ export const appRouter = router({
                 timing: liveTiming({ ...timingBase, recognitionResultAtMs: Date.now() }),
                 recitation: null,
                 tutor,
+                outcome: tutorOutcome(tutor),
               };
             }
 
@@ -1017,6 +1051,7 @@ export const appRouter = router({
               timing: liveTiming({ ...timingBase, recognitionResultAtMs: actionAt, tutorActionAtMs: actionAt }),
               recitation,
               tutor,
+              outcome: tutorOutcome(tutor, recitation.verseFollowing.reason),
             };
             const committed = commitContinuousTutorInput({
               streamId: input.streamId,
@@ -1088,6 +1123,7 @@ export const appRouter = router({
               timing: liveTiming({ ...timingBase, recognitionResultAtMs }),
               recitation: null,
               tutor,
+              outcome: tutor ? tutorOutcome(tutor) : null,
             };
           }
 
@@ -1101,6 +1137,7 @@ export const appRouter = router({
             timing: liveTiming({ ...timingBase, recognitionResultAtMs, omission, tutorActionAtMs }),
             recitation: null,
             tutor,
+            outcome: tutor ? tutorOutcome(tutor) : null,
           };
           const committed = commitContinuousTutorInput({
             streamId: input.streamId,

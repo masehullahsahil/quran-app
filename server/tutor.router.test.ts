@@ -3,6 +3,7 @@ import type { TrpcContext } from "./_core/context";
 import { appRouter } from "./routers";
 import {
   applyTrustedTutorRecitation,
+  authoritativeRecitationWordIndex,
   resetLiveTutorSessionsForTests,
 } from "./tutorRouter";
 
@@ -214,5 +215,130 @@ describe("tutor.turn trust boundary", () => {
       },
       action: { kind: "refresh-session", reason: "inconsistent-evidence", canAdvance: false },
     });
+  });
+});
+
+describe("trusted correction loop — the server holds the full-ayah requirement (T7)", () => {
+  const wordRecognisedAttempt = {
+    surah: 1,
+    ayah: 2,
+    result: {
+      attemptScope: "word" as const,
+      verseFollowing: {
+        currentSurah: 1,
+        currentAyah: 2,
+        expectedWordIndex: 3,
+        lastCompletedAyah: null,
+        state: "correcting" as const,
+        attemptsOnCurrentAyah: 1,
+        evidence: "partial" as const,
+        shouldAdvance: false,
+        nextAyah: 3,
+        correctionFocus: null,
+        reason: "partial_progress" as const,
+      },
+      correctionSession: {
+        ...correctionSession,
+        stage: "recite-ayah" as const,
+        recognition: "recognised" as const,
+        attemptsOnTarget: 1,
+      },
+      focusedWordResult: { recognition: "recognised" as const, reason: "target_recognised" as const },
+    },
+  };
+
+  const weakAyahAttempt = {
+    surah: 1,
+    ayah: 2,
+    result: {
+      attemptScope: "ayah" as const,
+      verseFollowing: {
+        currentSurah: 1,
+        currentAyah: 2,
+        expectedWordIndex: 1,
+        lastCompletedAyah: null,
+        state: "uncertain" as const,
+        attemptsOnCurrentAyah: 2,
+        evidence: "weak" as const,
+        shouldAdvance: false,
+        nextAyah: 3,
+        correctionFocus: null,
+        reason: "too_little_evidence" as const,
+      },
+      correctionSession: null,
+      focusedWordResult: null,
+    },
+  };
+
+  const completedAyahAttempt = {
+    surah: 1,
+    ayah: 2,
+    result: {
+      attemptScope: "ayah" as const,
+      verseFollowing: {
+        currentSurah: 1,
+        currentAyah: 3,
+        expectedWordIndex: 1,
+        lastCompletedAyah: 2,
+        state: "following" as const,
+        attemptsOnCurrentAyah: 0,
+        evidence: "strong" as const,
+        shouldAdvance: true,
+        nextAyah: 4,
+        correctionFocus: null,
+        reason: "ayah_completed" as const,
+      },
+      correctionSession: null,
+      focusedWordResult: null,
+    },
+  };
+
+  /** Miss the word, then say the word: the server now asks for the full ayah. */
+  async function reciteAyahSession() {
+    const initial = await start();
+    const missed = applyTrustedTutorRecitation(reference(initial.session), missingWordAttempt);
+    if (missed.status !== "updated") throw new Error(`missed word not accepted: ${missed.status}`);
+    expect(missed.action.kind).toBe("play-target-word");
+
+    const word = applyTrustedTutorRecitation(reference(missed.session), wordRecognisedAttempt);
+    if (word.status !== "updated") throw new Error(`word not accepted: ${word.status}`);
+    expect(word.action.kind).toBe("ask-full-ayah");
+    // The pointer the retry will be measured against is the ayah's first word.
+    expect(word.session.expectedWordIndex).toBe(1);
+    expect(word.session.phase).toBe("recite-ayah");
+    return word.session;
+  }
+
+  it("a word-only retry never advances and keeps the full-ayah requirement", async () => {
+    const session = await reciteAyahSession();
+    const retry = applyTrustedTutorRecitation(reference(session), weakAyahAttempt);
+    if (retry.status !== "updated") throw new Error(`retry not accepted: ${retry.status}`);
+
+    expect(retry.action.kind).toBe("hold-uncertain");
+    expect(retry.action.canAdvance).toBe(false);
+    expect(retry.session.ayah).toBe(2);
+    expect(retry.session.activeCorrection?.stage).toBe("recite-ayah");
+    expect(retry.action.nextChannel).toBe("listen-for-full-ayah");
+  });
+
+  it("a supported full-ayah retry advances and clears the correction", async () => {
+    const session = await reciteAyahSession();
+    const done = applyTrustedTutorRecitation(reference(session), completedAyahAttempt);
+    if (done.status !== "updated") throw new Error(`completion not accepted: ${done.status}`);
+
+    expect(done.action.kind).toBe("continue-recitation");
+    expect(done.action.canAdvance).toBe(true);
+    expect(done.session.ayah).toBe(3);
+    expect(done.session.activeCorrection).toBeNull();
+  });
+
+  it("forces the word pointer to the ayah start while the full ayah is owed", async () => {
+    const session = await reciteAyahSession();
+    // Even if a stale pointer survived somewhere upstream, the authoritative
+    // boundary measures the retry from the ayah's first word.
+    expect(authoritativeRecitationWordIndex({ ...session, expectedWordIndex: 3 })).toBe(1);
+    // Ordinary listening is untouched: the resume-mid-ayah window still works.
+    const ordinary = { ...session, activeCorrection: null, expectedWordIndex: 3 };
+    expect(authoritativeRecitationWordIndex(ordinary)).toBe(3);
   });
 });

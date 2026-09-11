@@ -293,3 +293,54 @@ describe("the pacing is configuration, not magic numbers", () => {
     expect(HANDS_FREE_TIMING.playbackTimeoutMs).toBeGreaterThan(HANDS_FREE_TIMING.coachDisplayMs);
   });
 });
+
+describe("uncertainty during a full-ayah correction keeps the instruction", () => {
+  /** A retry too weak to judge while the learner still owes the full ayah. */
+  const weakAyahRetry: TutorRecitationEvidence = {
+    scope: "ayah", surah: 1, ayah: AYAH,
+    verseFollowing: follow({
+      state: "uncertain", evidence: "weak", reason: "too_little_evidence",
+      correctionFocus: null, expectedWordIndex: 1,
+    }),
+    correctionSession: null, focusedWordResult: null,
+  };
+
+  function uncertainDuringFullAyah(): LiveTutorTurn {
+    const missed = applyLiveTutorEvent(opened().session, { type: "recitation", evidence: missedTheWord });
+    const word = applyLiveTutorEvent(missed.session, { type: "recitation", evidence: saidTheWord });
+    return applyLiveTutorEvent(word.session, { type: "recitation", evidence: weakAyahRetry });
+  }
+
+  it("the plan speaks the uncertainty and restates the full-ayah requirement", () => {
+    const turn = uncertainDuringFullAyah();
+    expect(turn.action.kind).toBe("hold-uncertain");
+
+    const result = plan(turn);
+    // The uncertainty is named honestly, and the pending instruction survives
+    // it: the learner is told again to give the whole ayah, not the word.
+    expect(spoken(result)).toEqual(["tutor.uncertain", "tutor.reciteFullAyah"]);
+    expect(result.terminal).toBe(false);
+  });
+
+  it("the mic reopens in the ayah scope for that retry (T6)", () => {
+    const turn = uncertainDuringFullAyah();
+    expect(turn.action.nextChannel).toBe("listen-for-full-ayah");
+
+    // The plan's resume scope comes from the engine's directive, not a guess.
+    const result = plan(turn);
+    expect(result.resume).toBe("ayah");
+  });
+
+  it("resume during a correction restates the pending instruction", () => {
+    const missed = applyLiveTutorEvent(opened().session, { type: "recitation", evidence: missedTheWord });
+    const word = applyLiveTutorEvent(missed.session, { type: "recitation", evidence: saidTheWord });
+    const paused = applyLiveTutorEvent(word.session, { type: "intent", intent: "pause" });
+    const resumed = applyLiveTutorEvent(paused.session, { type: "intent", intent: "resume" });
+    expect(resumed.action.kind).toBe("resume-session");
+
+    const result = plan(resumed);
+    // "Carrying on" alone left learners thinking the correction was finished.
+    expect(spoken(result)).toEqual(["handsfree.carryOn", "tutor.reciteFullAyah"]);
+    expect(result.resume).toBe("ayah");
+  });
+});

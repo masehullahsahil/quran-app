@@ -70,6 +70,51 @@ export type WhisperResponse = {
 
 export type TranscriptionResponse = WhisperResponse; // Return native Whisper API response directly
 
+/**
+ * The diagnostic summary of a Whisper answer the validation ledger keeps.
+ *
+ * Numeric only — no audio, no transcripts. `noSpeechProbMean` is the mean of
+ * the per-segment `no_speech_prob` values Whisper already returns; a high
+ * mean on a short clip means the microphone captured no voice, which is a
+ * capture failure, not a transcription failure.
+ */
+export type WhisperSummary = {
+  noSpeechProbMean: number | null;
+  durationSec: number;
+};
+
+export function summarizeWhisperResponse(response: WhisperResponse): WhisperSummary {
+  const segments = Array.isArray(response.segments) ? response.segments : [];
+  const probs = segments
+    .map((segment) => segment?.no_speech_prob)
+    .filter((prob): prob is number => typeof prob === "number" && Number.isFinite(prob));
+  return {
+    noSpeechProbMean: probs.length > 0 ? probs.reduce((sum, prob) => sum + prob, 0) / probs.length : null,
+    durationSec: typeof response.duration === "number" && Number.isFinite(response.duration) ? response.duration : 0,
+  };
+}
+
+/**
+ * Whether a failed transcription call is worth one retry.
+ *
+ * Network and timeout failures only. A response that arrived but is empty is
+ * returned as an error, never thrown, so reaching here with one is impossible
+ * — and retrying an empty answer would not change it. A non-retryable failure
+ * is surfaced immediately so the lesson falls back to conservative wording
+ * rather than waiting on a second doomed call.
+ */
+function isRetryableNetworkError(error: unknown): boolean {
+  // AbortSignal.timeout() surfaces as an AbortError DOMException.
+  if (error instanceof DOMException && error.name === "AbortError") return true;
+  // Undici/node fetch network failures surface as TypeError.
+  if (error instanceof TypeError) return true;
+  const code = (error as { code?: unknown } | null)?.code;
+  return (
+    typeof code === "string" &&
+    ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EPIPE", "ENOTFOUND", "EAI_AGAIN"].includes(code)
+  );
+}
+
 export type TranscriptionError = {
   error: string;
   code: "FILE_TOO_LARGE" | "INVALID_FORMAT" | "TRANSCRIPTION_FAILED" | "UPLOAD_FAILED" | "SERVICE_ERROR";
@@ -140,15 +185,26 @@ export async function transcribeAudio(
     // Step 4: Call the transcription service
     const fullUrl = `${ENV.openaiBaseUrl.replace(/\/$/, "")}/audio/transcriptions`;
 
-    const response = await fetch(fullUrl, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${ENV.openaiApiKey}`,
-        "Accept-Encoding": "identity",
-      },
-      signal: AbortSignal.timeout(transcriptionTimeoutMs()),
-      body: formData,
-    });
+    const send = () =>
+      fetch(fullUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${ENV.openaiApiKey}`,
+          "Accept-Encoding": "identity",
+        },
+        signal: AbortSignal.timeout(transcriptionTimeoutMs()),
+        body: formData,
+      });
+
+    let response: Response;
+    try {
+      response = await send();
+    } catch (error) {
+      // One bounded retry, on network/timeout errors only. Never on empty
+      // results: those are returned as errors, not thrown.
+      if (!isRetryableNetworkError(error)) throw error;
+      response = await send();
+    }
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");

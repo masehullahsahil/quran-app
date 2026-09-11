@@ -223,6 +223,12 @@ export type VoiceActivityState = {
   voicingMs: number;
   /** The timestamp of the last sample, so gaps can be measured. */
   lastSampleAtMs: number | null;
+  /**
+   * How the previous turn ended. Decides whether the next turn inherits the
+   * adapted noise floor or re-learns it — see `armVoiceActivity`. Consumed by
+   * the next arm; null means there is no previous turn to learn from.
+   */
+  lastTurnEnd: "silence" | "max-turn" | "interrupted" | null;
   /** Each of these is announced at most once per turn. */
   announced: {
     speechStarted: boolean;
@@ -242,6 +248,7 @@ export function createVoiceActivityState(config: VoiceActivityConfig = VOICE_ACT
     silenceMs: 0,
     voicingMs: 0,
     lastSampleAtMs: null,
+    lastTurnEnd: null,
     announced: { speechStarted: false, shortSilence: false, prolongedSilence: false, noSpeechYet: false },
   };
 }
@@ -249,22 +256,52 @@ export function createVoiceActivityState(config: VoiceActivityConfig = VOICE_ACT
 /**
  * Begin a turn.
  *
- * The noise floor is carried across turns on purpose: the room does not change
- * between the learner reciting an ayah and repeating one word, and re-learning
- * it from scratch every turn would make the first second of each turn the least
- * reliable one.
+ * The noise floor is carried across turns only when the previous turn closed
+ * on silence. That is the one case where the floor was measured during quiet:
+ * the room does not change between the learner reciting an ayah and repeating
+ * one word, and re-learning it from scratch every turn would make the first
+ * second of each turn the least reliable one.
+ *
+ * Every other ending re-learns the floor from `minNoiseFloor`, because the
+ * floor models the room, not the learner's voice. A turn cut short by an
+ * interruption, an abandonment, or the safety cap ends with the floor adapted
+ * to the learner's own voice — up to `maxNoiseFloor` — and carrying that into
+ * the next turn raises the speech-on threshold until a soft word cannot cross
+ * it. The turn that follows an interruption is usually a single corrected
+ * word said softly; that is exactly the turn that must not start deaf.
+ *
+ * A turn that is re-armed while still open keeps its floor: it was never
+ * closed, so there is no abnormal ending to react to.
  */
 export function armVoiceActivity(state: VoiceActivityState, config: VoiceActivityConfig = state.config): VoiceActivityState {
+  const abnormalEnd = state.lastTurnEnd === "interrupted" || state.lastTurnEnd === "max-turn";
   return {
     ...createVoiceActivityState(config),
-    noiseFloor: clamp(state.noiseFloor, config.minNoiseFloor, config.maxNoiseFloor),
+    noiseFloor: abnormalEnd
+      ? config.minNoiseFloor
+      : clamp(state.noiseFloor, config.minNoiseFloor, config.maxNoiseFloor),
     phase: "waiting",
   };
 }
 
-/** Stop collecting. Nothing is emitted from an idle detector. */
+/**
+ * Stop collecting. Nothing is emitted from an idle detector.
+ *
+ * When the detector is stopped mid-turn — an interruption, a hold for
+ * playback, an abandonment — the turn ended without a trailing silence
+ * period, so the next arm re-learns the noise floor instead of inheriting a
+ * voice-adapted one. A detector stopped after its turn already ended keeps
+ * the ending the reducer recorded.
+ */
 export function disarmVoiceActivity(state: VoiceActivityState): VoiceActivityState {
-  return { ...state, phase: "idle", silenceMs: 0, voicingMs: 0 };
+  const midTurn = state.phase === "waiting" || state.phase === "speaking" || state.phase === "pausing";
+  return {
+    ...state,
+    phase: "idle",
+    silenceMs: 0,
+    voicingMs: 0,
+    lastTurnEnd: midTurn ? "interrupted" : state.lastTurnEnd,
+  };
 }
 
 function clamp(value: number, low: number, high: number): number {
@@ -306,7 +343,11 @@ export type VoiceActivityStep = {
  *  3. the noise floor follows the room, but only while the frame is quiet;
  *  4. speech is confirmed by duration, not by a single loud frame;
  *  5. silence finalises only once it has lasted `endOfTurnSilenceMs` *and* the
- *     turn holds at least `minSpeechMs` of voiced audio.
+ *     turn holds at least `minSpeechMs` of voiced audio;
+ *  6. every closing records *how* the turn ended, because the next turn's
+ *     noise floor depends on it — a turn cut short by interruption,
+ *     abandonment, or the safety cap re-learns the floor instead of inheriting
+ *     a voice-adapted one (see `armVoiceActivity`).
  */
 export function observeAudioLevel(state: VoiceActivityState, sample: VoiceActivitySample): VoiceActivityStep {
   if (state.phase === "idle" || state.phase === "ended") {
@@ -371,6 +412,9 @@ export function observeAudioLevel(state: VoiceActivityState, sample: VoiceActivi
       if (next.silenceMs >= config.endOfTurnSilenceMs) {
         if (next.voicedMs >= config.minSpeechMs) {
           next.phase = "ended";
+          // A clean close: the trailing silence measured the room, so the
+          // next turn may inherit the floor.
+          next.lastTurnEnd = "silence";
           events.push("turn-ended");
           return { state: next, events };
         }
@@ -389,6 +433,9 @@ export function observeAudioLevel(state: VoiceActivityState, sample: VoiceActivi
 
   if (next.elapsedMs >= config.maxTurnMs) {
     next.phase = "ended";
+    // The cap, not the room: the floor may be voice-adapted, so the next turn
+    // re-learns it rather than inheriting it.
+    next.lastTurnEnd = "max-turn";
     events.push("max-turn");
   }
 
