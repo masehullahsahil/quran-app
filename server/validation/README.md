@@ -83,6 +83,36 @@ session, `deactivateValidationRun(runId)` returns the run and
 `entry.ledger.toJSON()` (or `exportValidationRun(runId)`) exports the ledger
 for offline joining with the client log on `runId` / `correlationId`.
 
+Client propagation (Wave 0): `client/src/lib/validationCapture.ts` now
+exposes `buildValidationHeaders()`, `getActiveValidationRunId()`, and
+`getValidationRunId()`. `client/src/main.tsx` merges
+`buildValidationHeaders()` into every tRPC request's headers, so
+`recitation.startLive` and `recitation.ingestLiveAudio` (which share the same
+`httpBatchLink`) both carry `x-validation-run-id` when — and only when — a
+staff validation run is active (`?validation=1` or
+`quran.validationMode=1` plus a well-formed `?validationRunId=run_…` or
+`quran.validationRunId`). Ordinary production traffic sends no validation
+header. The header carries only the run ID (no Quran text, no audio, no
+transcripts, no PII); request correlation stays server-owned via
+`x-request-id`/`ctx.requestId`.
+
+Serverless concern (Vercel): the active-run registry in
+`server/validation/liveObservation.ts` is process-local (`Map`). On Vercel
+serverless, requests may land on different instances: a run activated on
+instance A is invisible to instance B, so `activeValidationRunFromCtx`
+returns null there and those requests record nothing — silent, partial loss
+of server-side evidence (the client log still has the run ID, but the server
+ledger is empty or split). This DOES block reliable Wave 0 testing on the
+current Vercel deployment. Smallest safe Wave 0 solution (no redesign):
+run the readiness rehearsal against a single-instance Node server (staff
+laptop `pnpm dev`, or a single-instance preview) — activate, exercise, and
+export on that same process. Do not invent a distributed store for Wave 0;
+revisit only if later waves require multi-instance Vercel validation.
+
+Human/deployment decision required: choose the Wave 0 server target —
+single-instance Node (recommended, no code change) vs. Vercel serverless
+(requires a shared run-registry/export design, not built).
+
 ## Safety rules
 
 - No audio bytes, no raw transcripts (word indexes only), no tokens/secrets,

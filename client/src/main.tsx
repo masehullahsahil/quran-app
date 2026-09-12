@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc";
+import { buildValidationHeaders } from "@/lib/validationCapture";
 import { COOKIE_NAME, UNAUTHED_ERR_MSG } from '@shared/const';
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink, TRPCClientError } from "@trpc/client";
@@ -43,6 +44,8 @@ const trpcClient = trpc.createClient({
       url: "/api/trpc",
       transformer: superjson,
       headers() {
+        // Base headers: preview auto-login fallback (unchanged).
+        let base: Record<string, string> = {};
         // Preview auto-login fallback: when the browser blocks iframe cookies
         // (Safari ITP / private browsing / WebView), the runtime mirrors the
         // session into sessionStorage so we can forward it as a Bearer token.
@@ -54,13 +57,24 @@ const trpcClient = trpc.createClient({
             const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
             const token = pair?.trim().slice(prefix.length);
             if (token) {
-              return { Authorization: `Bearer ${token}` };
+              base = { Authorization: `Bearer ${token}` };
             }
           }
         } catch {
           // sessionStorage unavailable
         }
-        return {};
+        // Validation run propagation (Wave 0): when a staff validation run is
+        // active, every live-tutor request (recitation.startLive,
+        // recitation.ingestLiveAudio — all tRPC requests share this link)
+        // carries x-validation-run-id so client and server evidence join on
+        // runId + correlationId. Empty in ordinary production use. The run ID
+        // is only an observation identifier; the server remains authoritative
+        // for all Quran state.
+        try {
+          return { ...base, ...buildValidationHeaders() };
+        } catch {
+          return base;
+        }
       },
       fetch(input, init) {
         return globalThis.fetch(input, {
