@@ -587,3 +587,39 @@ describe("helpers", () => {
     expect(rankedTextCorrections(attempt({ reviewable: false, corrections: [missing(1, "بِسْمِ")] }), [])).toEqual([]);
   });
 });
+
+describe("the opening word is never named as a correction", () => {
+  // The study-mode teacher must obey the same safety rule as the live tracker:
+  // the opening word is the position most vulnerable to a clipped microphone
+  // start or ASR boundary instability, so a "review"/"missing" verdict there
+  // is not strong enough evidence to accuse the learner of missing a specific
+  // Quran word. The teacher abstains instead of naming word 1.
+  it("does not rank an opening-word correction", () => {
+    const ranked = rankedTextCorrections(
+      attempt({ reviewable: true, corrections: [review(1, "مَـٰلِكِ", "ملك"), missing(3, "يَوْمِ")] }),
+      [],
+    );
+
+    expect(ranked.map((c) => c.wordIndex)).not.toContain(1);
+    expect(ranked.map((c) => c.wordIndex)).toContain(3);
+  });
+
+  it("does not name the opening word in a repeat-word action", () => {
+    const decision = decideTeacherAction(evidence({
+      attempt: attempt({
+        reviewable: true,
+        corrections: [review(1, "مَـٰلِكِ", "ملك")],
+        verseFollowing: follow({
+          state: "uncertain",
+          reason: "too_little_evidence",
+          evidence: "weak",
+          correctionFocus: null,
+        }),
+      }),
+    }));
+
+    expect(decision.action).not.toBe("repeat-word");
+    expect(decision.focus).toBeNull();
+    expect(decision.canAdvance).toBe(false);
+  });
+});

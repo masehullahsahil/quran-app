@@ -204,6 +204,12 @@ export function actionableAcousticFindings(review: QuranAwareReview | null): Arr
  * waiting at, then an omission ahead of a substitution — a word not said at all
  * is a bigger gap than one the transcript heard differently — then by position.
  * Extra words are never a focus: they name no place to return to.
+ *
+ * The opening word is never a correction target. It is the position most
+ * vulnerable to a clipped microphone start and to ASR spelling instability at
+ * the utterance boundary, so a "missing" or "review" verdict there is not
+ * strong enough evidence to accuse the learner of missing a specific Quran
+ * word — the same fail-closed rule the verse-following tracker applies.
  */
 export function rankedTextCorrections(attempt: AttemptEvidence | null, recurringWordIndexes: readonly number[]): TextCorrection[] {
   if (!attempt || !attempt.reviewable) return [];
@@ -217,7 +223,10 @@ export function rankedTextCorrections(attempt: AttemptEvidence | null, recurring
   };
 
   return attempt.corrections
-    .filter((correction) => correction.wordIndex !== null && Boolean(correction.expected) && correction.status !== "extra" && correction.status !== "matched")
+    .filter((correction) =>
+      correction.wordIndex !== null && correction.wordIndex !== 1 && Boolean(correction.expected) &&
+      correction.status !== "extra" && correction.status !== "matched"
+    )
     .sort((left, right) => rank(left) - rank(right) || (left.wordIndex ?? 0) - (right.wordIndex ?? 0));
 }
 
