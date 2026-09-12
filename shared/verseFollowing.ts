@@ -240,7 +240,9 @@ function stay(
  *  5. Enough of the expected ayah was recited, its end was reached, and no run of
  *     words already recited past are unaccounted for — advance one ayah.
  *  6. Otherwise the learner is part-way through: stay on the ayah and move the
- *     expected word to the first word not yet accounted for.
+ *     expected word to the first word not yet accounted for. A gap at the
+ *     ayah's opening word never becomes a correction — the tracker fails
+ *     closed there instead of accusing word 1.
  */
 export function followRecitation(input: VerseFollowingInput): VerseFollowingResult {
   const { position, totalAyahs, alignment } = input;
@@ -371,6 +373,22 @@ export function followRecitation(input: VerseFollowingInput): VerseFollowingResu
       correctionFocus: null,
       reason: isLastAyah ? "surah_completed" : "ayah_completed",
     };
+  }
+
+  // A gap at the ayah's opening word is never a correctable mistake. The first
+  // word is the position most vulnerable to a clipped microphone start and to
+  // ASR spelling instability at the utterance boundary (the incremental live
+  // tracker already refuses to name it for the same reason), so neither a
+  // "missing" nor a "review" verdict there is strong enough evidence to accuse
+  // the learner of missing a specific Quran word. Fail closed instead.
+  if (passedTheGap && firstGap === 1) {
+    return stay(position, {
+      state: "uncertain",
+      evidence: "weak",
+      reason: "too_little_evidence",
+      expectedWordIndex: 1,
+      totalAyahs,
+    });
   }
 
   // 6. Part-way through the ayah. A gap the learner has already recited past is a
