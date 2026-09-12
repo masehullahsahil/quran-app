@@ -60,9 +60,10 @@ export type TutorPlaybackInput = {
   enabled: boolean;
   /**
    * Additive validation instrumentation. Ignored when unset; never changes
-   * playback behavior.
+   * playback behavior. `tts.step` fires for a coach-voice step, `qari.step`
+   * for a trusted-recording step, `mic.reopened` when the microphone opens.
    */
-  onInstrument?: (kind: "tts.step" | "mic.reopened", details: Record<string, unknown>) => void;
+  onInstrument?: (kind: "tts.step" | "qari.step" | "mic.reopened", details: Record<string, unknown>) => void;
 };
 
 export type TutorPlaybackState = {
@@ -124,11 +125,17 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
    * A missing recording resolves rather than rejecting: the lesson continues
    * with the sentence the teacher already said, which is the honest fallback.
    * It is never replaced by a synthesised reading.
+   *
+   * Resolves true when playback actually started (the `play()` promise
+   * settled), false on the give-up path where the recording never became
+   * audible. Validation instrumentation uses the distinction: only an
+   * actually-audible step is a playback interval for ECHO-01.
    */
-  const playTrusted = useCallback((url: string, run: number) => new Promise<void>((resolve) => {
+  const playTrusted = useCallback((url: string, run: number) => new Promise<boolean>((resolve) => {
     const audio = audioRef.current ?? new Audio();
     audioRef.current = audio;
     let settled = false;
+    let started = false;
     // `let`, declared before `done`, because `done` can be called synchronously
     // from inside `play()` on a source that fails immediately — and a `const`
     // read from its own initialiser is a reference error, not a missed timer.
@@ -149,7 +156,7 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       if (timer !== undefined) clearTimeout(timer);
       audio.onended = null;
       audio.onerror = null;
-      resolve();
+      resolve(started);
     };
     // The timeout is a time-to-*start*, not a cap on the recording: once the
     // reciter is actually audible the step lasts as long as the recording.
@@ -167,6 +174,7 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
     if (attempt && typeof (attempt as Promise<void>).then === "function") {
       void (attempt as Promise<void>).then(
         () => {
+          started = true;
           if (timer !== undefined) {
             clearTimeout(timer);
             timer = undefined;
@@ -343,7 +351,17 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
         if (!url) continue;
         latest.current.holdForPlayback("qari");
         setState((current) => ({ ...current, step: step.kind, performing: true }));
-        await playTrusted(url, run);
+        const qariStartedAt = Date.now();
+        const qariAudible = await playTrusted(url, run);
+        // Validation instrumentation, mirroring the coach-voice `tts.step`:
+        // the trusted-recording interval ECHO-01 needs. A step that never
+        // became audible is not an interval — it is kept as a numeric trace
+        // so a silent give-up cannot masquerade as playback.
+        latest.current.onInstrument?.("qari.step", {
+          kind: step.kind,
+          audible: qariAudible,
+          audibleMs: Date.now() - qariStartedAt,
+        });
       }
       if (cancelled()) return;
       latest.current.releasePlayback();

@@ -247,6 +247,11 @@ export type ClientValidationEventType =
 export type ClientInstrumentationKind =
   /** One coach TTS step: how it resolved and how long it was audible. */
   | "tts.step"
+  /**
+   * One trusted-recording step that never became audible (the playback
+   * give-up): kept as a numeric trace, never an ECHO-01 interval.
+   */
+  | "qari.step"
   /** A VAD turn opened: the room the detector thinks it is in. */
   | "vad.turnOpened"
   /** A VAD turn ended: why, and how much voice it held. */
@@ -310,13 +315,13 @@ export function createClientValidationLog(opts: { runId: string; correlationId?:
     },
     recordPlaybackStarted(
       source: "tutor" | "qari",
-      recordOpts: { attemptId?: string | null; correlationId?: string | null } = {},
+      recordOpts: { attemptId?: string | null; correlationId?: string | null; t?: string } = {},
     ) {
       return record("playback.started", { playbackSource: source }, recordOpts);
     },
     recordPlaybackEnded(
       source: "tutor" | "qari",
-      recordOpts: { attemptId?: string | null; correlationId?: string | null } = {},
+      recordOpts: { attemptId?: string | null; correlationId?: string | null; t?: string } = {},
     ) {
       return record("playback.ended", { playbackSource: source }, recordOpts);
     },
@@ -375,3 +380,47 @@ export function createClientValidationLog(opts: { runId: string; correlationId?:
 }
 
 export type ClientValidationLog = ReturnType<typeof createClientValidationLog>;
+
+/** One app-audible interval reconstructed from a client validation log. */
+export type PlaybackInterval = {
+  /** Which app audio was audible: the tutor's voice, or a trusted recording. */
+  source: "tutor" | "qari";
+  /** ISO timestamps, backdated from the step's measured audible duration. */
+  startedAt: string;
+  endedAt: string;
+  /** Event sequence numbers, for ordering against mic.reopened and the join. */
+  startSeq: number;
+  endSeq: number;
+};
+
+/**
+ * Reconstructs playback intervals from client validation events, for ECHO-01
+ * analysis. Pairs each `playback.started` with the next `playback.ended` of
+ * the same source, in event order. A start with no matching end is dropped:
+ * an interval with no end is not evidence. Never throws; malformed events
+ * are skipped rather than trusted.
+ */
+export function extractPlaybackIntervals(events: ClientValidationEvent[]): PlaybackInterval[] {
+  const intervals: PlaybackInterval[] = [];
+  const open = new Map<"tutor" | "qari", ClientValidationEvent>();
+  for (const event of events) {
+    const source = event.details["playbackSource"];
+    if (source !== "tutor" && source !== "qari") continue;
+    if (event.type === "playback.started") {
+      open.set(source, event);
+    } else if (event.type === "playback.ended") {
+      const start = open.get(source);
+      open.delete(source);
+      if (!start) continue;
+      if (start.t > event.t) continue;
+      intervals.push({
+        source,
+        startedAt: start.t,
+        endedAt: event.t,
+        startSeq: start.seq,
+        endSeq: event.seq,
+      });
+    }
+  }
+  return intervals;
+}

@@ -71,6 +71,7 @@ import { useRecordingAudio } from "@/hooks/useRecordingAudio";
 import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTutor";
 import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn, type InterimTurnAudio } from "@/hooks/useContinuousTutorAudio";
 import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
+import { useClientValidationWiring } from "@/hooks/useClientValidationWiring";
 import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
 import { createCoachSpeechProvider, type CoachSpeechProvider, type CoachSpeechTextResolver } from "@/lib/coachSpeechProvider";
 import { interruptHandoff, interruptsCapture, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
@@ -1497,6 +1498,16 @@ export default function Home() {
     && continuous.state !== "session-lost"
     && continuous.state !== "microphone-unavailable";
 
+  /**
+   * Wave 0 validation wiring. Outside a staff validation run this returns
+   * nulls/undefineds and the instrumented hooks behave exactly as before —
+   * `onInstrument` unset means "do not instrument". Inside a run it connects
+   * the existing client validation capture to the real playback and
+   * microphone transitions below. Observation only: it never touches Quran
+   * state, transport, VAD, transcription, alignment, or advancement.
+   */
+  const validationWiring = useClientValidationWiring();
+
   const playback = useTutorPlaybackOrchestrator({
     plan: handsFreePlan,
     language: locale as SupportedLanguageCode,
@@ -1511,6 +1522,7 @@ export default function Home() {
     releasePlayback: continuous.releasePlayback,
     listen: continuous.listen,
     enabled: handsFreeRunnable,
+    onInstrument: validationWiring.instrumentPlayback,
   });
 
   /**
@@ -1548,6 +1560,7 @@ export default function Home() {
     learningLevel,
     uiLanguage: locale as SupportedLanguageCode,
     onEvent: handleLiveEvent,
+    onInstrument: validationWiring.instrumentLive,
   });
   liveStreamRef.current = liveStream;
 

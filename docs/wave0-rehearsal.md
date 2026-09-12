@@ -119,12 +119,36 @@ curl -s -X POST http://localhost:3000/api/validation/runs/$RUN_ID/deactivate \
 After deactivation the run is removed from the registry; further exports for
 that run ID return 404.
 
+### 5b. Capture the client validation evidence
+
+While the validation run is active, the app records a client-side validation
+log: playback intervals for the tutor's voice and trusted Qari playback,
+mic-reopen events with the resume scope and the gap since playback ended,
+device/browser inventory, and numeric pipeline traces. It is observation-only
+and in-memory — it never calls the network and cannot mutate Quran state.
+
+In the rehearsal browser tab, open devtools → Console and run:
+
+```js
+copy(JSON.stringify(window.__quranValidationLog.toJSON()))
+```
+
+then paste the clipboard into `/tmp/validation-client-log.json`. (The handle
+exists only in validation mode; ordinary production sessions have no log and
+no handle.) Keep this file alongside the server ledger — the join below needs
+both.
+
 ### 6. Join client/server evidence
 
-Join the client validation log and the server ledger export on
-**`runId` + `correlationId`**. Confirm:
+Join the client validation log (`/tmp/validation-client-log.json`) and the
+server ledger export on **`runId` + `correlationId`**. Confirm:
 
-- Every live-tutor request in the session carries the same `runId`.
+- Every live-tutor request in the session carries the same `runId`, and every
+  client event is keyed by it.
+- Client `playback.started`/`playback.ended` intervals (tutor voice and Qari)
+  line up with the server's playback directives in time and count.
+- `mic.reopened` on the client falls after the matching playback interval
+  ends.
 - Server `position.checkpoint` events line up with the client's session
   timeline via `correlationId`.
 - `correction.decided` (Pass B) names the exact intended word index and no other.
