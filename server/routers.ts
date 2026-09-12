@@ -62,6 +62,11 @@ import {
   startContinuousTutorStream,
 } from "./continuousTutor";
 import { createLiveQuranTracker, updateLiveQuranTracker } from "./liveRecitationTracker";
+import {
+  activeValidationRunFromCtx,
+  correlationIdFromCtx,
+  observeLiveRouterResult,
+} from "./validation/liveObservation";
 import type {
   LiveAudioTiming,
   LiveInputAcknowledgement,
@@ -464,6 +469,28 @@ function tutorOutcome(
     verseFollowingReason,
   );
 }
+
+/**
+ * Live-router validation observation (real-device validation plan, Wave 0).
+ *
+ * Wraps `recitation.startLive` / `recitation.ingestLiveAudio` so their
+ * responses are recorded into the active validation run's ledger: server-held
+ * position checkpoints, exact correction decisions, and playback-directive
+ * evidence for ECHO-01. Observation-only and guarded by an active run — with
+ * no active validation run this is a plain pass-through and router behavior
+ * is unchanged.
+ */
+const observedLiveProcedure = publicProcedure.use(async ({ ctx, path, next }) => {
+  const run = activeValidationRunFromCtx(ctx);
+  if (!run) return next();
+  const correlationId = correlationIdFromCtx(ctx);
+  const result = await next();
+  // tRPC v11 middlewares receive the procedure result envelope; the actual
+  // response payload is `data`. Failures (`ok: false`) produce no response
+  // to observe.
+  if (result.ok) observeLiveRouterResult(run, path, result.data, { correlationId });
+  return result;
+});
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -905,7 +932,12 @@ export const appRouter = router({
           ? { recitation, tutor, outcome: tutorOutcome(tutor, recitation.verseFollowing.reason) }
           : { recitation: null, tutor, outcome: tutorOutcome(tutor) };
       }),
-      startLive: publicProcedure.input(liveTutorStartInput).mutation(({ input }) => {
+      // Validation observation (real-device validation plan, Wave 0): records
+      // server-held position checkpoints, exact correction decisions, and
+      // playback-directive evidence into the active validation run's ledger.
+      // Observation-only and guarded — with no active run this is a plain
+      // pass-through and router behavior is unchanged.
+      startLive: observedLiveProcedure.input(liveTutorStartInput).mutation(({ input }) => {
         const lookup = getTrustedTutorSession(input.session);
         if (lookup.status !== "current") return { stream: null, tutor: lookup.handoff, nextChannel: "do-not-listen" as const };
         const session = lookup.session;
@@ -922,7 +954,7 @@ export const appRouter = router({
           : "keep-listening";
         return { stream, tutor: null, nextChannel };
       }),
-      ingestLiveAudio: publicProcedure.input(liveTutorAudioInput).mutation(async ({ ctx, input }) => {
+      ingestLiveAudio: observedLiveProcedure.input(liveTutorAudioInput).mutation(async ({ ctx, input }) => {
         const { audioBuffer } = decodeRecitationAudio(input.audioBase64);
         const audioHash = createHash("sha256").update(audioBuffer).digest("hex");
         const reservation = reserveContinuousTutorInput<LiveRouteReplay>({

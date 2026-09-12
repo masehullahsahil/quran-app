@@ -14,6 +14,12 @@ policy.
 - `attemptRecorder.ts` — records one evaluated recitation attempt into a
   ledger from a structural pipeline summary. Shared by
   `scripts/validate-real-recitation.ts` and the integration tests.
+- `liveObservation.ts` — active validation-run registry plus the guarded
+  observation of live-router responses (`recitation.startLive`,
+  `recitation.ingestLiveAudio`): run activation/deactivation/export,
+  run-ID/correlation-ID extraction from the request context, and the
+  structural checkpoint/correction/playback-directive recording used by the
+  `observedLiveProcedure` middleware in `server/routers.ts`.
 - `index.ts` — re-exports.
 
 ## Observation points currently wired
@@ -32,23 +38,50 @@ policy.
    Inert in production; opt in via `?validation=1` or the
    `quran.validationMode` localStorage flag.
 
-## Production wiring (not yet connected — no code changed)
+## Production wiring (connected)
 
-To record server-side checkpoints from live traffic, call
-`ledger.recordPosition()` / `ledger.record(...)` at these router response
-points in `server/routers.ts` (guarded by an active validation run so
-production behavior is unchanged when inactive):
+Live-router observation is wired in `server/routers.ts` via the
+`observedLiveProcedure` middleware, which wraps `recitation.startLive` and
+`recitation.ingestLiveAudio`. The observation points, implemented in
+`server/validation/liveObservation.ts`:
 
-- `recitation.startLive` response — record the initial server-held position
-  from the returned stream snapshot.
-- `recitation.ingestLiveAudio` response — record `position.checkpoint` from
-  `reservation.snapshot.tracker` and `correction.decided` when the response
-  carries a confirmed `word-omitted` event; mark playback intervals from the
-  tutor action's audio directives for ECHO-01.
-- Join client and server records offline on `runId` / `x-request-id`.
+- `recitation.startLive` response — records `position.checkpoint` with the
+  initial server-held position from the returned stream snapshot
+  (`source: "server"`, `evidenceSource: "none"`, `audioDerived: false`).
+- `recitation.ingestLiveAudio` response — records `position.checkpoint` from
+  the response's stream snapshot tracker (`evidenceSource: "learner-audio"`,
+  `audioDerived: true` only when this response actually transcribed audio);
+  records `correction.decided` when the response carries a confirmed
+  `word-omitted` event on an **applied** input (exact surah/ayah/word index,
+  evidence kind, and heard-through index — word indexes only, no Quran text,
+  no transcripts); attaches the tutor action's playback directive
+  (`play-target-word` / `play-current-ayah` / `trusted-word-audio` /
+  `trusted-ayah-audio`) to both event types as ECHO-01 evidence.
+- Correlates every record through the validation run ID (`runId`) and the
+  request correlation ID (`correlationId` = `ctx.requestId`, falling back to
+  the `x-request-id` header).
 
-The correlation key is the client-supplied run ID plus the request's
-`x-request-id` (read from `ctx.req.headers`); no new middleware required.
+Guarding and safety:
+
+- A request is observed only when it carries a well-formed
+  `x-validation-run-id` header naming a run activated via
+  `activateValidationRun()`. With no active run the middleware is a plain
+  pass-through: no recording, no response changes, no new middleware in the
+  HTTP stack.
+- Only actually-committed inputs can record Quran-state mutations
+  (`quranStateMutation: "advance"` on an applied turn-complete whose verse
+  following advanced). Duplicate/stale/rejected/out-of-order replays return
+  the same snapshot without committing, so they never fabricate a mutation
+  and never double-record a correction decision.
+- Observation never throws into the router: `observeLiveRouterResult` is
+  best-effort and the middleware returns the untouched tRPC result envelope.
+
+Run lifecycle (staff/ops): activate a run with `activateValidationRun(runId)`
+before a real-device session; the validation client sends the run ID back on
+every live-tutor request via the `x-validation-run-id` header. After the
+session, `deactivateValidationRun(runId)` returns the run and
+`entry.ledger.toJSON()` (or `exportValidationRun(runId)`) exports the ledger
+for offline joining with the client log on `runId` / `correlationId`.
 
 ## Safety rules
 
