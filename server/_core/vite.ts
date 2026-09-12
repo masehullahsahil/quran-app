@@ -13,9 +13,33 @@ export async function setupVite(app: Express, server: Server) {
     allowedHosts: true as const,
   };
 
+  /**
+   * `vite.config.ts` exports a *function*, because it needs `command` and
+   * `mode` to decide which plugins to load and which env files to read. So it
+   * has to be called before its settings exist.
+   *
+   * Spreading it instead — `{ ...viteConfig }` — is silently empty: a function
+   * has no own enumerable properties, so the result is `{}`. Vite then starts
+   * with no `root`, no plugins and no aliases, roots itself at the process
+   * working directory, and stops recognising `/src/main.tsx` as anything it
+   * owns. The request falls through to the HTML catch-all below, the browser is
+   * handed `text/html` where it asked for a module, and the page goes blank
+   * with nothing logged on either side. `vite.test.ts` is that request.
+   */
+  const resolvedConfig = typeof viteConfig === "function"
+    ? await viteConfig({
+        command: "serve",
+        // The dev script sets this; the fallback is Vite's own serve default.
+        mode: process.env.NODE_ENV ?? "development",
+      })
+    : viteConfig;
+
   const vite = await createViteServer({
-    ...viteConfig,
+    ...resolvedConfig,
     configFile: false,
+    // Deliberately replaces the config file's `server` block rather than
+    // merging with it: middleware mode, this HTTP server's HMR socket, and an
+    // open host list are what running inside Express requires.
     server: serverOptions,
     appType: "custom",
   });
