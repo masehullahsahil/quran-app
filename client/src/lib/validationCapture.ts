@@ -138,6 +138,94 @@ export function isValidationMode(): boolean {
   }, false);
 }
 
+/**
+ * Validation run ID propagation for live-tutor requests.
+ *
+ * When a staff validation run is active, every live-tutor request
+ * (recitation.startLive, recitation.ingestLiveAudio) must carry the same
+ * run identity so client-side and server-side evidence can be joined
+ * offline on runId + correlationId.
+ *
+ * Authority boundary: the browser-supplied run ID is ONLY an
+ * observation/run-correlation identifier. It never becomes authority for
+ * Quran position, expected words, correctness, advancement, correction
+ * targets, or session state — the server remains authoritative for all
+ * Quran state (see server/validation/liveObservation.ts).
+ *
+ * Safety: this sends only the run ID header. No Quran text, no audio, no
+ * transcripts, no PII ever go in validation headers.
+ */
+
+/** Header name shared with server/validation/liveObservation.ts. Must stay in sync. */
+export const VALIDATION_RUN_HEADER = "x-validation-run-id";
+/** localStorage key for the staff validation run ID. */
+export const VALIDATION_RUN_ID_STORAGE_KEY = "quran.validationRunId";
+
+/** Well-formed run IDs look like run_<24 hex chars> (see server validationRun.isRunId). */
+export function isValidationRunIdFormat(value: unknown): value is string {
+  return typeof value === "string" && /^run_[0-9a-f]{24}$/.test(value);
+}
+
+/**
+ * Reads the staff validation run ID from the URL (?validationRunId=run_…)
+ * or localStorage, when well-formed. Returns null when absent or malformed.
+ * Never throws. Does NOT check validation mode — use getActiveValidationRunId
+ * for the gated version.
+ */
+export function getValidationRunId(): string | null {
+  return safe(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const fromUrl =
+          params.get("validationRunId") ?? params.get("validation-run-id") ?? params.get("x-validation-run-id");
+        if (fromUrl && isValidationRunIdFormat(fromUrl)) return fromUrl;
+        // A malformed run ID in the URL fails safely: ignore it, don't send it.
+      } catch {
+        // URL parsing unavailable — fall through to storage.
+      }
+    }
+    if (typeof localStorage !== "undefined") {
+      try {
+        const stored = localStorage.getItem(VALIDATION_RUN_ID_STORAGE_KEY);
+        if (stored && isValidationRunIdFormat(stored)) return stored;
+      } catch {
+        // Storage unavailable — fail safe with null.
+      }
+    }
+    return null;
+  }, null);
+}
+
+/**
+ * The run ID to send on live-tutor requests, or null when validation is not
+ * active. Gated by isValidationMode(): ordinary production use never sends
+ * the header, even if a run ID happens to be stored.
+ */
+export function getActiveValidationRunId(): string | null {
+  try {
+    if (!isValidationMode()) return null;
+    return getValidationRunId();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Builds the validation headers for the tRPC client. Returns
+ * `{ "x-validation-run-id": runId }` when a validation run is active,
+ * otherwise an empty object. Never throws.
+ */
+export function buildValidationHeaders(): Record<string, string> {
+  try {
+    const runId = getActiveValidationRunId();
+    if (runId) return { [VALIDATION_RUN_HEADER]: runId };
+    return {};
+  } catch {
+    return {};
+  }
+}
+
 export type ClientValidationEventType =
   | "session.start"
   | "device.metadata"
