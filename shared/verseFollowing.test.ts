@@ -348,3 +348,48 @@ describe("followRecitation — the full ayah is required after a correction", ()
     expect(result.shouldAdvance).toBe(true);
   });
 });
+
+describe("the opening word is never accused of being missed", () => {
+  // Regression tests for the Wave 0 live rehearsal on al-Fatiha 1:4. The user
+  // recited the ayah correctly; Whisper rendered the dagger-alif word مَـٰلِكِ
+  // as "ملك". The alignment marks word 1 "review", the learner recited past
+  // it, and the old tracker turned that into a definite "you missed one word"
+  // correction naming word 1. A clipped microphone start or ASR spelling
+  // instability at the ayah opening is more likely than proof the learner
+  // skipped the first word, so the tracker must fail closed instead — the
+  // same rule the incremental live tracker already applies when it refuses
+  // to name word 1 as an omission candidate.
+  const UTHMANI_1_4 = "مَـٰلِكِ يَوْمِ ٱلدِّينِ";
+
+  function followUthmani(transcript: string): VerseFollowingResult {
+    return followRecitation({
+      position: at(4),
+      totalAyahs: TOTAL_AYAHS,
+      alignment: assessRecitationTranscript(UTHMANI_1_4, transcript),
+      transcriptUsable: true,
+    });
+  }
+
+  it("fails closed when the opening word is heard differently but the ayah continues", () => {
+    const result = followUthmani("ملك يوم الدين");
+
+    expect(result.reason).not.toBe("mistake_to_correct");
+    expect(result.correctionFocus).toBeNull();
+    expect(result).toMatchObject({ state: "uncertain", shouldAdvance: false });
+  });
+
+  it("fails closed when the opening word is not heard at all (clipped mic start)", () => {
+    const result = followUthmani("يوم الدين");
+
+    expect(result.reason).not.toBe("mistake_to_correct");
+    expect(result.correctionFocus).toBeNull();
+    expect(result).toMatchObject({ state: "uncertain", shouldAdvance: false });
+  });
+
+  it("still corrects a genuine omission later in the ayah", () => {
+    const result = follow(at(2), "الحمد لله العالمين");
+
+    expect(result).toMatchObject({ state: "correcting", reason: "mistake_to_correct" });
+    expect(result.correctionFocus).toMatchObject({ wordIndex: 3, kind: "missing" });
+  });
+});
