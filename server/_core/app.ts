@@ -18,6 +18,7 @@ import { createContext } from "./context";
 import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { registerHealthEndpoint } from "./health";
+import { registerStaffValidationEndpoints } from "../validation/staffEndpoints";
 import { registerCoachSpeechEndpoint } from "../coachSpeechEndpoint";
 import { requestIdMiddleware } from "./requestId";
 import { logger } from "./logger";
@@ -79,6 +80,11 @@ export function createApp(): Express {
   // Production health endpoint. Registered before other routes so it is
   // never shadowed by a catch-all (see _core/vite.ts in local mode).
   registerHealthEndpoint(app);
+
+  // Staff-only validation-run endpoints for Wave 0 readiness rehearsal.
+  // Registered only when QURAN_VALIDATION_STAFF_API=1; otherwise the routes
+  // do not exist. Never enable on Vercel serverless (process-local registry).
+  registerStaffValidationEndpoints(app);
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);

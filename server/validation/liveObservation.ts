@@ -32,6 +32,17 @@ import {
 export const VALIDATION_RUN_HEADER = "x-validation-run-id";
 /** Fallback header for request correlation when ctx.requestId is absent. */
 export const REQUEST_ID_HEADER = "x-request-id";
+/** Env flag that enables the staff-only validation-run HTTP endpoints. */
+export const STAFF_API_ENV_VAR = "QURAN_VALIDATION_STAFF_API";
+
+/**
+ * Whether the staff-only validation-run HTTP endpoints may be registered.
+ * Explicit opt-in: only the exact value "1" enables them. Never enabled by
+ * default, so production deployments never expose run activation.
+ */
+export function isStaffValidationApiEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env[STAFF_API_ENV_VAR] === "1";
+}
 
 export type ActiveValidationRun = {
   runId: string;
