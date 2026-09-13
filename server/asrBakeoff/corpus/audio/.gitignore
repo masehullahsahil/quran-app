@@ -1,0 +1,7 @@
+# Keep the directory; ignore the recordings.
+*
+!.gitkeep
+!.gitignore
+!README.md
+!manifest.json
+!manifest.example.json

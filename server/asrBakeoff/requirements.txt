@@ -1,0 +1,17 @@
+# Python environment for the local Hugging Face adapters in the ASR bake-off.
+# Only needed to run the tarteel-ai / naazimsnh02 candidates. The production
+# (OpenAI API) adapter and the harness itself need no Python.
+#
+#   python3 -m venv .venv-asr-bakeoff
+#   source .venv-asr-bakeoff/bin/activate
+#   pip install -r server/asrBakeoff/requirements.txt
+#
+# For GPU inference install the CUDA build of torch from pytorch.org instead
+# of the default below. CPU works but the large-v3-turbo model is slow on CPU
+# (see docs/asr-bakeoff.md feasibility notes).
+
+transformers>=4.40
+torch>=2.2
+huggingface_hub>=0.22
+librosa>=0.10
+soundfile>=0.12

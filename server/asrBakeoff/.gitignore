@@ -1,0 +1,3 @@
+# Bake-off artifacts (never commit reports; they can contain transcripts)
+last-report.md
+last-report.json

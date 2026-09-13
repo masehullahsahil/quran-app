@@ -24,6 +24,7 @@
     "verify:production-readiness": "node scripts/verify-production-readiness.mjs",
     "validate:real-recitation": "tsx scripts/validate-real-recitation.ts",
     "benchmark:acoustic": "tsx scripts/acoustic-benchmark.ts",
+    "benchmark:asr-bakeoff": "tsx scripts/asr-bakeoff.ts",
     "acoustic:dev": "tsx watch services/quran-acoustic-evaluator/index.ts",
     "test:acoustic": "pnpm test -- services/quran-acoustic-evaluator"
   },
