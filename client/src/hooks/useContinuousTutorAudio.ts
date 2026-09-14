@@ -344,7 +344,7 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
    * because of silence and duration, and what it contained is the server's to
    * assess.
    */
-  const handleVoiceEvent = useCallback((event: VoiceActivityEvent, _state: VoiceActivityState) => {
+  const handleVoiceEvent = useCallback((event: VoiceActivityEvent, vadState: VoiceActivityState) => {
     // A frame that arrives after the turn closed — the timer had one more tick
     // in flight when the server interrupted — changes nothing.
     if (!openTurnRef.current) return;
@@ -365,9 +365,22 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
       case "turn-ended":
         closeTurn("silence");
         return;
-      case "max-turn":
-        closeTurn("max-turn");
+      case "max-turn": {
+        // The safety cap fired, but the learner never spoke: this is not an
+        // attempt. Silence before first speech is never a failed recitation —
+        // the recorder stops (the cap's safety job), but nothing is submitted
+        // for review, so there is no "couldn't hear that clearly" and no
+        // automatic retry loop. The lesson is told via onIdle so it can say
+        // something gentle instead of failing the learner.
+        if (vadState.voicedMs < vadState.config.minSpeechMs) {
+          closeTurn("abandoned");
+          applyState("waiting");
+          callbacks.current.onIdle?.();
+        } else {
+          closeTurn("max-turn");
+        }
         return;
+      }
     }
   }, [applyState, closeTurn]);
 
