@@ -46,7 +46,7 @@ beforeEach(() => {
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
-function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcript?: string | string[] } = {}) {
+function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcriptionStatus?: number; transcript?: string | string[] } = {}) {
   const calls: string[] = [];
   const transcripts = Array.isArray(options.transcript) ? [...options.transcript] : null;
   const defaultTranscript = typeof options.transcript === "string" ? options.transcript : AYAH;
@@ -82,7 +82,8 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
     }
 
     if (url.includes("/audio/transcriptions")) {
-      if (options.failTranscription) return new Response(JSON.stringify({ error: { message: "transcription temporarily unavailable" } }), { status: 503 });
+      const failStatus = options.transcriptionStatus ?? (options.failTranscription ? 503 : null);
+      if (failStatus) return new Response(JSON.stringify({ error: { message: "transcription temporarily unavailable" } }), { status: failStatus });
       return new Response(JSON.stringify({
         task: "transcribe",
         language: "ar",
@@ -199,11 +200,80 @@ describe("recitation.evaluate", () => {
     expect(result.wordReviewAvailable).toBe(false);
     // The learner-facing message travels as a stable code now, rendered from
     // the locale pack — raw transcription errors are never shown to learners.
+    // The failure class travels separately in `reviewMessage`, which no
+    // learner-facing surface renders: a 503 from the provider names itself.
     expect(result.reviewMessageCode).toBe("transcription_failed");
-    expect(result.reviewMessage).toBeNull();
+    expect(result.reviewMessage).toBe("transcription:TRANSCRIPTION_FAILED:503");
     expect(result.nextStep).toContain("retry now");
     expect(result.transcript).toBe("");
     expect(calls).toEqual(["https://api.openai.com/v1/audio/transcriptions"]);
+  });
+});
+
+describe("recitation.evaluate transcription failure classes", () => {
+  // The 2026-09-14 real-device failure: a normal recitation of Al-Fatihah
+  // Ayah 1 ended in "the speech service did not respond". Every class below
+  // collapses into that one learner message, so the class has to travel
+  // separately — in the diagnostic `reviewMessage` and the server log — or
+  // the next real-device run cannot tell config from provider from audio.
+  const failureClassCases: Array<{ name: string; transcriptionStatus?: number; apiKey: string; expected: string }> = [
+    { name: "provider authentication failure", transcriptionStatus: 401, apiKey: "test-key", expected: "transcription:TRANSCRIPTION_FAILED:401" },
+    { name: "provider rate limit", transcriptionStatus: 429, apiKey: "test-key", expected: "transcription:TRANSCRIPTION_FAILED:429" },
+    { name: "provider outage", transcriptionStatus: 503, apiKey: "test-key", expected: "transcription:TRANSCRIPTION_FAILED:503" },
+    { name: "missing API key in the serving process", apiKey: "", expected: "transcription:SERVICE_ERROR" },
+  ];
+
+  for (const { name, transcriptionStatus, apiKey, expected } of failureClassCases) {
+    it(`names the failure class for ${name} while keeping the learner message stable`, async () => {
+      vi.stubEnv("OPENAI_API_KEY", apiKey);
+      vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+      vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+      stubServices({ transcriptionStatus });
+      const { appRouter } = await import("./routers");
+
+      const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+      // The learner still sees one stable, safe sentence.
+      expect(result.reviewMessageCode).toBe("transcription_failed");
+      expect(result.reviewStatus).toBe("unavailable");
+      expect(result.wordReviewAvailable).toBe(false);
+      expect(result.transcript).toBe("");
+      // The class travels in the diagnostic slot no learner surface renders.
+      expect(result.reviewMessage).toBe(expected);
+    });
+  }
+
+  it("names a network/timeout failure as a service error without a status", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    const { appRouter } = await import("./routers");
+
+    global.fetch = (async () => { throw new TypeError("fetch failed"); }) as unknown as typeof fetch;
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    expect(result.reviewMessageCode).toBe("transcription_failed");
+    expect(result.reviewMessage).toBe("transcription:SERVICE_ERROR");
+  });
+
+  it("never leaks the API key, audio, or transcript in the failure diagnostics", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    stubServices({ transcriptionStatus: 401 });
+    const { appRouter } = await import("./routers");
+
+    const errors: Array<unknown[]> = [];
+    const originalError = console.error;
+    console.error = ((...args: unknown[]) => { errors.push(args); }) as typeof console.error;
+    try {
+      const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+      expect(result.reviewMessage).toBe("transcription:TRANSCRIPTION_FAILED:401");
+    } finally {
+      console.error = originalError;
+    }
+
+    const serialised = JSON.stringify(errors);
+    expect(serialised).not.toContain("test-key");
+    expect(serialised).not.toContain(evaluateInput.audioBase64);
+    expect(serialised).not.toContain(AYAH);
   });
 
   it("serves deterministic locale-keyed coach feedback in every language, never English, never model prose", async () => {

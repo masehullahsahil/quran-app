@@ -246,6 +246,15 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     appliedSequenceRef.current = answer.acknowledgement.appliedSequence;
     setChannel(answer.nextChannel);
 
+    if (answer.recognitionStatus === "unavailable") {
+      // Interim diagnostics for the real-device failure hunt (2026-09-14):
+      // the server transcribes every rolling chunk, and an "unavailable" here
+      // means the provider call failed — the server log names the class.
+      console.info("[live] interim transcription unavailable", {
+        sequence: answer.acknowledgement.sequence,
+      });
+    }
+
     if (answer.acknowledgement.status === "lost-stream") {
       // The stream is gone — a serverless instance was recycled. Fail closed:
       // stop streaming rather than sending chunks into a stream nobody holds.

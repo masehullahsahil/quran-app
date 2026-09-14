@@ -182,6 +182,33 @@ describe("transcribeAudio", () => {
   });
 });
 
+describe("summarizeTranscriptionFailure", () => {
+  it("passes non-provider codes through with no HTTP status", async () => {
+    const { summarizeTranscriptionFailure } = await import("./voiceTranscription");
+    for (const code of ["SERVICE_ERROR", "INVALID_FORMAT", "FILE_TOO_LARGE", "UPLOAD_FAILED"] as const) {
+      expect(summarizeTranscriptionFailure({ error: "x", code })).toEqual({ code, httpStatus: null });
+    }
+  });
+
+  it("reads the provider HTTP status from provider-failure details", async () => {
+    const { summarizeTranscriptionFailure } = await import("./voiceTranscription");
+    expect(
+      summarizeTranscriptionFailure({ error: "x", code: "TRANSCRIPTION_FAILED", details: "401 Unauthorized" }),
+    ).toEqual({ code: "TRANSCRIPTION_FAILED", httpStatus: 401 });
+    expect(
+      summarizeTranscriptionFailure({ error: "x", code: "TRANSCRIPTION_FAILED", details: "429 Too Many Requests: slow down" }),
+    ).toEqual({ code: "TRANSCRIPTION_FAILED", httpStatus: 429 });
+  });
+
+  it("reports null when the details carry no HTTP status", async () => {
+    const { summarizeTranscriptionFailure } = await import("./voiceTranscription");
+    expect(summarizeTranscriptionFailure({ error: "x", code: "TRANSCRIPTION_FAILED" }))
+      .toEqual({ code: "TRANSCRIPTION_FAILED", httpStatus: null });
+    expect(summarizeTranscriptionFailure({ error: "x", code: "TRANSCRIPTION_FAILED", details: "not a status" }))
+      .toEqual({ code: "TRANSCRIPTION_FAILED", httpStatus: null });
+  });
+});
+
 describe("summarizeWhisperResponse", () => {
   it("reads the mean no_speech_prob across segments", async () => {
     const { summarizeWhisperResponse } = await import("./voiceTranscription");
