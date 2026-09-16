@@ -1412,6 +1412,18 @@ export default function Home() {
   const handleFinalisedTurn = useCallback((turn: FinalisedTurn) => {
     void (async () => {
       try {
+        // Capture diagnostics for the real-device failure hunt (2026-09-14):
+        // what actually left the browser — bytes, container, scope, and how
+        // the turn ended — so "no usable captured audio" can be separated
+        // from a transport or provider failure. Metadata only.
+        console.info("[recitation] turn finalised", {
+          bytes: turn.blob.size,
+          mimeType: turn.mimeType,
+          scope: turn.scope,
+          reason: turn.reason,
+          durationMs: Math.max(0, turn.captureEndedAtMs - turn.captureStartedAtMs),
+          turnId: turn.turnId,
+        });
         await reviewRecordingRef.current(turn.blob, turn.scope);
       } finally {
         // Whatever the server said — accepted, rejected, unreachable — the

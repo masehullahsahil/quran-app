@@ -122,6 +122,33 @@ export type TranscriptionError = {
 };
 
 /**
+ * Numeric-only summary of a failed transcription call.
+ *
+ * Several distinct failures (missing key, provider auth, rate limit, timeout,
+ * bad audio, malformed provider answer) all collapse into the same
+ * learner-facing "the speech service did not respond" message. This summary
+ * carries the failure *class* — the error code and, when the provider
+ * answered, its HTTP status — so server logs and the diagnostic
+ * `reviewMessage` can name the class without ever carrying secrets, audio,
+ * or transcripts.
+ */
+export type TranscriptionFailureSummary = {
+  code: TranscriptionError["code"];
+  /** The HTTP status the provider answered with, when the details carry one. */
+  httpStatus: number | null;
+};
+
+export function summarizeTranscriptionFailure(failure: TranscriptionError): TranscriptionFailureSummary {
+  if (failure.code !== "TRANSCRIPTION_FAILED") return { code: failure.code, httpStatus: null };
+  const first = (failure.details ?? "").trim().split(/\s+/)[0] ?? "";
+  const parsed = Number.parseInt(first, 10);
+  return {
+    code: failure.code,
+    httpStatus: Number.isInteger(parsed) && parsed >= 100 && parsed < 600 ? parsed : null,
+  };
+}
+
+/**
  * Transcribe audio to text using OpenAI's Whisper transcription endpoint
  *
  * @param options - Audio data and metadata

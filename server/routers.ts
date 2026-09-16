@@ -6,7 +6,8 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import type { TrpcContext } from "./_core/context";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { transcribeAudio } from "./_core/voiceTranscription";
+import { transcribeAudio, summarizeTranscriptionFailure } from "./_core/voiceTranscription";
+import { ENV } from "./_core/env";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
 import { SUPPORTED_LANGUAGE_CODES, type SupportedLanguageCode } from "@shared/languages";
@@ -752,8 +753,27 @@ export const appRouter = router({
       });
 
       if ("error" in transcription) {
+        // Diagnostics for the real-device failure hunt (2026-09-14): every
+        // failure class below collapses into the same learner-facing
+        // "the speech service did not respond" message, so the class would
+        // otherwise be invisible. Log it structured and numeric — code, HTTP
+        // status when the provider answered, key-presence as a boolean — and
+        // carry the same summary in `reviewMessage`, which no learner-facing
+        // surface renders but which is visible in the network response. No
+        // API key, no audio bytes, no transcript leaves this branch.
+        const failure = summarizeTranscriptionFailure(transcription);
+        console.error("[recitation] transcription failed", {
+          route: "recitation.evaluate",
+          requestId: ctx.requestId ?? null,
+          code: failure.code,
+          httpStatus: failure.httpStatus,
+          keyConfigured: ENV.openaiApiKey.length > 0,
+          audioBytes: audioBuffer.byteLength,
+          mimeType: input.mimeType,
+          attemptScope: input.attemptScope,
+        });
         return unavailableReview(
-          null,
+          `transcription:${failure.code}${failure.httpStatus ? `:${failure.httpStatus}` : ""}`,
           "",
           { key: "feedback.transcriptionFailedNextStep" },
           "transcription_failed",
@@ -1113,6 +1133,23 @@ export const appRouter = router({
           }
 
           const transcription = await transcribeAudio({ audio: audioBuffer, mimeType: input.mimeType, language: "ar" });
+          if ("error" in transcription) {
+            // Same diagnostics as the finalised-turn path: an interim chunk
+            // that cannot be transcribed reports `recognitionStatus:
+            // "unavailable"` to the browser with no cause attached, so name
+            // the failure class here. Numeric and secret-free.
+            const failure = summarizeTranscriptionFailure(transcription);
+            console.error("[recitation] transcription failed", {
+              route: "recitation.ingestLiveAudio",
+              requestId: ctx.requestId ?? null,
+              code: failure.code,
+              httpStatus: failure.httpStatus,
+              keyConfigured: ENV.openaiApiKey.length > 0,
+              audioBytes: audioBuffer.byteLength,
+              mimeType: input.mimeType,
+              sequence: input.sequence,
+            });
+          }
           const recognitionResultAtMs = Date.now();
           const currentLookup = getTrustedTutorSession(input.session);
           if (currentLookup.status !== "current") {
