@@ -408,6 +408,11 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
     if (streamRef.current) {
       activeRef.current = true;
       setActive(true);
+      // A session-loss recovery deliberately keeps the microphone stream open
+      // so the learner is not prompted a second time. That loss is terminal
+      // only for the old server lesson; an explicit restart makes this stream
+      // runnable again. Leaving it as session-lost disables streaming forever.
+      if (stateRef.current === "session-lost") applyState("waiting");
       return true;
     }
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
