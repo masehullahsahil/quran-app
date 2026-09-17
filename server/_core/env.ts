@@ -12,6 +12,13 @@ export const ENV = {
   // can point at an OpenAI-compatible gateway or a local test double.
   openaiApiKey: process.env.OPENAI_API_KEY ?? "",
   openaiBaseUrl: process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1",
+  // Keep the deployed model explicit and allow a preview deployment to test a
+  // candidate against the same real-device flow. Unknown values fail safely
+  // to the existing production model; config validation reports the typo.
+  openaiTranscriptionModel:
+    process.env.OPENAI_TRANSCRIPTION_MODEL === "gpt-transcribe"
+      ? "gpt-transcribe" as const
+      : "whisper-1" as const,
   openaiTranscriptionTimeoutMs: Number.parseInt(process.env.OPENAI_TRANSCRIPTION_TIMEOUT_MS ?? "25000", 10) || 25000,
   openaiChatTimeoutMs: Number.parseInt(process.env.OPENAI_CHAT_TIMEOUT_MS ?? "20000", 10) || 20000,
   // Quran.com content API. Public and key-free; the base URL is overridable so
