@@ -775,6 +775,17 @@ describe("a lesson the server no longer has", () => {
     // The Quran did not move and nothing was marked complete.
     expect(container.querySelector(".study-index")?.textContent).toBe("02");
     expect(container.querySelector(".tutor-target")).toBeNull();
+
+    // Restart uses the already-granted microphone stream but opens a fresh
+    // server lesson at the same ayah. It must clear the terminal audio state;
+    // otherwise the restart button appears to work while live streaming stays
+    // disabled forever.
+    const streamsBeforeRestart = callsTo("recitation.startLive").length;
+    await click(container.querySelector<HTMLButtonElement>(".handsfree-restart"));
+    expect(await until(() => inState("learner-listening")() || inState("learner-speaking")(), 3_000)).toBe(true);
+    expect(inState("session-lost")()).toBe(false);
+    expect(callsTo("recitation.startLive").length).toBeGreaterThan(streamsBeforeRestart);
+    expect(container.querySelector(".study-index")?.textContent).toBe("02");
   });
 });
 
