@@ -68,7 +68,15 @@ export type WhisperResponse = {
   segments: WhisperSegment[];
 };
 
-export type TranscriptionResponse = WhisperResponse; // Return native Whisper API response directly
+/** The fields shared by the supported transcription models. */
+export type TranscriptionResponse = {
+  text: string;
+  task?: "transcribe";
+  language?: string;
+  languages?: Array<{ code: string }>;
+  duration?: number;
+  segments?: WhisperSegment[];
+};
 
 /**
  * The diagnostic summary of a Whisper answer the validation ledger keeps.
@@ -83,7 +91,7 @@ export type WhisperSummary = {
   durationSec: number;
 };
 
-export function summarizeWhisperResponse(response: WhisperResponse): WhisperSummary {
+export function summarizeWhisperResponse(response: TranscriptionResponse): WhisperSummary {
   const segments = Array.isArray(response.segments) ? response.segments : [];
   const probs = segments
     .map((segment) => segment?.no_speech_prob)
@@ -195,9 +203,16 @@ export async function transcribeAudio(
     const audioBlob = new Blob([new Uint8Array(audio)], { type: mimeType });
     formData.append("file", audioBlob, filename);
     
-    formData.append("model", "whisper-1");
-    formData.append("response_format", "verbose_json");
-    if (options.language) formData.append("language", options.language);
+    const model = ENV.openaiTranscriptionModel;
+    formData.append("model", model);
+    if (model === "whisper-1") {
+      formData.append("response_format", "verbose_json");
+      if (options.language) formData.append("language", options.language);
+    } else if (options.language) {
+      // gpt-transcribe accepts an ordered list of expected languages rather
+      // than Whisper's singular language hint.
+      formData.append("languages[]", options.language);
+    }
     
     // Only forward a prompt the caller actually asked for. Whisper's `prompt`
     // is decoder priming, not an instruction: the text is fed to the model as
@@ -243,10 +258,10 @@ export async function transcribeAudio(
     }
 
     // Step 5: Parse and return the transcription result
-    const whisperResponse = await response.json() as WhisperResponse;
+    const transcriptionResponse = await response.json() as TranscriptionResponse;
     
     // Validate response structure
-    if (!whisperResponse.text || typeof whisperResponse.text !== 'string') {
+    if (!transcriptionResponse.text || typeof transcriptionResponse.text !== 'string') {
       return {
         error: "Invalid transcription response",
         code: "SERVICE_ERROR",
@@ -254,7 +269,7 @@ export async function transcribeAudio(
       };
     }
 
-    return whisperResponse; // Return native Whisper API response directly
+    return transcriptionResponse;
 
   } catch (error) {
     // Handle unexpected errors
