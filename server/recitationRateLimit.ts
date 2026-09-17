@@ -23,7 +23,11 @@ export type RecitationRateLimitDecision =
     };
 
 const ANONYMOUS_WINDOWS: RateLimitWindow[] = [
-  { name: "burst", limit: 4, windowSeconds: 60 },
+  // A normal hands-free pass through Al-Fatihah has seven finalised ayahs.
+  // Four made an anonymous learner hit the limiter before completing a single
+  // short surah. Keep the bounded, server-side control, but leave room for a
+  // brief correction or retry in the same minute.
+  { name: "burst", limit: 12, windowSeconds: 60 },
   { name: "sustained", limit: 20, windowSeconds: 60 * 60 },
 ];
 

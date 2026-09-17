@@ -1047,7 +1047,10 @@ export default function Home() {
       // sometimes a network stack trace. The learner gets the locale's
       // review-failed sentence; the error itself is already in the console.
       console.warn("[recitation] review request failed", error);
-      const message = t("recorder.reviewFailed");
+      const trpcCode = (error as { data?: { code?: unknown } } | null)?.data?.code;
+      const message = trpcCode === "TOO_MANY_REQUESTS"
+        ? t("recorder.rateLimited")
+        : t("recorder.reviewFailed");
       setReviewError(message);
       setRecorderMessage(message);
     }
