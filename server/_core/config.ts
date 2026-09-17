@@ -82,6 +82,15 @@ export function validateConfig(env: Env = process.env): ConfigReport {
     }
   }
 
+  const transcriptionModel = env.OPENAI_TRANSCRIPTION_MODEL?.trim();
+  if (transcriptionModel && !["whisper-1", "gpt-transcribe"].includes(transcriptionModel)) {
+    warnings.push({
+      variable: "OPENAI_TRANSCRIPTION_MODEL",
+      severity: "warning",
+      message: "unsupported transcription model; whisper-1 will be used",
+    });
+  }
+
   // Feature-specific: acoustic evaluator key without a URL is a misconfiguration.
   const evaluatorUrl = !isBlank(env.QURAN_EVALUATOR_URL);
   const evaluatorKey = !isBlank(env.QURAN_EVALUATOR_API_KEY);
