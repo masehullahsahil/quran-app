@@ -69,6 +69,15 @@ describe("validateConfig", () => {
     expect(report.warnings.map((f) => f.variable)).toContain("OPENAI_TRANSCRIPTION_TIMEOUT_MS");
   });
 
+  it("warns on an unsupported transcription model without failing startup", () => {
+    const report = validateConfig({ ...FULL_ENV, OPENAI_TRANSCRIPTION_MODEL: "made-up-model" });
+    expect(report.valid).toBe(true);
+    expect(report.warnings).toContainEqual(expect.objectContaining({
+      variable: "OPENAI_TRANSCRIPTION_MODEL",
+      message: "unsupported transcription model; whisper-1 will be used",
+    }));
+  });
+
   it("warns when only half of a feature pair is configured", () => {
     const redis = validateConfig({
       ...FULL_ENV,
