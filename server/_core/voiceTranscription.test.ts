@@ -45,11 +45,34 @@ describe("transcribeAudio", () => {
     expect((request.headers as Record<string, string>).authorization).toBe("Bearer test-key");
 
     const body = request.body as FormData;
+    expect(body.get("model")).toBe("whisper-1");
+    expect(body.get("response_format")).toBe("verbose_json");
     expect(body.get("language")).toBe("ar");
     expect(body.get("prompt")).toBe("Transcribe Arabic only.");
     const file = body.get("file") as File;
     expect(file.name).toBe("audio.webm");
     expect(file.size).toBe(3);
+  });
+
+  it("uses the recommended transcription model in an isolated preview when configured", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("OPENAI_TRANSCRIPTION_MODEL", "gpt-transcribe");
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      text: "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ",
+      languages: [{ code: "ar" }],
+    }), { status: 200 }));
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm", language: "ar" });
+
+    expect(result).toMatchObject({ text: "ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ" });
+    const body = (fetchMock.mock.calls[0]?.[1] as RequestInit).body as FormData;
+    expect(body.get("model")).toBe("gpt-transcribe");
+    expect(body.get("languages[]")).toBe("ar");
+    expect(body.get("language")).toBeNull();
+    expect(body.get("response_format")).toBeNull();
   });
 
   // MediaRecorder reports types like "audio/webm;codecs=opus", and Whisper

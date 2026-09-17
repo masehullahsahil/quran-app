@@ -64,7 +64,7 @@ Required for the durable signed-in production flow:
 
 Optional integrations:
 
-- `OPENAI_API_KEY` (and optional `OPENAI_BASE_URL`, `OPENAI_TRANSCRIPTION_TIMEOUT_MS`, and `OPENAI_CHAT_TIMEOUT_MS`) — live transcription/coach wording; deterministic tests do not need it. The timeout variables are bounded in code between 1s and 30s.
+- `OPENAI_API_KEY` (and optional `OPENAI_BASE_URL`, `OPENAI_TRANSCRIPTION_MODEL`, `OPENAI_TRANSCRIPTION_TIMEOUT_MS`, and `OPENAI_CHAT_TIMEOUT_MS`) — live transcription/coach wording; deterministic tests do not need it. `OPENAI_TRANSCRIPTION_MODEL` accepts `whisper-1` (the unchanged default) or `gpt-transcribe`, allowing a preview A/B test before any production switch. The timeout variables are bounded in code between 1s and 30s.
 - `RECITATION_RATE_LIMIT_REDIS_REST_URL` and `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` — strongly recommended for production distributed rate limiting of the expensive `recitation.evaluate` path. These settings are compatible with a Redis/Upstash-style REST command endpoint. Without them, the app falls back to per-instance memory counters; that still protects one warm function instance but does **not** provide a distributed limit across Vercel instances or cold starts.
 - `QURAN_EVALUATOR_URL`, optional `QURAN_EVALUATOR_API_KEY`, and `QURAN_EVALUATOR_TIMEOUT_MS` — specialist acoustic service.
 - `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID` — optional analytics script. If either value is absent or blank, the production HTML emits no analytics script and the browser makes no analytics request.
@@ -242,4 +242,3 @@ the harness can never alter user data or weaken authentication.
    `"requestId":"<id>"` to find the matching structured entries.
 5. Re-run `pnpm smoke:deployed` after any deploy or config change; it is
    read-only and safe to run repeatedly.
-
