@@ -727,7 +727,7 @@ describe("recitation.evaluate transcription failure classes", () => {
     ]);
   });
 
-  it("rejects reviews above the burst limit before transcription, coaching, or archiving", async () => {
+  it("allows a complete short-surah pass, then rejects reviews above the burst limit before transcription, coaching, or archiving", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
     vi.stubEnv("BUILT_IN_FORGE_API_KEY", "forge-key");
@@ -737,17 +737,19 @@ describe("recitation.evaluate transcription failure classes", () => {
     const { appRouter } = await import("./routers");
     const caller = appRouter.createCaller(contextForClient("203.0.113.20"));
 
-    for (let i = 0; i < 4; i++) {
+    // Al-Fatihah has seven ayahs. A normal hands-free pass plus several
+    // immediate retries must not be blocked before a learner can finish it.
+    for (let i = 0; i < 12; i++) {
       await expect(caller.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
     }
     await expect(caller.recitation.evaluate(evaluateInput)).rejects.toMatchObject({
       code: "TOO_MANY_REQUESTS",
     });
 
-    expect(calls.filter(url => url.includes("/audio/transcriptions"))).toHaveLength(4);
+    expect(calls.filter(url => url.includes("/audio/transcriptions"))).toHaveLength(12);
     // Coach feedback is deterministic now: no model is consulted for prose.
     expect(calls.filter(url => url.includes("/chat/completions"))).toHaveLength(0);
-    expect(calls.filter(url => url.includes("/storage/"))).toHaveLength(4);
+    expect(calls.filter(url => url.includes("/storage/"))).toHaveLength(12);
     expect(warn).toHaveBeenCalledWith("[recitation] evaluate rate limited", expect.objectContaining({
       identityType: "ip",
       window: "burst",
@@ -765,7 +767,7 @@ describe("recitation.evaluate transcription failure classes", () => {
     const firstClient = appRouter.createCaller(contextForClient("203.0.113.30"));
     const secondClient = appRouter.createCaller(contextForClient("203.0.113.31"));
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 12; i++) {
       await expect(firstClient.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
     }
 
@@ -802,7 +804,7 @@ describe("recitation.evaluate transcription failure classes", () => {
     context.req.headers["x-forwarded-for"] = "198.51.100.1";
     const caller = appRouter.createCaller(context);
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 12; i++) {
       context.req.headers["x-forwarded-for"] = `198.51.100.${i + 1}`;
       await expect(caller.recitation.evaluate(evaluateInput)).resolves.toMatchObject({ wordReviewAvailable: true });
     }
@@ -855,7 +857,7 @@ describe("recitation.evaluate transcription failure classes", () => {
     const { appRouter } = await import("./routers");
     const caller = appRouter.createCaller(contextForClient("203.0.113.70"));
 
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 12; i++) {
       await caller.recitation.evaluate(evaluateInput);
     }
     await expect(caller.recitation.evaluate(evaluateInput)).rejects.toMatchObject({
