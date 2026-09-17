@@ -1035,9 +1035,12 @@ describe("recitation.evaluateWithTutor", () => {
     expect(calls).toEqual([]);
   });
 
-  it("holds the trusted Quran position when transcription evidence is uncertain", async () => {
+  it("holds the trusted Quran position when ASR hallucinates unrelated Arabic subtitle credits", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
-    stubServices({ transcript: "background noise" });
+    // Exact real-device failure observed on Al-Fatihah 1:3. The provider
+    // returned structurally valid Arabic, but it was unrelated subtitle-credit
+    // text rather than learner evidence.
+    stubServices({ transcript: "توقيت وترجمة نانسي قنقر" });
     const { appRouter } = await import("./routers");
     const caller = appRouter.createCaller(contextForClient("203.0.113.85"));
     const initial = await startTutor(caller);
@@ -1047,8 +1050,17 @@ describe("recitation.evaluateWithTutor", () => {
       attempt: audioAttempt,
     });
     expect(uncertain.recitation).toMatchObject({
-      reviewStatus: "unavailable",
-      verseFollowing: { currentAyah: 2, lastCompletedAyah: null, shouldAdvance: false, evidence: "none" },
+      transcript: "توقيت وترجمة نانسي قنقر",
+      reviewStatus: "available",
+      matchedCount: 0,
+      verseFollowing: {
+        currentAyah: 2,
+        lastCompletedAyah: null,
+        shouldAdvance: false,
+        evidence: "weak",
+        reason: "too_little_evidence",
+        correctionFocus: null,
+      },
     });
     expect(uncertain.tutor).toMatchObject({
       status: "updated",
