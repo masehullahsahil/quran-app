@@ -394,6 +394,7 @@ export const strings: TranslatableStrings = {
   "reader.footerHint": "بالای یک آیت بزنید، بعد به بخش تمرین بروید تا آن را بشنوید و تکرار کنید.",
   "reader.showMeaning": "معنا را نشان بده",
   "reader.hideMeaning": "معنا را پنهان کن",
+  "reader.surahBeginning": "آغاز سوره",
   "reader.previousAyah": "آیت پیشین",
   "reader.nextAyah": "آیت بعدی",
   "reader.chapterCopy": "آیت را بخوانید، از قاری بشنوید، خودتان تکرار کنید، بعد به آرامی به همان جایی برگردید که تمرین می‌خواهد.",

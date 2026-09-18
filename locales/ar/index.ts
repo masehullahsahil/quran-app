@@ -395,6 +395,7 @@ export const strings: TranslatableStrings = {
   "reader.footerHint": "اضغط على آية، ثم انتقل إلى التدريب لسماعها وترديدها.",
   "reader.showMeaning": "إظهار المعنى",
   "reader.hideMeaning": "إخفاء المعنى",
+  "reader.surahBeginning": "بداية السورة",
   "reader.previousAyah": "الآية السابقة",
   "reader.nextAyah": "الآية التالية",
   "reader.chapterCopy": "اقرأ الآية، واسمعها من قارئ، ثم رددها بصوتك، ثم ارجع في هدوء إلى الموضع الذي يحتاج تدريبًا.",

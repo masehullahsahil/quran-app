@@ -672,6 +672,19 @@ export default function Home() {
   };
 
   /**
+   * Return to this surah's first ayah in one action.
+   *
+   * This is navigation, not recitation evidence: it takes the same selection
+   * path as an ayah button and therefore opens a fresh server Tutor lesson at
+   * that position without marking anything complete or rewriting saved
+   * progress. Long surahs must never require hundreds of Previous presses.
+   */
+  const goToSurahBeginning = () => {
+    const first = ayahs[0];
+    if (first && first.number !== selectedVerse) selectVerse(first.number);
+  };
+
+  /**
    * Selection is set surah-first: juz navigation lands on an ayah part-way
    * through a surah, so the ayah cannot be reset by an effect watching the surah.
    */
@@ -2156,7 +2169,7 @@ export default function Home() {
 
           {view === "memorise" && (!activeVerse ? contentFallback : <div className="memory-layout"><div className="memory-topline"><span className="eyebrow">{t("memorise.eyebrow")}</span><span>{t("memorise.place", { number: activeVerse.number, total: ayahs.length })}</span></div><div className="memory-review-panel"><div><span className="eyebrow">{t("memory.practiceNext")}</span><strong>{reviewSummary.nextRecommended ? t("memory.nextIs", { surah: reviewSummary.nextRecommended.surah, ayah: reviewSummary.nextRecommended.ayah }) : t("memory.startNew")}</strong></div><small>{t("memory.overview", { due: reviewSummary.dueToday.length, weak: reviewSummary.weakAyat.length, strong: reviewSummary.strongOrMasteredCount })}</small></div><p className="memory-prompt">{t("memorise.prompt")}</p><div className={`memory-verse ${covered ? "is-covered" : ""}`} lang="ar" dir="rtl">{covered ? <span className="covered-copy">{t("memorise.covered")}</span> : activeVerse.arabic}</div><p className="memory-meaning">{showTranslation ? activeVerse.translation ?? "" : t("memorise.meaningHidden")}</p><div className="memory-actions"><button type="button" className="quiet-action" onClick={() => setCovered((current) => !current)}>{covered ? <BookOpen size={17} /> : <Sparkles size={17} />}{t(covered ? "memorise.reveal" : "memorise.cover")}</button><button type="button" className="quiet-action" onClick={() => setShowTranslation((current) => !current)}><RotateCcw size={17} /> {t("memorise.toggleMeaning")}</button><button type="button" className="quiet-action" onClick={() => setView("study")}><Mic size={17} /> {t("memorise.practise")}</button></div><div className="memory-steps">{ayahs.map((verse) => <button type="button" key={verse.verseKey} onClick={() => selectVerse(verse.number)} className={selectedVerse === verse.number ? "step is-active" : "step"} aria-label={t("memorise.practiseAyah", { number: verse.number })}><span>{verse.number}</span></button>)}</div></div>)}
         </section>
-        <div className="page-controls"><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> {t("reader.previousAyah")}</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("reader.nextAyah")} <ArrowRight size={16} /></button></div>
+        <div className="page-controls"><button type="button" className="surah-beginning" onClick={goToSurahBeginning} disabled={!previousVerse}><RotateCcw size={16} /> {t("reader.surahBeginning")}</button><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> {t("reader.previousAyah")}</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("reader.nextAyah")} <ArrowRight size={16} /></button></div>
       </main>
 
       <aside className="study-panel" aria-label={t("panel.label")}>

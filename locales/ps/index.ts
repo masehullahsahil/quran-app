@@ -393,6 +393,7 @@ export const strings: TranslatableStrings = {
   "reader.footerHint": "پر یوه آیت ټک ووهئ، بیا تمرین ته لاړ شئ چې واورئ او تکرار یې کړئ.",
   "reader.showMeaning": "مانا ښکاره کړئ",
   "reader.hideMeaning": "مانا پټه کړئ",
+  "reader.surahBeginning": "د سورت پیل",
   "reader.previousAyah": "پخوانی آیت",
   "reader.nextAyah": "راتلونکی آیت",
   "reader.chapterCopy": "آیت ولولئ، له قاري یې واورئ، پخپله یې تکرار کړئ، بیا په ارامۍ هغه ځای ته راستون شئ چې تمرین ته اړتیا لري.",
