@@ -7,6 +7,10 @@ import {
   type PhonemeEvaluator,
 } from "./phoneme";
 import { PHONEME_THRESHOLDS } from "./thresholds";
+import {
+  AbstainingAcousticShadowEvaluator,
+  type AcousticShadowEvaluator,
+} from "./shadow";
 import type { AcousticFinding, EvaluationResult } from "./types";
 
 export type EvaluateInput = {
@@ -21,7 +25,8 @@ const MIN_FINDING_CONFIDENCE = 0.75;
 
 export async function evaluate(
   input: EvaluateInput,
-  phonemes: PhonemeEvaluator = new AbstainingPhonemeEvaluator()
+  phonemes: PhonemeEvaluator = new AbstainingPhonemeEvaluator(),
+  shadow: AcousticShadowEvaluator = new AbstainingAcousticShadowEvaluator()
 ): Promise<EvaluationResult> {
   let audio;
   try {
@@ -59,6 +64,13 @@ export async function evaluate(
     regions,
     quality.confidence
   );
+  // Shadow analysis is research telemetry only. Its decoded output is reduced
+  // to aggregate diagnostics and it has no route into findings, confidence,
+  // correction focus, or advancement.
+  const shadowAnalysisPromise = shadow.analyze({
+    audio,
+    evidenceOrigin: "learner_microphone",
+  });
   const findings: AcousticFinding[] = [];
   // Only directly measured, unusually long internal silence is currently learner-facing.
   const durations = alignment.words
@@ -147,11 +159,20 @@ export async function evaluate(
     0,
     Math.min(1, Math.min(quality.confidence, alignment.confidence))
   );
+  const shadowAnalysis = await shadowAnalysisPromise.catch(() => ({
+    status: "unavailable" as const,
+    provider: null,
+    modelId: null,
+    decodedLevelCount: 0,
+    phonemeTokenCount: 0,
+    averagePosterior: null,
+  }));
   const measurements = {
     audioDurationMs: audio.durationMs,
     alignmentConfidence: alignment.confidence,
     words: alignment.words,
     uncertainRegions: alignment.uncertainRegions,
+    shadow: shadowAnalysis,
   };
   return findings.length
     ? {

@@ -1,10 +1,15 @@
 import express from "express";
+import { isAuthorizedBearer } from "./auth";
 import { evaluate, type EvaluateInput } from "./evaluator";
 import {
   AbstainingPhonemeEvaluator,
   AlignedPhonemeEvaluator,
   HttpPhonemeClassifier,
 } from "./phoneme";
+import {
+  AbstainingAcousticShadowEvaluator,
+  HttpAcousticShadowEvaluator,
+} from "./shadow";
 
 const phonemes = process.env.QURAN_PHONEME_CLASSIFIER_URL
   ? new AlignedPhonemeEvaluator(
@@ -15,8 +20,29 @@ const phonemes = process.env.QURAN_PHONEME_CLASSIFIER_URL
     )
   : new AbstainingPhonemeEvaluator();
 
+const shadow = process.env.QURAN_ACOUSTIC_SHADOW_URL
+  ? new HttpAcousticShadowEvaluator(
+      process.env.QURAN_ACOUSTIC_SHADOW_URL,
+      process.env.QURAN_ACOUSTIC_SHADOW_API_KEY,
+      Number.parseInt(
+        process.env.QURAN_ACOUSTIC_SHADOW_TIMEOUT_MS ?? "15000",
+        10
+      ) || 15_000
+    )
+  : new AbstainingAcousticShadowEvaluator();
+
 const app = express();
 app.use(express.json({ limit: "20mb" }));
+app.use((req, res, next) => {
+  if (
+    !isAuthorizedBearer(
+      req.header("authorization"),
+      process.env.QURAN_EVALUATOR_API_KEY
+    )
+  )
+    return res.status(401).json({ error: "unauthorized" });
+  next();
+});
 app.post("/v1/evaluate", async (req, res) => {
   const started = Date.now();
   const input = req.body as Partial<EvaluateInput>;
@@ -28,7 +54,7 @@ app.post("/v1/evaluate", async (req, res) => {
     !Number.isInteger(input.ayah)
   )
     return res.status(400).json({ error: "invalid_request" });
-  const result = await evaluate(input as EvaluateInput, phonemes);
+  const result = await evaluate(input as EvaluateInput, phonemes, shadow);
   console.info(
     JSON.stringify({
       event: "quran_acoustic_evaluation",
@@ -40,6 +66,13 @@ app.post("/v1/evaluate", async (req, res) => {
       abstentionReason:
         result.status === "abstained" ? "insufficient_reliable_evidence" : null,
       findingsReturned: result.findings.length,
+      shadowStatus: result.measurements?.shadow?.status ?? "not_run",
+      shadowProvider: result.measurements?.shadow?.provider ?? null,
+      shadowModelId: result.measurements?.shadow?.modelId ?? null,
+      shadowDecodedLevels: result.measurements?.shadow?.decodedLevelCount ?? 0,
+      shadowPhonemeTokens: result.measurements?.shadow?.phonemeTokenCount ?? 0,
+      shadowAveragePosterior:
+        result.measurements?.shadow?.averagePosterior ?? null,
     })
   );
   res.json(result);
