@@ -1082,6 +1082,32 @@ describe("the surah progress meter is not a mark for the recitation", () => {
   });
 });
 
+describe("returning to the beginning of a surah", () => {
+  it("moves from a later ayah to the first ayah in one press", async () => {
+    await mount();
+    await openStudy();
+
+    const beginning = container.querySelector<HTMLButtonElement>(".surah-beginning");
+    expect(beginning?.textContent).toContain(en.strings["reader.surahBeginning"]);
+    expect(beginning?.disabled).toBe(true);
+
+    await act(async () => {
+      container.querySelectorAll<HTMLButtonElement>(".study-pagination .dot")[1].click();
+    });
+    await settle();
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FAKE_AYAHS[1].arabic);
+    expect(beginning?.disabled).toBe(false);
+
+    await act(async () => {
+      beginning!.click();
+    });
+    await settle();
+
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FAKE_AYAHS[0].arabic);
+    expect(beginning?.disabled).toBe(true);
+  });
+});
+
 describe("hearing the exact Quran word", () => {
   const firstAyahWords = FAKE_AYAHS[0].arabic.split(" ");
 
