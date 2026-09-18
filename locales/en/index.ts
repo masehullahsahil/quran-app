@@ -69,6 +69,7 @@ export const strings = {
   "reader.footerHint": "Tap an ayah, then move to Study to hear and repeat it.",
   "reader.showMeaning": "Show meaning",
   "reader.hideMeaning": "Hide meaning",
+  "reader.surahBeginning": "Beginning of surah",
   "reader.previousAyah": "Previous ayah",
   "reader.nextAyah": "Next ayah",
   "reader.chapterCopy": "Read the ayah, hear it from a reciter, repeat it yourself, then return gently to the place that needs practice.",
