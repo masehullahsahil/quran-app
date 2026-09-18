@@ -393,6 +393,7 @@ export const strings: TranslatableStrings = {
   "reader.footerHint": "کسی آیت پر ٹیپ کریں، پھر مشق میں جا کر اسے سنیں اور دہرائیں۔",
   "reader.showMeaning": "معنی دکھائیں",
   "reader.hideMeaning": "معنی چھپائیں",
+  "reader.surahBeginning": "سورت کا آغاز",
   "reader.previousAyah": "پچھلی آیت",
   "reader.nextAyah": "اگلی آیت",
   "reader.chapterCopy": "آیت پڑھیں، قاری سے سنیں، خود دہرائیں، پھر اطمینان سے اسی جگہ لوٹیں جہاں مشق درکار ہے۔",
