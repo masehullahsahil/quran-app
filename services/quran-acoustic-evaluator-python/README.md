@@ -71,3 +71,53 @@ pnpm benchmark:muaalem-shadow
 This command intentionally does not print recording paths, expected text, or
 decoded tokens. It reports runtime coverage and latency only—not pronunciation
 accuracy. Accuracy remains unavailable until adjudicated teacher labels exist.
+
+## Private GPU container
+
+The repository includes a single container that runs the Node evaluator on port
+4317 and the Python model worker on loopback port 4318. Only the authenticated
+Node service is exposed. The container refuses to start without
+`QURAN_EVALUATOR_API_KEY`, and it remains unhealthy until the pinned Muaalem
+checkpoint has loaded successfully.
+It also sets `QURAN_ACOUSTIC_REQUIRE_CUDA=1`, so a misconfigured GPU host fails
+startup instead of silently benchmarking slow CPU inference.
+
+Build from the repository root:
+
+```bash
+docker build \
+  --file services/quran-acoustic-evaluator/Dockerfile.gpu \
+  --tag quran-acoustic-evaluator:shadow .
+```
+
+After this change is merged, the manually triggered **Publish Acoustic GPU
+Image** GitHub workflow can build the same Dockerfile and publish an immutable
+`ghcr.io/masehullahsahil/quran-acoustic-evaluator:sha-<commit>` image. It never
+runs automatically on pushes or pull requests because the CUDA/PyTorch image is
+large. Do not place service keys in the image or workflow; inject them only into
+the selected GPU host at runtime.
+
+Run on a host with the NVIDIA container runtime and a persistent model cache:
+
+```bash
+docker run --rm --gpus all \
+  --publish 4317:4317 \
+  --env QURAN_EVALUATOR_API_KEY=replace-with-a-private-service-key \
+  --volume quran-model-cache:/models/huggingface \
+  quran-acoustic-evaluator:shadow
+```
+
+Do not expose port 4318. Do not configure the production Quran app to call this
+container during the first deployment. First verify `GET /health` returns HTTP
+200 with `shadowReady: true`, then run the private benchmark against consented
+recordings. The health route contains no key, audio, transcript, or decoded
+token. All evaluation requests still require the bearer key.
+
+Use a persistent GPU instance for the initial benchmark. Scale-to-zero and
+serverless GPU products can hide model-load latency behind cold starts, which
+would make the first measurements misleading. A provider and paid instance must
+be selected separately; this repository does not create billable infrastructure.
+
+The local Muaalem loader is derived from the upstream MIT-licensed reference
+implementation. Its required copyright and license notice is retained in
+`THIRD_PARTY_NOTICES.md`.

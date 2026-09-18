@@ -58,6 +58,8 @@ jobs:
         # independent of any live deployment or third-party service.
         run: node --check scripts/smoke-deployed.mjs
 
+      - name: Verify acoustic GPU container contract
+        run: pnpm verify:acoustic-container
+
       - name: Verify production readiness
         run: pnpm verify:production-readiness
-
