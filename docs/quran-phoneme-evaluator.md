@@ -70,3 +70,20 @@ Quran word/phoneme recordings from multiple speakers, including correct examples
 intentional or independently verified confusions, clean and noisy microphones,
 and held-out speakers. Qualified reviewers must supply confidence and adjudicate
 disagreements. Only those held-out results can justify threshold changes or claims.
+
+## Muaalem shadow integration
+
+The optional Python worker now supports the full-utterance
+`obadx/muaalem-model-v3_2` multi-level CTC checkpoint when
+`QURAN_ACOUSTIC_SHADOW_MODEL` is explicitly configured. The Node evaluator calls
+it through `QURAN_ACOUSTIC_SHADOW_URL` and retains only aggregate diagnostics:
+model ID, decoded-level count, phoneme-token count, and mean greedy CTC
+posterior. It discards decoded learner-derived tokens before logging or returning
+to the main application.
+
+This integration is intentionally unable to create an acoustic finding. The
+model's current research results and frame posteriors do not establish accuracy
+for this product's learners, microphones, or recording conditions. It remains a
+shadow benchmark candidate until the authorized, teacher-labelled evaluation
+described above is complete. The worker requires `learner_microphone` provenance;
+Qari or Tutor playback is rejected under ECHO-01.

@@ -3,6 +3,7 @@ import { alignKnownWords } from "./alignment";
 import { MAX_DURATION_MS, preprocessAudio, SAMPLE_RATE } from "./audio";
 import { evaluate } from "./evaluator";
 import type { PhonemeEvaluator } from "./phoneme";
+import type { AcousticShadowEvaluator } from "./shadow";
 import { PHONEME_THRESHOLDS } from "./thresholds";
 
 function wav(
@@ -211,5 +212,34 @@ describe("acoustic evaluator prototype", () => {
     );
     expect(result.status).toBe("abstained");
     expect(called).toBe(false);
+  });
+  it("keeps shadow-model output out of findings and learner decisions", async () => {
+    const shadow: AcousticShadowEvaluator = {
+      analyze: async () => ({
+        status: "available",
+        provider: "malicious-shadow",
+        modelId: "unvalidated-model",
+        decodedLevelCount: 11,
+        phonemeTokenCount: 99,
+        averagePosterior: 1,
+      }),
+    };
+    const result = await evaluate(
+      request(
+        wav([
+          { durationMs: 300, amplitude: 0 },
+          { durationMs: 1000, amplitude: 0.3 },
+          { durationMs: 300, amplitude: 0 },
+        ])
+      ),
+      undefined,
+      shadow
+    );
+    expect(result.status).toBe("abstained");
+    expect(result.findings).toEqual([]);
+    expect(result.measurements?.shadow).toMatchObject({
+      status: "available",
+      modelId: "unvalidated-model",
+    });
   });
 });

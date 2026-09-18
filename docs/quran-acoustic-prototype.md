@@ -27,6 +27,12 @@ The JSON response includes the existing contract fields. An additional `measurem
 
 Reliable phoneme/makhraj detection, production tajweed scoring, teacher-level judgment, and calibrated madd or ghunnah assessment are not supported. The confusion taxonomy (ق/ك, ص/س, ض/د, ط/ت, ظ/ز/ذ, ح/ه, ع/أ, غ/خ) feeds a future `PhonemeEvaluator` interface only. Its default implementation abstains, and non-model-backed observations cannot become findings.
 
+An optional Muaalem full-utterance backend is available for shadow research. It
+decodes phoneme and sifat levels but cannot produce learner-facing findings or
+affect advancement. Its raw decoded tokens are discarded at the Node trust
+boundary, and only bounded aggregate telemetry is logged. See
+`services/quran-acoustic-evaluator-python/README.md` for configuration.
+
 The aligner is a VAD-constrained timing prototype, not phoneme forced alignment. It abstains frequently. It never treats generic transcription, TTS, synthetic tones, or metadata as pronunciation ground truth.
 
 ## Benchmark meaning and next steps
