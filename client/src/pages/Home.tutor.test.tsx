@@ -58,6 +58,7 @@ import ar from "@locales/ar";
  * and completing Ayah 2 is what moves the lesson to Ayah 3.
  */
 const AYAH_NUMBER = 2;
+const FIRST_AYAH_ARABIC = "بِسْمِ ٱللَّهِ ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ";
 const AYAH_ARABIC = "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ";
 const AYAH_WORDS = AYAH_ARABIC.split(" ");
 const TARGET = AYAH_WORDS[2];
@@ -424,6 +425,19 @@ describe("the learner meets the tutor in Study", () => {
     expect(mutationMocks.tutorStart).toHaveBeenCalledTimes(1);
     // Study opens on the reader's current place — surah 1 by default here.
     expect(mutationMocks.tutorStart.mock.calls[0][0]).toMatchObject({ ayah: 1, mode: "guided-recitation" });
+  });
+
+  it("opens a fresh trusted lesson at ayah 1 when the learner returns to the surah beginning", async () => {
+    await mount();
+    await openStudy();
+    await chooseAyah(3);
+
+    expect(mutationMocks.tutorStart.mock.calls.map(([input]) => input.ayah)).toEqual([1, 3]);
+
+    await click(container.querySelector<HTMLButtonElement>(".surah-beginning"));
+
+    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(FIRST_AYAH_ARABIC);
+    expect(mutationMocks.tutorStart.mock.calls.map(([input]) => input.ayah)).toEqual([1, 3, 1]);
   });
 
   it("does not mount it on the reading page", async () => {
