@@ -1,0 +1,57 @@
+# syntax=docker/dockerfile:1.7
+
+FROM node:24-bookworm-slim AS node-builder
+
+WORKDIR /source
+RUN corepack enable && corepack prepare pnpm@10.4.1 --activate
+COPY package.json pnpm-lock.yaml ./
+COPY patches ./patches
+RUN pnpm install --frozen-lockfile
+COPY services/quran-acoustic-evaluator ./services/quran-acoustic-evaluator
+RUN pnpm exec esbuild services/quran-acoustic-evaluator/index.ts \
+    --bundle \
+    --platform=node \
+    --format=esm \
+    --target=node24 \
+    --outfile=/output/quran-acoustic-evaluator.mjs
+
+FROM node:24-bookworm-slim AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PATH=/opt/venv/bin:$PATH \
+    HF_HOME=/models/huggingface \
+    PORT=4317 \
+    QURAN_ACOUSTIC_SHADOW_MODEL=obadx/muaalem-model-v3_2 \
+    QURAN_ACOUSTIC_SHADOW_REVISION=01a1ef9fbe40d144ef845101e89ff924aed3fef5 \
+    QURAN_ACOUSTIC_REQUIRE_CUDA=1 \
+    QURAN_ACOUSTIC_SHADOW_URL=http://127.0.0.1:4318/v1/shadow/analyze \
+    QURAN_ACOUSTIC_SHADOW_HEALTH_URL=http://127.0.0.1:4318/health \
+    QURAN_ACOUSTIC_SHADOW_TIMEOUT_MS=30000
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y \
+      ca-certificates \
+      ffmpeg \
+      python3 \
+      python3-venv \
+      tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv
+
+COPY services/quran-acoustic-evaluator-python/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --requirement /tmp/requirements.txt
+
+WORKDIR /app
+COPY --from=node-builder /output/quran-acoustic-evaluator.mjs ./quran-acoustic-evaluator.mjs
+COPY services/quran-acoustic-evaluator-python ./python
+COPY services/quran-acoustic-evaluator/entrypoint.sh ./entrypoint.sh
+RUN mkdir -p "$HF_HOME" \
+    && chown -R node:node /app /models \
+    && chmod 0755 /app/entrypoint.sh
+
+USER node
+EXPOSE 4317
+HEALTHCHECK --start-period=20m --interval=30s --timeout=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:4317/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]

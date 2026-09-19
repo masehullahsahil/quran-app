@@ -10,6 +10,7 @@ import {
   AbstainingAcousticShadowEvaluator,
   HttpAcousticShadowEvaluator,
 } from "./shadow";
+import { deriveShadowHealthUrl, probeShadowWorker } from "./serviceHealth";
 
 const phonemes = process.env.QURAN_PHONEME_CLASSIFIER_URL
   ? new AlignedPhonemeEvaluator(
@@ -33,6 +34,18 @@ const shadow = process.env.QURAN_ACOUSTIC_SHADOW_URL
 
 const app = express();
 app.use(express.json({ limit: "20mb" }));
+app.get("/health", async (_req, res) => {
+  const health = await probeShadowWorker(
+    process.env.QURAN_ACOUSTIC_SHADOW_HEALTH_URL ??
+      deriveShadowHealthUrl(process.env.QURAN_ACOUSTIC_SHADOW_URL),
+    process.env.QURAN_ACOUSTIC_SHADOW_API_KEY
+  );
+  res.status(health.status === "ready" ? 200 : 503).json({
+    status: health.status,
+    shadowReady: health.status === "ready",
+    shadowModelId: health.modelId,
+  });
+});
 app.use((req, res, next) => {
   if (
     !isAuthorizedBearer(

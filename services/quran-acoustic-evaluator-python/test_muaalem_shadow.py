@@ -1,9 +1,15 @@
 import unittest
 
-from muaalem_shadow import collapse_ctc_frames, decode_level
+from muaalem_shadow import collapse_ctc_frames, decode_level, select_device
 
 
 class MuaalemShadowDecodingTest(unittest.TestCase):
+    def test_gpu_deployment_never_silently_falls_back_to_cpu(self) -> None:
+        self.assertEqual(select_device(True, True), "cuda")
+        self.assertEqual(select_device(False, False), "cpu")
+        with self.assertRaisesRegex(RuntimeError, "CUDA is required"):
+            select_device(False, True)
+
     def test_ctc_collapse_removes_blanks_and_repeated_frames(self) -> None:
         token_ids, posteriors = collapse_ctc_frames(
             [0, 1, 1, 0, 1, 2, 2, 0],

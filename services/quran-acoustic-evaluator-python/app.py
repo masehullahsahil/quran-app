@@ -21,10 +21,19 @@ SHADOW_MODEL_REVISION = os.getenv(
     "01a1ef9fbe40d144ef845101e89ff924aed3fef5",
 ).strip()
 API_KEY = os.getenv("QURAN_ACOUSTIC_API_KEY", "")
+REQUIRE_CUDA = os.getenv("QURAN_ACOUSTIC_REQUIRE_CUDA", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
 app = FastAPI(title="Quran phoneme embedding worker")
 feature_extractor = backbone = head = None
 shadow = (
-    MuaalemShadowRuntime(SHADOW_MODEL_ID, SHADOW_MODEL_REVISION)
+    MuaalemShadowRuntime(
+        SHADOW_MODEL_ID,
+        SHADOW_MODEL_REVISION,
+        require_cuda=REQUIRE_CUDA,
+    )
     if SHADOW_MODEL_ID
     else None
 )

@@ -13,6 +13,12 @@ DEFAULT_MODEL_REVISION = "01a1ef9fbe40d144ef845101e89ff924aed3fef5"
 PAD_TOKEN_ID = 0
 
 
+def select_device(cuda_available: bool, require_cuda: bool) -> str:
+    if require_cuda and not cuda_available:
+        raise RuntimeError("CUDA is required for the Muaalem shadow deployment")
+    return "cuda" if cuda_available else "cpu"
+
+
 def collapse_ctc_frames(
     token_ids: Iterable[int],
     posteriors: Iterable[float],
@@ -66,9 +72,11 @@ class MuaalemShadowRuntime:
         self,
         model_id: str = DEFAULT_MODEL_ID,
         revision: str = DEFAULT_MODEL_REVISION,
+        require_cuda: bool = False,
     ) -> None:
         self.model_id = model_id
         self.revision = revision
+        self.require_cuda = require_cuda
         self.feature_extractor = None
         self.model = None
         self.device = None
@@ -94,7 +102,9 @@ class MuaalemShadowRuntime:
         self.model = MuaalemForMultiLevelCTC.from_pretrained(
             self.model_id, config=config, revision=self.revision
         ).eval()
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(
+            select_device(torch.cuda.is_available(), self.require_cuda)
+        )
         self.model.to(self.device)
         vocabulary_path = Path(
             hf_hub_download(
