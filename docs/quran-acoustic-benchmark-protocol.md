@@ -89,6 +89,9 @@ and the review timestamp. A review without a qualification is refused.
 - Reviews are independent: a reviewer labels before seeing any other reviewer's labels
   and before seeing any model output. The labeling workflow shows no prediction —
   a tool that suggests the model's answer produces labels that agree with the model.
+  Blinding is enforced in-browser: until independent review is marked complete, each
+  reviewer sees only their own labels — the other reviewer's labels, notes, scope,
+  and identity stay hidden, and exports contain only the reviewer's own labels.
 - Disagreements go to adjudication: a named, qualified adjudicator records a final
   label with a written rationale. Reviews are never averaged, voted on, or merged.
   `insufficient` remains a valid adjudicated outcome.
@@ -132,6 +135,10 @@ The benchmark may start when all of these are true:
 - [ ] Audio storage is off-repo with access limited to reviewers
 - [ ] Reviewer roster of qualified teachers is confirmed
 - [ ] Adjudication rule for disagreements is agreed
+- [ ] Blinding verified: a second teacher on the same browser sees only their own labels
+      until review is complete
+- [ ] Coordinates validated (surah 1–114, valid ayah per surah); no non-issue label
+      carries issue metadata
 - [ ] Sample manifest is complete per section 3, with held-out speakers for splits
 - [ ] The labeling workflow records the section-4 schema and refuses unconfirmed reviews
 

@@ -196,11 +196,47 @@ function isPositiveIntegerText(value: string): boolean {
   return /^\d+$/.test(value.trim()) && Number(value.trim()) >= 1;
 }
 
+/**
+ * Ayah counts for surahs 1–114 in the standard Madani mushaf, in surah order.
+ * Used only to validate the coordinates a teacher records a label against, so
+ * a typo (surah 2, ayah 999) cannot enter the benchmark set. This is validation
+ * metadata, not Quran text: it changes nothing about the app's Quran authority,
+ * text, or ayah boundaries.
+ */
+const BENCHMARK_AYAH_COUNTS: readonly number[] = [
+  7, 286, 200, 176, 120, 165, 206, 75, 129, 109, 123, 111, 43, 52, 99, 128, 111, 110, 98, 135, 112, 78, 118,
+  64, 77, 227, 93, 88, 69, 60, 34, 30, 73, 54, 45, 83, 182, 88, 75, 85, 54, 53, 89, 59, 37, 35, 38, 29, 18,
+  45, 60, 49, 62, 55, 78, 96, 29, 22, 24, 13, 14, 11, 11, 18, 12, 12, 30, 52, 52, 44, 28, 28, 20, 56, 40,
+  31, 50, 40, 46, 42, 29, 19, 36, 25, 22, 17, 19, 26, 30, 20, 15, 21, 11, 8, 8, 19, 5, 8, 8, 11, 11, 8, 3,
+  9, 5, 4, 7, 3, 6, 3, 5, 4, 5, 6,
+];
+
+/** The ayah count for a surah, or null when the surah number is out of range. */
+export function benchmarkAyahCount(surah: number): number | null {
+  if (!Number.isInteger(surah) || surah < 1 || surah > BENCHMARK_AYAH_COUNTS.length) return null;
+  return BENCHMARK_AYAH_COUNTS[surah - 1];
+}
+
+/**
+ * Applies a teacher-label choice to the draft. Moving away from "issue" clears
+ * the issue scope and its detail, so a non-issue label can never carry issue
+ * metadata into the exported record.
+ */
+export function applyBenchmarkLabel(draft: BenchmarkDraft, label: BenchmarkTeacherLabel | ""): BenchmarkDraft {
+  if (label === "issue") return { ...draft, label };
+  return { ...draft, label, scope: "", scopeDetail: "" };
+}
+
 export function validateBenchmarkDraft(draft: BenchmarkDraft, reviewer: TeacherReviewer): string[] {
   const errors: string[] = [];
   if (!draft.sampleId.trim()) errors.push("Sample ID is required — the label must name the recording it belongs to.");
-  if (!isPositiveIntegerText(draft.surah) || !isPositiveIntegerText(draft.ayah))
-    errors.push("Surah and ayah are required as positive numbers.");
+  const surah = Number(draft.surah.trim());
+  const ayahCount = benchmarkAyahCount(surah);
+  if (ayahCount === null) {
+    errors.push("Surah must be a whole number between 1 and 114.");
+  } else if (!isPositiveIntegerText(draft.ayah) || Number(draft.ayah.trim()) > ayahCount) {
+    errors.push(`Ayah must be a whole number between 1 and ${ayahCount} for surah ${surah}.`);
+  }
   if (!draft.label) errors.push("Choose the teacher label: correct, a known pronunciation issue, or insufficient evidence.");
   if (!draft.consentConfirmed)
     errors.push("Consent/retention confirmation is required — a benchmark review without it is refused.");
@@ -215,15 +251,19 @@ export function buildBenchmarkReview(
 ): { review: BenchmarkReview | null; errors: string[] } {
   const errors = validateBenchmarkDraft(draft, reviewer);
   if (errors.length > 0) return { review: null, errors };
+  // Belt and braces with applyBenchmarkLabel: a non-issue label is recorded
+  // with no scope metadata at all, so exported records can never carry issue
+  // metadata for a non-issue label.
+  const label = draft.label as BenchmarkTeacherLabel;
   return {
     review: {
       reviewId: `benchmark-${draft.sampleId.trim()}-${reviewer.reviewerId.trim() || "anonymous"}-${Date.now()}`,
       sampleId: draft.sampleId.trim(),
       surah: Number(draft.surah.trim()),
       ayah: Number(draft.ayah.trim()),
-      label: draft.label as BenchmarkTeacherLabel,
-      scope: draft.scope === "" ? null : draft.scope,
-      scopeDetail: draft.scopeDetail.trim(),
+      label,
+      scope: label === "issue" ? (draft.scope === "" ? null : draft.scope) : null,
+      scopeDetail: label === "issue" ? draft.scopeDetail.trim() : "",
       notes: draft.notes.trim(),
       consentConfirmed: true,
       reviewer: {
@@ -293,6 +333,59 @@ function writeBenchmarkReviews(reviews: BenchmarkReview[]): void {
   }
 }
 
+/** localStorage key: set once this browser's blinding is lifted for adjudication. */
+export const BENCHMARK_UNBLINDED_KEY = "miqra-benchmark-unblinded";
+
+/**
+ * The reviews the current reviewer may see before submitting their own: only
+ * their own labels, unless blinding was lifted for adjudication. A reviewer
+ * with no identity set sees nothing — a second teacher sharing the browser
+ * must not read the first teacher's labels, notes, scope, or identity
+ * anonymously.
+ */
+export function visibleBenchmarkReviews(
+  reviews: BenchmarkReview[],
+  reviewerId: string,
+  unblinded: boolean,
+): BenchmarkReview[] {
+  if (unblinded) return reviews;
+  if (!reviewerId.trim()) return [];
+  return reviews.filter((review) => review.reviewer.reviewerId === reviewerId.trim());
+}
+
+export function readBenchmarkUnblinded(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(BENCHMARK_UNBLINDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeBenchmarkUnblinded(unblinded: boolean): void {
+  try {
+    if (typeof window === "undefined") return;
+    if (unblinded) window.localStorage.setItem(BENCHMARK_UNBLINDED_KEY, "1");
+    else window.localStorage.removeItem(BENCHMARK_UNBLINDED_KEY);
+  } catch {
+    // Blinding defaults to on; a blocked store must not silently unblind.
+  }
+}
+
+/**
+ * Revokes a blob URL created for local audio playback. Safe to call with null.
+ * Called whenever a file is replaced, a review is submitted, and when the
+ * panel unmounts, so long review sessions do not retain audio in memory.
+ */
+export function revokeLocalAudioUrl(url: string | null): void {
+  if (!url) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    // Already revoked or never a live blob URL; nothing is retained either way.
+  }
+}
+
 /**
  * The benchmark-readiness labeling workflow: a simple, self-contained panel a
  * qualified teacher uses to record one independent judgement per consented
@@ -304,13 +397,31 @@ function writeBenchmarkReviews(reviews: BenchmarkReview[]): void {
 export function BenchmarkLabeling() {
   const [draft, setDraft] = useState<BenchmarkDraft>(emptyBenchmarkDraft());
   const [reviews, setReviews] = useState<BenchmarkReview[]>([]);
+  const [unblinded, setUnblinded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
   const audioInput = useRef<HTMLInputElement>(null);
+  const audioUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     setReviews(readBenchmarkReviews());
+    setUnblinded(readBenchmarkUnblinded());
   }, []);
+
+  // Never retain audio in browser memory: revoke the playback blob URL on unmount.
+  useEffect(() => {
+    return () => {
+      revokeLocalAudioUrl(audioUrlRef.current);
+      audioUrlRef.current = null;
+    };
+  }, []);
+
+  /** Replaces the local playback URL, revoking the previous one first. */
+  function setLocalAudio(url: string | null) {
+    revokeLocalAudioUrl(audioUrlRef.current);
+    audioUrlRef.current = url;
+    setLocalAudioUrl(url);
+  }
 
   function submitBenchmarkReview() {
     const { review, errors } = buildBenchmarkReview(draft, readReviewerIdentity());
@@ -323,12 +434,23 @@ export function BenchmarkLabeling() {
     writeBenchmarkReviews(next);
     setDraft(emptyBenchmarkDraft());
     setError(null);
-    setLocalAudioUrl(null);
+    setLocalAudio(null);
     if (audioInput.current) audioInput.current.value = "";
   }
 
+  function setUnblindedAndPersist(value: boolean) {
+    setUnblinded(value);
+    writeBenchmarkUnblinded(value);
+  }
+
+  // Blinded independent review: until independent review is marked complete,
+  // this browser shows each reviewer only their own labels.
+  const reviewerId = readReviewerIdentity().reviewerId;
+  const visible = visibleBenchmarkReviews(reviews, reviewerId, unblinded);
+  const hiddenCount = reviews.length - visible.length;
+
   function exportBenchmarkReviews() {
-    const blob = new Blob([serializeBenchmarkReviews(reviews)], { type: "application/json" });
+    const blob = new Blob([serializeBenchmarkReviews(visible)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -367,7 +489,7 @@ export function BenchmarkLabeling() {
           hidden
           onChange={(event) => {
             const file = event.target.files?.[0];
-            setLocalAudioUrl(file ? URL.createObjectURL(file) : null);
+            setLocalAudio(file ? URL.createObjectURL(file) : null);
           }}
         />
         {localAudioUrl && <audio controls src={localAudioUrl} />}
@@ -420,7 +542,7 @@ export function BenchmarkLabeling() {
                 type="radio"
                 name="benchmark-teacher-label"
                 checked={draft.label === label}
-                onChange={() => setDraft({ ...draft, label })}
+                onChange={() => setDraft(applyBenchmarkLabel(draft, label))}
               />
               <span>
                 <strong>{BENCHMARK_LABEL_TITLES[label]}</strong>
@@ -493,9 +615,22 @@ export function BenchmarkLabeling() {
       </form>
 
       <section className="label-reviews" aria-label="Benchmark labels recorded">
-        <h3>Benchmark labels recorded ({reviews.length})</h3>
-        {reviews.length === 0 && <p className="label-note">None yet.</p>}
-        {reviews.map((review) => (
+        <h3>
+          Benchmark labels recorded ({visible.length}
+          {hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""})
+        </h3>
+        {hiddenCount > 0 && (
+          <p className="label-note">
+            <strong>
+              {hiddenCount} label{hiddenCount === 1 ? "" : "s"} from other reviewers{" "}
+              {hiddenCount === 1 ? "is" : "are"} hidden
+            </strong>{" "}
+            until independent review is complete. Blinded review is preserved in this browser: a second teacher sees
+            only their own labels, notes, scope, and reviewer identity.
+          </p>
+        )}
+        {visible.length === 0 && <p className="label-note">None yet.</p>}
+        {visible.map((review) => (
           <article key={review.reviewId}>
             <p>
               <strong>{review.sampleId}</strong> — Surah {review.surah}, ayah {review.ayah}
@@ -511,11 +646,22 @@ export function BenchmarkLabeling() {
             </p>
           </article>
         ))}
-        {reviews.length > 0 && (
+        {visible.length > 0 && (
           <button type="button" onClick={exportBenchmarkReviews}>
             <Download size={15} aria-hidden="true" /> Export benchmark labels
           </button>
         )}
+        <label className="label-checkbox">
+          <input
+            type="checkbox"
+            checked={unblinded}
+            onChange={(event) => setUnblindedAndPersist(event.target.checked)}
+          />
+          <span>
+            Independent review complete — reveal all labels for adjudication. Revealing ends blinding in this browser;
+            any labels recorded after this point are not independent.
+          </span>
+        </label>
       </section>
     </section>
   );
