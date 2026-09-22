@@ -104,6 +104,569 @@ function lettersOf(word: string): string[] {
   return Array.from(word);
 }
 
+// ---------------------------------------------------------------------------
+// Benchmark readiness: the simple teacher-labeling workflow for the controlled
+// acoustic shadow benchmark.
+// ---------------------------------------------------------------------------
+// The full prototype below explores a 21-label taxonomy against synthetic
+// fixtures. The controlled benchmark needs something smaller and harder: one
+// independent judgement per consented recording — the sample ID, the surah and
+// ayah, the teacher's own label (correct / known pronunciation issue /
+// insufficient evidence), an optional issue scope (word or phoneme), reviewer
+// notes, and an explicit consent/retention confirmation.
+//
+// This workflow is a labeling tool only. It evaluates nothing: it does not
+// judge pronunciation, it does not measure model accuracy, and it shows no
+// model output. A shadow-evaluator abstention is not evidence that a recitation
+// was correct or incorrect — successful shadow responses that abstained safely
+// are not accuracy evidence. Accuracy can only be measured later, against
+// adjudicated teacher labels, under the protocol in
+// docs/quran-acoustic-benchmark-protocol.md.
+//
+// No audio is collected here. A reviewer opens a consented recording from their
+// own machine to listen alongside; it plays locally, is never uploaded, never
+// stored, and never attached to the labels recorded.
+
+/** localStorage key for recorded benchmark reviews. Labels only, never audio. */
+export const BENCHMARK_SESSION_KEY = "miqra-benchmark-labels";
+
+export type BenchmarkTeacherLabel = "correct" | "issue" | "insufficient";
+
+export type BenchmarkIssueScope = "word" | "phoneme";
+
+export const BENCHMARK_TEACHER_LABELS: readonly BenchmarkTeacherLabel[] = ["correct", "issue", "insufficient"];
+
+export const BENCHMARK_LABEL_TITLES: Record<BenchmarkTeacherLabel, string> = {
+  correct: "Correct — no pronunciation issue heard",
+  issue: "Known pronunciation issue — heard and located below",
+  insufficient: "Insufficient evidence — could not reach a judgement",
+};
+
+export const BENCHMARK_LABEL_SUMMARIES: Record<BenchmarkTeacherLabel, string> = {
+  correct:
+    "The teacher heard no pronunciation issue in the recitation. This is the teacher's own judgement, not a claim that the recitation is perfect.",
+  issue:
+    "The teacher heard a specific pronunciation issue and can say roughly where. Optionally name the scope: a word (by word index) or a phoneme (described in words).",
+  insufficient:
+    "Audio quality, scope, or reviewer confidence was insufficient to judge. A first-class outcome: it is never scored as correct and never as an error.",
+};
+
+export type BenchmarkReview = {
+  reviewId: string;
+  sampleId: string;
+  surah: number;
+  ayah: number;
+  label: BenchmarkTeacherLabel;
+  /** Optional. Present only when the teacher chose to locate the issue. */
+  scope: BenchmarkIssueScope | null;
+  /** Free-text scope detail, e.g. a word index or the phonemes involved. */
+  scopeDetail: string;
+  notes: string;
+  /** Always true: a review is only recorded after the teacher confirms it. */
+  consentConfirmed: boolean;
+  reviewer: TeacherReviewer;
+  reviewedAt: string;
+};
+
+export type BenchmarkDraft = {
+  sampleId: string;
+  surah: string;
+  ayah: string;
+  label: BenchmarkTeacherLabel | "";
+  scope: BenchmarkIssueScope | "";
+  scopeDetail: string;
+  notes: string;
+  consentConfirmed: boolean;
+};
+
+export function emptyBenchmarkDraft(): BenchmarkDraft {
+  return {
+    sampleId: "",
+    surah: "",
+    ayah: "",
+    label: "",
+    scope: "",
+    scopeDetail: "",
+    notes: "",
+    consentConfirmed: false,
+  };
+}
+
+function isPositiveIntegerText(value: string): boolean {
+  return /^\d+$/.test(value.trim()) && Number(value.trim()) >= 1;
+}
+
+/**
+ * Ayah counts for surahs 1–114 in the standard Madani mushaf, in surah order.
+ * Used only to validate the coordinates a teacher records a label against, so
+ * a typo (surah 2, ayah 999) cannot enter the benchmark set. This is validation
+ * metadata, not Quran text: it changes nothing about the app's Quran authority,
+ * text, or ayah boundaries.
+ */
+const BENCHMARK_AYAH_COUNTS: readonly number[] = [
+  7, 286, 200, 176, 120, 165, 206, 75, 129, 109, 123, 111, 43, 52, 99, 128, 111, 110, 98, 135, 112, 78, 118,
+  64, 77, 227, 93, 88, 69, 60, 34, 30, 73, 54, 45, 83, 182, 88, 75, 85, 54, 53, 89, 59, 37, 35, 38, 29, 18,
+  45, 60, 49, 62, 55, 78, 96, 29, 22, 24, 13, 14, 11, 11, 18, 12, 12, 30, 52, 52, 44, 28, 28, 20, 56, 40,
+  31, 50, 40, 46, 42, 29, 19, 36, 25, 22, 17, 19, 26, 30, 20, 15, 21, 11, 8, 8, 19, 5, 8, 8, 11, 11, 8, 3,
+  9, 5, 4, 7, 3, 6, 3, 5, 4, 5, 6,
+];
+
+/** The ayah count for a surah, or null when the surah number is out of range. */
+export function benchmarkAyahCount(surah: number): number | null {
+  if (!Number.isInteger(surah) || surah < 1 || surah > BENCHMARK_AYAH_COUNTS.length) return null;
+  return BENCHMARK_AYAH_COUNTS[surah - 1];
+}
+
+/**
+ * Applies a teacher-label choice to the draft. Moving away from "issue" clears
+ * the issue scope and its detail, so a non-issue label can never carry issue
+ * metadata into the exported record.
+ */
+export function applyBenchmarkLabel(draft: BenchmarkDraft, label: BenchmarkTeacherLabel | ""): BenchmarkDraft {
+  if (label === "issue") return { ...draft, label };
+  return { ...draft, label, scope: "", scopeDetail: "" };
+}
+
+export function validateBenchmarkDraft(draft: BenchmarkDraft, reviewer: TeacherReviewer): string[] {
+  const errors: string[] = [];
+  if (!draft.sampleId.trim()) errors.push("Sample ID is required — the label must name the recording it belongs to.");
+  const surah = Number(draft.surah.trim());
+  const ayahCount = benchmarkAyahCount(surah);
+  if (ayahCount === null) {
+    errors.push("Surah must be a whole number between 1 and 114.");
+  } else if (!isPositiveIntegerText(draft.ayah) || Number(draft.ayah.trim()) > ayahCount) {
+    errors.push(`Ayah must be a whole number between 1 and ${ayahCount} for surah ${surah}.`);
+  }
+  if (!draft.label) errors.push("Choose the teacher label: correct, a known pronunciation issue, or insufficient evidence.");
+  if (!draft.consentConfirmed)
+    errors.push("Consent/retention confirmation is required — a benchmark review without it is refused.");
+  if (!reviewer.reviewerId.trim() || !reviewer.qualification.trim())
+    errors.push("A reviewer ID and qualification are required — a review without a qualification is refused.");
+  return errors;
+}
+
+export function buildBenchmarkReview(
+  draft: BenchmarkDraft,
+  reviewer: TeacherReviewer,
+): { review: BenchmarkReview | null; errors: string[] } {
+  const errors = validateBenchmarkDraft(draft, reviewer);
+  if (errors.length > 0) return { review: null, errors };
+  // Belt and braces with applyBenchmarkLabel: a non-issue label is recorded
+  // with no scope metadata at all, so exported records can never carry issue
+  // metadata for a non-issue label.
+  const label = draft.label as BenchmarkTeacherLabel;
+  return {
+    review: {
+      reviewId: `benchmark-${draft.sampleId.trim()}-${reviewer.reviewerId.trim() || "anonymous"}-${Date.now()}`,
+      sampleId: draft.sampleId.trim(),
+      surah: Number(draft.surah.trim()),
+      ayah: Number(draft.ayah.trim()),
+      label,
+      scope: label === "issue" ? (draft.scope === "" ? null : draft.scope) : null,
+      scopeDetail: label === "issue" ? draft.scopeDetail.trim() : "",
+      notes: draft.notes.trim(),
+      consentConfirmed: true,
+      reviewer: {
+        ...reviewer,
+        reviewerId: reviewer.reviewerId.trim(),
+        qualification: reviewer.qualification.trim(),
+      },
+      reviewedAt: new Date().toISOString(),
+    },
+    errors: [],
+  };
+}
+
+function isBenchmarkTeacherLabel(value: unknown): value is BenchmarkTeacherLabel {
+  return typeof value === "string" && (BENCHMARK_TEACHER_LABELS as readonly string[]).includes(value);
+}
+
+function isBenchmarkIssueScope(value: unknown): value is BenchmarkIssueScope {
+  return value === "word" || value === "phoneme";
+}
+
+export function parseBenchmarkReviews(raw: string | null): BenchmarkReview[] {
+  if (!raw) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((entry): entry is BenchmarkReview => {
+      if (!entry || typeof entry !== "object") return false;
+      const review = entry as Partial<BenchmarkReview>;
+      return (
+        typeof review.reviewId === "string" &&
+        typeof review.sampleId === "string" &&
+        typeof review.surah === "number" &&
+        typeof review.ayah === "number" &&
+        isBenchmarkTeacherLabel(review.label) &&
+        (review.scope === null || isBenchmarkIssueScope(review.scope)) &&
+        typeof review.reviewedAt === "string" &&
+        review.consentConfirmed === true &&
+        !!review.reviewer
+      );
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function serializeBenchmarkReviews(reviews: BenchmarkReview[]): string {
+  return JSON.stringify(reviews, null, 2);
+}
+
+function readBenchmarkReviews(): BenchmarkReview[] {
+  try {
+    if (typeof window === "undefined") return [];
+    return parseBenchmarkReviews(window.localStorage.getItem(BENCHMARK_SESSION_KEY));
+  } catch {
+    return [];
+  }
+}
+
+function writeBenchmarkReviews(reviews: BenchmarkReview[]): void {
+  try {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(BENCHMARK_SESSION_KEY, serializeBenchmarkReviews(reviews));
+  } catch {
+    // The export button is the reviewer's durable copy; a blocked store must
+    // not lose the review currently on screen.
+  }
+}
+
+/** localStorage key: set once this browser's blinding is lifted for adjudication. */
+export const BENCHMARK_UNBLINDED_KEY = "miqra-benchmark-unblinded";
+
+/**
+ * The reviews the current reviewer may see before submitting their own: only
+ * their own labels, unless blinding was lifted for adjudication. A reviewer
+ * with no identity set sees nothing — a second teacher sharing the browser
+ * must not read the first teacher's labels, notes, scope, or identity
+ * anonymously.
+ */
+export function visibleBenchmarkReviews(
+  reviews: BenchmarkReview[],
+  reviewerId: string,
+  unblinded: boolean,
+): BenchmarkReview[] {
+  if (unblinded) return reviews;
+  if (!reviewerId.trim()) return [];
+  return reviews.filter((review) => review.reviewer.reviewerId === reviewerId.trim());
+}
+
+export function readBenchmarkUnblinded(): boolean {
+  try {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem(BENCHMARK_UNBLINDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeBenchmarkUnblinded(unblinded: boolean): void {
+  try {
+    if (typeof window === "undefined") return;
+    if (unblinded) window.localStorage.setItem(BENCHMARK_UNBLINDED_KEY, "1");
+    else window.localStorage.removeItem(BENCHMARK_UNBLINDED_KEY);
+  } catch {
+    // Blinding defaults to on; a blocked store must not silently unblind.
+  }
+}
+
+/**
+ * Revokes a blob URL created for local audio playback. Safe to call with null.
+ * Called whenever a file is replaced, a review is submitted, and when the
+ * panel unmounts, so long review sessions do not retain audio in memory.
+ */
+export function revokeLocalAudioUrl(url: string | null): void {
+  if (!url) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch {
+    // Already revoked or never a live blob URL; nothing is retained either way.
+  }
+}
+
+/**
+ * The benchmark-readiness labeling workflow: a simple, self-contained panel a
+ * qualified teacher uses to record one independent judgement per consented
+ * recording for the controlled acoustic shadow benchmark.
+ *
+ * Reviewer identity is read fresh from the shared Reviewer section on every
+ * submit, so editing it there never silently applies to an older copy here.
+ */
+export function BenchmarkLabeling() {
+  const [draft, setDraft] = useState<BenchmarkDraft>(emptyBenchmarkDraft());
+  const [reviews, setReviews] = useState<BenchmarkReview[]>([]);
+  const [unblinded, setUnblinded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
+  const audioInput = useRef<HTMLInputElement>(null);
+  const audioUrlRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setReviews(readBenchmarkReviews());
+    setUnblinded(readBenchmarkUnblinded());
+  }, []);
+
+  // Never retain audio in browser memory: revoke the playback blob URL on unmount.
+  useEffect(() => {
+    return () => {
+      revokeLocalAudioUrl(audioUrlRef.current);
+      audioUrlRef.current = null;
+    };
+  }, []);
+
+  /** Replaces the local playback URL, revoking the previous one first. */
+  function setLocalAudio(url: string | null) {
+    revokeLocalAudioUrl(audioUrlRef.current);
+    audioUrlRef.current = url;
+    setLocalAudioUrl(url);
+  }
+
+  function submitBenchmarkReview() {
+    const { review, errors } = buildBenchmarkReview(draft, readReviewerIdentity());
+    if (!review) {
+      setError(errors.join(" "));
+      return;
+    }
+    const next = [...reviews, review];
+    setReviews(next);
+    writeBenchmarkReviews(next);
+    setDraft(emptyBenchmarkDraft());
+    setError(null);
+    setLocalAudio(null);
+    if (audioInput.current) audioInput.current.value = "";
+  }
+
+  function setUnblindedAndPersist(value: boolean) {
+    setUnblinded(value);
+    writeBenchmarkUnblinded(value);
+  }
+
+  // Blinded independent review: until independent review is marked complete,
+  // this browser shows each reviewer only their own labels.
+  const reviewerId = readReviewerIdentity().reviewerId;
+  const visible = visibleBenchmarkReviews(reviews, reviewerId, unblinded);
+  const hiddenCount = reviews.length - visible.length;
+
+  function exportBenchmarkReviews() {
+    const blob = new Blob([serializeBenchmarkReviews(visible)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `benchmark-labels-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <section className="label-sample" aria-label="Benchmark review">
+      <p className="label-eyebrow">Acoustic shadow benchmark · teacher review</p>
+      <h2>Label a benchmark sample</h2>
+      <p className="label-statement">
+        <AlertCircle size={15} aria-hidden="true" /> A labeling tool only. It does not evaluate pronunciation and does
+        not measure model accuracy. A shadow-evaluator abstention is not evidence that a recitation was correct or
+        incorrect — successful shadow responses that abstained safely are not accuracy evidence.
+      </p>
+      <p className="label-note">
+        Record one independent judgement per consented recording. Reviews stay in this browser until you export them —
+        no audio is uploaded, stored, or attached to the labels you record.
+      </p>
+
+      <div className="label-audio">
+        <p>
+          This page bundles no samples and no audio. To listen, open a consented recording from your own machine — it
+          plays locally in this tab and is never uploaded, stored or attached to the labels you record. Check that the
+          consent record covers teacher review for this benchmark before you label.
+        </p>
+        <button type="button" onClick={() => audioInput.current?.click()}>
+          Open a consented recording locally
+        </button>
+        <input
+          ref={audioInput}
+          type="file"
+          accept="audio/*"
+          hidden
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            setLocalAudio(file ? URL.createObjectURL(file) : null);
+          }}
+        />
+        {localAudioUrl && <audio controls src={localAudioUrl} />}
+      </div>
+
+      <form
+        className="label-submit-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitBenchmarkReview();
+        }}
+      >
+        <h3>Record the teacher label</h3>
+        <div className="label-form-row">
+          <label>
+            <span>Sample ID</span>
+            <input
+              value={draft.sampleId}
+              placeholder="e.g. shadow-bench-001"
+              onChange={(event) => setDraft({ ...draft, sampleId: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Surah</span>
+            <input
+              inputMode="numeric"
+              value={draft.surah}
+              placeholder="e.g. 1"
+              onChange={(event) => setDraft({ ...draft, surah: event.target.value })}
+            />
+          </label>
+          <label>
+            <span>Ayah</span>
+            <input
+              inputMode="numeric"
+              value={draft.ayah}
+              placeholder="e.g. 2"
+              onChange={(event) => setDraft({ ...draft, ayah: event.target.value })}
+            />
+          </label>
+        </div>
+
+        <div className="label-field">
+          <p className="label-note">
+            <strong>Teacher label</strong> — your own judgement, before you see any other review or any model output.
+          </p>
+          {BENCHMARK_TEACHER_LABELS.map((label) => (
+            <label key={label} className="label-checkbox">
+              <input
+                type="radio"
+                name="benchmark-teacher-label"
+                checked={draft.label === label}
+                onChange={() => setDraft(applyBenchmarkLabel(draft, label))}
+              />
+              <span>
+                <strong>{BENCHMARK_LABEL_TITLES[label]}</strong>
+                <br />
+                {BENCHMARK_LABEL_SUMMARIES[label]}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {draft.label === "issue" && (
+          <div className="label-form-row">
+            <label>
+              <span>Issue scope (optional)</span>
+              <select
+                value={draft.scope}
+                onChange={(event) => setDraft({ ...draft, scope: event.target.value as BenchmarkIssueScope | "" })}
+              >
+                <option value="">Not locating the issue</option>
+                <option value="word">Word</option>
+                <option value="phoneme">Phoneme</option>
+              </select>
+            </label>
+            <label>
+              <span>
+                {draft.scope === "word"
+                  ? "Word index (optional)"
+                  : draft.scope === "phoneme"
+                    ? "Phoneme detail (optional)"
+                    : "Scope detail (optional)"}
+              </span>
+              <input
+                value={draft.scopeDetail}
+                placeholder={
+                  draft.scope === "word"
+                    ? "e.g. word 3"
+                    : draft.scope === "phoneme"
+                      ? "e.g. the intended and observed sound"
+                      : ""
+                }
+                onChange={(event) => setDraft({ ...draft, scopeDetail: event.target.value })}
+              />
+            </label>
+          </div>
+        )}
+
+        <label className="label-field">
+          <span>Reviewer notes</span>
+          <textarea rows={2} value={draft.notes} onChange={(event) => setDraft({ ...draft, notes: event.target.value })} />
+        </label>
+
+        <label className="label-checkbox">
+          <input
+            type="checkbox"
+            checked={draft.consentConfirmed}
+            onChange={(event) => setDraft({ ...draft, consentConfirmed: event.target.checked })}
+          />
+          <span>
+            Consent and retention confirmed. I have checked that this recording's consent covers teacher review for this
+            benchmark and that the retention window is still open. Required — without it the review is refused.
+          </span>
+        </label>
+
+        {error && <p className="label-error">{error}</p>}
+        <div className="label-form-actions">
+          <button type="submit">
+            <Check size={15} aria-hidden="true" /> Record benchmark label
+          </button>
+        </div>
+      </form>
+
+      <section className="label-reviews" aria-label="Benchmark labels recorded">
+        <h3>
+          Benchmark labels recorded ({visible.length}
+          {hiddenCount > 0 ? ` · ${hiddenCount} hidden` : ""})
+        </h3>
+        {hiddenCount > 0 && (
+          <p className="label-note">
+            <strong>
+              {hiddenCount} label{hiddenCount === 1 ? "" : "s"} from other reviewers{" "}
+              {hiddenCount === 1 ? "is" : "are"} hidden
+            </strong>{" "}
+            until independent review is complete. Blinded review is preserved in this browser: a second teacher sees
+            only their own labels, notes, scope, and reviewer identity.
+          </p>
+        )}
+        {visible.length === 0 && <p className="label-note">None yet.</p>}
+        {visible.map((review) => (
+          <article key={review.reviewId}>
+            <p>
+              <strong>{review.sampleId}</strong> — Surah {review.surah}, ayah {review.ayah}
+            </p>
+            <p>
+              {BENCHMARK_LABEL_TITLES[review.label]}
+              {review.scope ? ` · scope: ${review.scope}${review.scopeDetail ? ` (${review.scopeDetail})` : ""}` : ""}
+            </p>
+            {review.notes && <p className="label-note">{review.notes}</p>}
+            <p className="label-note">
+              {review.reviewer.reviewerId} — {review.reviewer.qualification} · {review.reviewedAt.slice(0, 10)} ·
+              consent confirmed
+            </p>
+          </article>
+        ))}
+        {visible.length > 0 && (
+          <button type="button" onClick={exportBenchmarkReviews}>
+            <Download size={15} aria-hidden="true" /> Export benchmark labels
+          </button>
+        )}
+        <label className="label-checkbox">
+          <input
+            type="checkbox"
+            checked={unblinded}
+            onChange={(event) => setUnblindedAndPersist(event.target.checked)}
+          />
+          <span>
+            Independent review complete — reveal all labels for adjudication. Revealing ends blinding in this browser;
+            any labels recorded after this point are not independent.
+          </span>
+        </label>
+      </section>
+    </section>
+  );
+}
+
 export default function PronunciationLabeling() {
   const samples = FIXTURE_SAMPLES;
   const [session, setSession] = useState<LabelingSession>({ reviews: [], adjudications: [] });
@@ -119,6 +682,7 @@ export default function PronunciationLabeling() {
   const [rationale, setRationale] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [localAudioUrl, setLocalAudioUrl] = useState<string | null>(null);
+  const [mode, setMode] = useState<"benchmark" | "prototype">("prototype");
   const importInput = useRef<HTMLInputElement>(null);
   const audioInput = useRef<HTMLInputElement>(null);
 
@@ -266,37 +830,60 @@ export default function PronunciationLabeling() {
     <main className="label-page">
       <header className="label-header">
         <div>
-          <p className="label-eyebrow">Pronunciation dataset · teacher labeling prototype</p>
-          <h1>Label a recitation sample</h1>
-          <p className="label-statement">
-            <AlertCircle size={15} aria-hidden="true" /> {FIXTURE_NOTICE}
+          <p className="label-eyebrow">
+            Pronunciation dataset · {mode === "benchmark" ? "benchmark review" : "teacher labeling prototype"}
           </p>
-          <p className="label-note">
-            Label taxonomy status: <strong>{TAXONOMY_STATUS}</strong>. {TAXONOMY_COMPLETENESS_NOTE}
-          </p>
-          <p className="label-note">
-            Severity taxonomy status: <strong>{SEVERITY_STATUS}</strong>. It may not drive learner-facing correction
-            behaviour: {String(mayDriveLearnerFacingCorrection([]))}.
-          </p>
+          <h1>{mode === "benchmark" ? "Benchmark review" : "Label a recitation sample"}</h1>
+          {mode === "prototype" && (
+            <>
+              <p className="label-statement">
+                <AlertCircle size={15} aria-hidden="true" /> {FIXTURE_NOTICE}
+              </p>
+              <p className="label-note">
+                Label taxonomy status: <strong>{TAXONOMY_STATUS}</strong>. {TAXONOMY_COMPLETENESS_NOTE}
+              </p>
+              <p className="label-note">
+                Severity taxonomy status: <strong>{SEVERITY_STATUS}</strong>. It may not drive learner-facing correction
+                behaviour: {String(mayDriveLearnerFacingCorrection([]))}.
+              </p>
+            </>
+          )}
+          {mode === "benchmark" && (
+            <p className="label-note">
+              The simple workflow for the controlled acoustic shadow benchmark: one independent judgement per consented
+              recording. It labels; it never evaluates. See <code>docs/quran-acoustic-benchmark-protocol.md</code> for
+              the protocol.
+            </p>
+          )}
         </div>
         <div className="label-actions">
-          <button type="button" onClick={exportSession}>
-            <Download size={15} aria-hidden="true" /> Export labels
+          <button type="button" aria-pressed={mode === "benchmark"} onClick={() => setMode("benchmark")}>
+            Benchmark review
           </button>
-          <button type="button" onClick={() => importInput.current?.click()}>
-            <Upload size={15} aria-hidden="true" /> Import labels
+          <button type="button" aria-pressed={mode === "prototype"} onClick={() => setMode("prototype")}>
+            Full prototype
           </button>
-          <input
-            ref={importInput}
-            type="file"
-            accept="application/json"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) void importSession(file);
-              event.target.value = "";
-            }}
-          />
+          {mode === "prototype" && (
+            <>
+              <button type="button" onClick={exportSession}>
+                <Download size={15} aria-hidden="true" /> Export labels
+              </button>
+              <button type="button" onClick={() => importInput.current?.click()}>
+                <Upload size={15} aria-hidden="true" /> Import labels
+              </button>
+              <input
+                ref={importInput}
+                type="file"
+                accept="application/json"
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void importSession(file);
+                  event.target.value = "";
+                }}
+              />
+            </>
+          )}
         </div>
       </header>
 
@@ -331,7 +918,11 @@ export default function PronunciationLabeling() {
         </div>
       </section>
 
-      <nav className="label-sample-rail" aria-label="Samples">
+      {mode === "benchmark" ? (
+        <BenchmarkLabeling />
+      ) : (
+        <>
+          <nav className="label-sample-rail" aria-label="Samples">
         {samples.map((entry, index) => (
           <button
             key={entry.sample.sampleId}
@@ -728,6 +1319,8 @@ export default function PronunciationLabeling() {
           </dl>
         </section>
       </section>
+        </>
+      )}
     </main>
   );
 }
