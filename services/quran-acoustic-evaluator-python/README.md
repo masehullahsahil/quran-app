@@ -65,12 +65,24 @@ latency against an authorized private manifest with:
 ```bash
 QURAN_EVALUATOR_URL=http://127.0.0.1:4317 \
 ACOUSTIC_BENCHMARK_MANIFEST=/private/path/manifest.json \
+ACOUSTIC_GPU_HOURLY_USD=0.69 \
+ACOUSTIC_DEEP_REVIEW_MINUTES_PER_LEARNER_MONTH=15 \
+ACOUSTIC_MAX_GPU_USD_PER_AUDIO_HOUR=0.60 \
 pnpm benchmark:muaalem-shadow
 ```
 
 This command intentionally does not print recording paths, expected text, or
 decoded tokens. It reports runtime coverage and latency only—not pronunciation
-accuracy. Accuracy remains unavailable until adjudicated teacher labels exist.
+accuracy. When an hourly GPU price is supplied, it also reports sustained
+processing throughput, an active-compute cost estimate, and an optional cost
+gate. The estimate excludes idle time, cold starts, storage, egress, and the
+separate transcription service. Accuracy remains unavailable until adjudicated
+teacher labels exist.
+
+The example affordability gate reflects the free-first pilot target: at most 15
+deep-review audio minutes per highly active learner each month, with GPU cost no
+higher than $0.60 per processed audio hour. Prices are inputs rather than
+hard-coded assumptions so every deployment uses the provider's current rate.
 
 ## Private GPU container
 
