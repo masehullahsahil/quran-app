@@ -12,9 +12,9 @@ COPY shared ./shared
 RUN pnpm exec esbuild services/quran-acoustic-evaluator/index.ts \
     --bundle \
     --platform=node \
-    --format=esm \
+    --format=cjs \
     --target=node24 \
-    --outfile=/output/quran-acoustic-evaluator.mjs
+    --outfile=/output/quran-acoustic-evaluator.cjs
 
 FROM node:24-bookworm-slim AS runtime
 
@@ -43,7 +43,7 @@ COPY services/quran-acoustic-evaluator-python/requirements.txt /tmp/requirements
 RUN pip install --no-cache-dir --requirement /tmp/requirements.txt
 
 WORKDIR /app
-COPY --from=node-builder /output/quran-acoustic-evaluator.mjs ./quran-acoustic-evaluator.mjs
+COPY --from=node-builder /output/quran-acoustic-evaluator.cjs ./quran-acoustic-evaluator.cjs
 COPY services/quran-acoustic-evaluator-python ./python
 COPY services/quran-acoustic-evaluator/entrypoint.sh ./entrypoint.sh
 RUN mkdir -p "$HF_HOME" \
@@ -55,4 +55,4 @@ EXPOSE 4317
 HEALTHCHECK --start-period=20m --interval=30s --timeout=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:4317/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/app/entrypoint.sh"]

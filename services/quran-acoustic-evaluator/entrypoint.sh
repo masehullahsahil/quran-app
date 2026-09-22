@@ -19,7 +19,7 @@ trap shutdown INT TERM
 
 uvicorn app:app --app-dir /app/python --host 127.0.0.1 --port 4318 &
 python_pid="$!"
-node /app/quran-acoustic-evaluator.mjs &
+node /app/quran-acoustic-evaluator.cjs &
 node_pid="$!"
 
 set +e
