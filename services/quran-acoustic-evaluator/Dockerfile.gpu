@@ -8,6 +8,7 @@ COPY package.json pnpm-lock.yaml ./
 COPY patches ./patches
 RUN pnpm install --frozen-lockfile
 COPY services/quran-acoustic-evaluator ./services/quran-acoustic-evaluator
+COPY shared ./shared
 RUN pnpm exec esbuild services/quran-acoustic-evaluator/index.ts \
     --bundle \
     --platform=node \

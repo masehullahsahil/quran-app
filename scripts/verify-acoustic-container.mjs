@@ -23,6 +23,7 @@ const requiredDockerfileMarkers = [
   "QURAN_ACOUSTIC_SHADOW_REVISION=01a1ef9fbe40d144ef845101e89ff924aed3fef5",
   "QURAN_ACOUSTIC_REQUIRE_CUDA=1",
   "QURAN_ACOUSTIC_SHADOW_URL=http://127.0.0.1:4318/v1/shadow/analyze",
+  "COPY shared ./shared",
 ];
 for (const marker of requiredDockerfileMarkers) {
   if (!dockerfile.includes(marker))
