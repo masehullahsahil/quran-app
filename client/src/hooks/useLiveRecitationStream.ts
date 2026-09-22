@@ -316,7 +316,7 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     if (!mutate) return;
     inFlightRef.current = true;
     setAwaitingAnswer(true);
-    const traceIds = { path: "interim" as const, attemptId: request.payload.chunkId, correlationId: request.payload.turnId };
+    const traceIds = { path: "interim" as const, attemptId: request.payload.chunkId, correlationId: null };
     const sentAtMs = Date.now();
     emitAttemptTrace(latest.current.onAttemptTrace, {
       ...traceIds,
@@ -437,13 +437,15 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
   useEffect(() => () => closeStream(), [closeStream]);
 
   const sendInterim = useCallback((chunk: InterimTurnAudio) => {
-    // A dropped chunk has no chunk id yet: it is traced against its turn only.
-    const skip = (skipReason: AttemptSkipReason, attemptId: string | null = null) => {
+    // A chunk dropped before it was given a chunk id is traced under its turn
+    // id. `correlationId` stays null: only the server's request id joins the
+    // ledger, and the server does not return it.
+    const skip = (skipReason: AttemptSkipReason, attemptId: string = chunk.turnId) => {
       emitAttemptTrace(latest.current.onAttemptTrace, {
         stage: "submission.skipped",
         path: "interim",
         attemptId,
-        correlationId: chunk.turnId,
+        correlationId: null,
         details: { scope: chunk.scope, skipReason },
       });
     };
@@ -469,7 +471,7 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
       stage: "submission.eligible",
       path: "interim",
       attemptId: traceId,
-      correlationId: chunk.turnId,
+      correlationId: null,
       details: {
         scope: chunk.scope,
         route: "live",

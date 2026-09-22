@@ -320,7 +320,7 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
       stage: "capture.finalized",
       path: "final",
       attemptId: turn.turnId,
-      correlationId: turn.turnId,
+      correlationId: null,
       details: { scope: turn.scope, endReason: reason, durationMs: Math.max(0, turn.endedAtMs - turn.startedAtMs) },
     });
     if (!turn.submit) {
@@ -328,7 +328,7 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
         stage: "submission.skipped",
         path: "final",
         attemptId: turn.turnId,
-        correlationId: turn.turnId,
+        correlationId: null,
         details: { scope: turn.scope, skipReason: reason === "interrupt" ? "capture-interrupted" : "capture-abandoned" },
       });
     }
@@ -565,7 +565,7 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
       stage: "capture.started",
       path: "final",
       attemptId: turn.turnId,
-      correlationId: turn.turnId,
+      correlationId: null,
       details: { scope: nextScope },
     });
     setScope(nextScope);

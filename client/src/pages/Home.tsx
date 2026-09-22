@@ -902,7 +902,6 @@ export default function Home() {
     // gets a local one. Identifiers, enums, and sizes only — never the audio.
     const trace = createFinalAttemptTrace(validationWiring.traceAttempt, {
       attemptId: turnId ?? `manual-${++manualTraceCountRef.current}`,
-      correlationId: turnId ?? null,
       scope: attemptScope,
     });
     if (!activeVerse) {

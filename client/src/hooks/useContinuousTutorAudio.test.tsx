@@ -401,6 +401,8 @@ describe("capture lifecycle tracing", () => {
       ["capture.finalized", "manual"],
     ]);
     expect(traces.every((trace) => trace.attemptId === submitted[0].turnId && trace.path === "final")).toBe(true);
+    // The client turn id is the attempt id, never the server correlation id.
+    expect(traces.every((trace) => trace.correlationId === null)).toBe(true);
   });
 
   it("traces an interrupted turn as skipped, with nothing submitted", async () => {
@@ -415,5 +417,6 @@ describe("capture lifecycle tracing", () => {
       ["capture.finalized", "interrupt"],
       ["submission.skipped", "capture-interrupted"],
     ]);
+    expect(traces.every((trace) => trace.attemptId !== null && trace.correlationId === null)).toBe(true);
   });
 });

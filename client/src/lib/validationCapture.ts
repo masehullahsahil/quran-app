@@ -530,7 +530,12 @@ export type AttemptTraceDetails = {
 export type AttemptTraceInput = {
   stage: AttemptLifecycleStage;
   path: AttemptTracePath;
+  /** The client's own id: capture turn id, interim chunk id, or `manual-n`. */
   attemptId: string | null;
+  /**
+   * The server ledger's request correlation id — never a client id, which
+   * would not join. Null until the server explicitly returns that id.
+   */
   correlationId?: string | null;
   details?: AttemptTraceDetails;
 };
@@ -629,7 +634,11 @@ export type AttemptLifecycleSummary = {
   /** Event counts per path and stage (anonymous skips included). */
   stageCounts: Record<AttemptTracePath, StageCounts>;
   skipReasons: Record<AttemptTracePath, Partial<Record<AttemptSkipReason, number>>>;
-  /** Final ayah submissions by the acoustic status the server reported. */
+  /**
+   * Acoustic statuses the server reported, counted only for final,
+   * ayah-scope, acoustic-eligible attempts. Word-scope reviews never call the
+   * acoustic evaluator and are not counted.
+   */
   acousticStatuses: Record<string, number>;
 };
 
@@ -671,12 +680,22 @@ export function summarizeAttemptLifecycles(events: ClientValidationEvent[]): Att
     if (stage === "submission.skipped" && skipReason) {
       summary.skipReasons[path][skipReason] = (summary.skipReasons[path][skipReason] ?? 0) + 1;
     }
-    const acousticStatus = typeof event.details["acousticStatus"] === "string" ? event.details["acousticStatus"] : null;
-    if (stage === "submission.responded" && path === "final" && acousticStatus) {
-      summary.acousticStatuses[acousticStatus] = (summary.acousticStatuses[acousticStatus] ?? 0) + 1;
+    const reportedStatus = typeof event.details["acousticStatus"] === "string" ? event.details["acousticStatus"] : null;
+    const eligibleEvent = event.details["acousticEligible"] === true && event.details["scope"] === "ayah";
+    // Only an acoustic-eligible ayah attempt's status is an acoustic outcome.
+    const countAcoustic = (eligible: boolean) => {
+      if (stage !== "submission.responded" || path !== "final" || !reportedStatus || !eligible) return null;
+      summary.acousticStatuses[reportedStatus] = (summary.acousticStatuses[reportedStatus] ?? 0) + 1;
+      return reportedStatus;
+    };
+    if (!event.attemptId) {
+      countAcoustic(eligibleEvent);
+      continue;
     }
-    if (!event.attemptId) continue;
-    let entry = byId.get(event.attemptId);
+    // Keyed by path too: a turn id can name both a final attempt and the
+    // interim chunks dropped from that turn.
+    const key = `${path}\u0000${event.attemptId}`;
+    let entry = byId.get(key);
     if (!entry) {
       entry = {
         attemptId: event.attemptId,
@@ -688,14 +707,14 @@ export function summarizeAttemptLifecycles(events: ClientValidationEvent[]): Att
         acousticEligible: false,
         acousticStatus: null,
       };
-      byId.set(event.attemptId, entry);
+      byId.set(key, entry);
       summary.attempts.push(entry);
     }
     entry.stages.push(stage);
-    if (event.details["acousticEligible"] === true) entry.acousticEligible = true;
+    if (eligibleEvent) entry.acousticEligible = true;
     if (stage === "submission.responded") {
       entry.outcome = "responded";
-      entry.acousticStatus = acousticStatus;
+      entry.acousticStatus = countAcoustic(entry.acousticEligible);
     } else if (stage === "submission.failed") {
       if (event.details["willRetry"] !== true) entry.outcome = "failed";
     } else if (stage === "submission.skipped") {
@@ -721,7 +740,7 @@ export type FinalAttemptAnswer = {
  */
 export function createFinalAttemptTrace(
   fn: AttemptTraceFn | undefined,
-  ids: { attemptId: string; correlationId: string | null; scope: "ayah" | "word" },
+  ids: { attemptId: string; scope: "ayah" | "word" },
   now: () => number = Date.now,
 ) {
   let startedAtMs: number | null = null;
@@ -731,7 +750,9 @@ export function createFinalAttemptTrace(
       stage,
       path: "final",
       attemptId: ids.attemptId,
-      correlationId: ids.correlationId,
+      // The server does not return its request correlation id; a client id
+      // here would never join the ledger.
+      correlationId: null,
       details: { scope: ids.scope, ...details },
     });
   const elapsed = () => (startedAtMs === null ? undefined : now() - startedAtMs);
@@ -756,6 +777,7 @@ export function createFinalAttemptTrace(
       const recitation = answer?.recitation ?? null;
       emit("submission.responded", {
         route,
+        acousticEligible: ids.scope === "ayah",
         elapsedMs: elapsed(),
         recitationReturned: Boolean(recitation),
         tutorStatus: answer?.tutor?.status,

@@ -266,6 +266,7 @@ describe("interim attempt lifecycle tracing", () => {
 
     expect(stages()).toEqual(["submission.eligible", "submission.started", "submission.responded"]);
     expect(traces.every((trace) => trace.path === "interim" && trace.attemptId === "turn-1:1")).toBe(true);
+    expect(traces.every((trace) => trace.correlationId === null)).toBe(true);
     expect(traces[0]?.details).toMatchObject({ route: "live", acousticEligible: false, sequence: 1, bytes: 5, durationMs: 3000 });
     expect(traces[1]?.details).toMatchObject({ attempt: 1, sequence: 1 });
     expect(traces[2]?.details).toMatchObject({ acknowledgementStatus: "applied", recognitionStatus: "transcribed" });
@@ -294,7 +295,9 @@ describe("interim attempt lifecycle tracing", () => {
 
     const skipped = traces.filter((trace) => trace.stage === "submission.skipped");
     expect(skipped.map((trace) => trace.details?.skipReason)).toEqual(["not-ayah-scope", "request-outstanding"]);
-    expect(skipped.every((trace) => trace.attemptId === null && trace.correlationId === "turn-1")).toBe(true);
+    // Dropped before a chunk id existed: traced under the turn id, and never
+    // with a client id in correlationId.
+    expect(skipped.every((trace) => trace.attemptId === "turn-1" && trace.correlationId === null)).toBe(true);
     expect(calls).toBe(1);
   });
 
@@ -318,6 +321,7 @@ describe("interim attempt lifecycle tracing", () => {
       [3, false],
     ]);
     expect(failed.every((trace) => trace.details?.errorCode === "Error")).toBe(true);
+    expect(traces.every((trace) => trace.attemptId === "turn-1:1" && trace.correlationId === null)).toBe(true);
     expect(JSON.stringify(traces)).not.toContain("network down");
     expect(traces.filter((trace) => trace.stage === "submission.started")).toHaveLength(LIVE_RETRY.maxAttempts);
     // Behavior unchanged: the existing abandonment signal still fires once.

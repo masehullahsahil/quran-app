@@ -153,15 +153,15 @@ describe("attempt lifecycle tracing", () => {
 
   it("traces a normal final ayah submission from capture to the acoustic status", () => {
     const { log, sink } = traced();
-    sink({ stage: "capture.started", path: "final", attemptId: "turn-1", correlationId: "turn-1", details: { scope: "ayah" } });
+    sink({ stage: "capture.started", path: "final", attemptId: "turn-1", correlationId: null, details: { scope: "ayah" } });
     sink({
       stage: "capture.finalized",
       path: "final",
       attemptId: "turn-1",
-      correlationId: "turn-1",
+      correlationId: null,
       details: { scope: "ayah", endReason: "silence", durationMs: 4200 },
     });
-    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-1", correlationId: "turn-1", scope: "ayah" }, clock());
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-1", scope: "ayah" }, clock());
     trace.eligible({ size: 48_000, type: "audio/webm;codecs=opus" });
     trace.started("tutor");
     trace.responded("tutor", {
@@ -178,6 +178,8 @@ describe("attempt lifecycle tracing", () => {
       "submission.responded",
     ]);
     expect(lifecycle.every((event) => event.attemptId === "turn-1" && event.runId === RUN)).toBe(true);
+    // The client turn id never masquerades as the server's correlation id.
+    expect(lifecycle.every((event) => event.correlationId === null)).toBe(true);
     expect(lifecycle[2]?.details).toMatchObject({ bytes: 48_000, mimeType: "audio/webm", acousticEligible: true });
     expect(lifecycle[3]?.details).toMatchObject({ route: "tutor", acousticEligible: true });
     expect(lifecycle[4]?.details).toMatchObject({
@@ -206,14 +208,14 @@ describe("attempt lifecycle tracing", () => {
 
   it("records a skipped attempt with no audio and never reaches submission", () => {
     const { log, sink } = traced();
-    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-2", correlationId: "turn-2", scope: "ayah" }, clock());
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-2", scope: "ayah" }, clock());
     trace.skipped("no-audio", { bytes: 0 });
     // A capture the server interrupted produces no submission either.
     sink({
       stage: "submission.skipped",
       path: "final",
       attemptId: "turn-3",
-      correlationId: "turn-3",
+      correlationId: null,
       details: { scope: "ayah", skipReason: "capture-interrupted" },
     });
 
@@ -228,7 +230,7 @@ describe("attempt lifecycle tracing", () => {
 
   it("records a network failure by error code, never by message", () => {
     const { log, sink } = traced();
-    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-4", correlationId: "turn-4", scope: "ayah" }, clock());
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-4", scope: "ayah" }, clock());
     trace.eligible({ size: 1024, type: "audio/webm" });
     trace.started("tutor");
     const error = Object.assign(new TypeError(`Failed to fetch https://x.test/?key=sk-secret ${AUDIO_BASE64}`), {});
@@ -245,7 +247,7 @@ describe("attempt lifecycle tracing", () => {
 
   it("does not trace a page error after the answer as a failed submission", () => {
     const { log, sink } = traced();
-    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-5", correlationId: null, scope: "word" }, clock());
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-5", scope: "word" }, clock());
     trace.started("study");
     trace.responded("study", { recitation: null });
     trace.failed(new Error("render failure"));
@@ -258,7 +260,7 @@ describe("attempt lifecycle tracing", () => {
 
   it("traces an encoding failure before sending as encode-failed", () => {
     const { log, sink } = traced();
-    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-6", correlationId: "turn-6", scope: "ayah" });
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-6", scope: "ayah" });
     trace.eligible({ size: 10, type: "audio/webm" });
     trace.failed(new Error("The recording could not be read."));
     expect(log.attemptLifecycleSummary().attempts[0]).toMatchObject({ outcome: "skipped", skipReason: "encode-failed" });
@@ -291,11 +293,82 @@ describe("attempt lifecycle tracing", () => {
     const input: AttemptTraceInput = { stage: "capture.started", path: "final", attemptId: "t" };
     expect(() => emitAttemptTrace(undefined, input)).not.toThrow();
     expect(() => emitAttemptTrace(() => { throw new Error("sink down"); }, input)).not.toThrow();
-    const trace = createFinalAttemptTrace(undefined, { attemptId: "t", correlationId: null, scope: "ayah" });
+    const trace = createFinalAttemptTrace(undefined, { attemptId: "t", scope: "ayah" });
     expect(() => {
       trace.eligible({ size: 1, type: "" });
       trace.started("tutor");
       trace.failed(new Error("x"));
     }).not.toThrow();
+  });
+
+  it("leaves correlationId null on every final-path trace, keeping the client id as attemptId", () => {
+    const { log, sink } = traced();
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-10", scope: "ayah" }, clock());
+    trace.skipped("no-active-verse");
+    trace.eligible({ size: 10, type: "audio/webm" });
+    trace.started("tutor");
+    trace.responded("tutor", { recitation: null, tutor: { status: "stale" } });
+    trace.failed(new Error("after answer"));
+    const second = createFinalAttemptTrace(sink, { attemptId: "manual-1", scope: "ayah" }, clock());
+    second.started("study");
+    second.failed(new TypeError("offline"));
+
+    const lifecycle = log.events.filter((event) => event.type === "attempt.lifecycle");
+    expect(lifecycle.length).toBeGreaterThan(0);
+    expect(lifecycle.every((event) => event.correlationId === null)).toBe(true);
+    expect(new Set(lifecycle.map((event) => event.attemptId))).toEqual(new Set(["turn-10", "manual-1"]));
+    expect(log.attemptLifecycleSummary().attempts.every((attempt) => attempt.correlationId === null)).toBe(true);
+  });
+
+  it("counts acoustic statuses only for acoustic-eligible ayah attempts, never word-scope", () => {
+    const { log, sink } = traced();
+    const ayah = createFinalAttemptTrace(sink, { attemptId: "turn-a", scope: "ayah" }, clock());
+    ayah.eligible({ size: 10, type: "audio/webm" });
+    ayah.started("tutor");
+    ayah.responded("tutor", { recitation: { quranAwareReview: { status: "available" } }, tutor: { status: "updated" } });
+    // Word-scope reviews intentionally skip the acoustic evaluator; the server
+    // still reports the empty review's status, which must not be counted.
+    for (const id of ["turn-w1", "turn-w2"]) {
+      const word = createFinalAttemptTrace(sink, { attemptId: id, scope: "word" }, clock());
+      word.eligible({ size: 10, type: "audio/webm" });
+      word.started("tutor");
+      word.responded("tutor", { recitation: { quranAwareReview: { status: "not_configured" } }, tutor: { status: "updated" } });
+    }
+    // A hand-built word-scope response that claims eligibility is still not counted.
+    sink({
+      stage: "submission.responded",
+      path: "final",
+      attemptId: "turn-w3",
+      details: { scope: "word", acousticEligible: true, acousticStatus: "available" },
+    });
+    // Interim answers never reach the evaluator either.
+    sink({
+      stage: "submission.responded",
+      path: "interim",
+      attemptId: "turn-a:1",
+      details: { scope: "ayah", acousticEligible: true, acousticStatus: "available" },
+    });
+
+    const summary = log.attemptLifecycleSummary();
+    expect(summary.acousticStatuses).toEqual({ available: 1 });
+    const byId = Object.fromEntries(summary.attempts.map((attempt) => [attempt.attemptId, attempt]));
+    expect(byId["turn-a"]).toMatchObject({ acousticEligible: true, acousticStatus: "available" });
+    expect(byId["turn-w1"]).toMatchObject({ outcome: "responded", acousticEligible: false, acousticStatus: null });
+    expect(byId["turn-w3"]).toMatchObject({ acousticEligible: false, acousticStatus: null });
+  });
+
+  it("keeps a final attempt and interim drops from the same turn as separate records", () => {
+    const { log, sink } = traced();
+    sink({ stage: "submission.skipped", path: "interim", attemptId: "turn-x", details: { skipReason: "request-outstanding" } });
+    const trace = createFinalAttemptTrace(sink, { attemptId: "turn-x", scope: "ayah" }, clock());
+    trace.eligible({ size: 10, type: "audio/webm" });
+    trace.started("tutor");
+    trace.responded("tutor", { recitation: { quranAwareReview: { status: "abstained" } } });
+
+    const records = log.attemptLifecycleSummary().attempts.filter((attempt) => attempt.attemptId === "turn-x");
+    expect(records.map((record) => [record.path, record.outcome])).toEqual([
+      ["interim", "skipped"],
+      ["final", "responded"],
+    ]);
   });
 });

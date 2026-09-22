@@ -273,12 +273,12 @@ describe("mic/listening resume is recorded", () => {
       stage: "submission.skipped",
       path: "final",
       attemptId: "turn-9",
-      correlationId: "turn-9",
+      correlationId: null,
       details: { scope: "ayah", skipReason: "no-audio", audioBase64: "AAAA" } as never,
     });
 
     const event = wiring.log!.events.find((entry) => entry.type === "attempt.lifecycle");
-    expect(event).toMatchObject({ runId: RUN_ID, attemptId: "turn-9", correlationId: "turn-9" });
+    expect(event).toMatchObject({ runId: RUN_ID, attemptId: "turn-9", correlationId: null });
     expect(event?.details).toEqual({ stage: "submission.skipped", path: "final", scope: "ayah", skipReason: "no-audio" });
     expect(wiring.log!.attemptLifecycleSummary().skipReasons.final).toEqual({ "no-audio": 1 });
   });
