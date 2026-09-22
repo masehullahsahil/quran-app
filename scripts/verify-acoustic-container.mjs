@@ -24,6 +24,9 @@ const requiredDockerfileMarkers = [
   "QURAN_ACOUSTIC_REQUIRE_CUDA=1",
   "QURAN_ACOUSTIC_SHADOW_URL=http://127.0.0.1:4318/v1/shadow/analyze",
   "COPY shared ./shared",
+  "--format=cjs",
+  "--outfile=/output/quran-acoustic-evaluator.cjs",
+  'ENTRYPOINT ["/usr/bin/tini", "-s", "--", "/app/entrypoint.sh"]',
 ];
 for (const marker of requiredDockerfileMarkers) {
   if (!dockerfile.includes(marker))
@@ -33,6 +36,8 @@ if (/EXPOSE\s+4318/.test(dockerfile))
   throw new Error("The private Python worker port must not be exposed");
 if (!entrypoint.includes("QURAN_EVALUATOR_API_KEY:-"))
   throw new Error("The container must refuse unauthenticated startup");
+if (!entrypoint.includes("node /app/quran-acoustic-evaluator.cjs"))
+  throw new Error("The container must start the CommonJS evaluator bundle");
 if (
   !entrypoint.includes("uvicorn app:app --app-dir /app/python --host 127.0.0.1")
 )
