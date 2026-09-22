@@ -20,8 +20,17 @@ type ManifestEntry = {
 
 const evaluatorUrl = process.env.QURAN_EVALUATOR_URL;
 const manifestPath = process.env.ACOUSTIC_BENCHMARK_MANIFEST;
+const costOptions = {
+  gpuHourlyUsd: parseNonNegativeEnvironmentNumber("ACOUSTIC_GPU_HOURLY_USD"),
+  projectedDeepReviewMinutesPerLearnerMonth: parseNonNegativeEnvironmentNumber(
+    "ACOUSTIC_DEEP_REVIEW_MINUTES_PER_LEARNER_MONTH"
+  ),
+  maximumGpuUsdPerAudioHour: parseNonNegativeEnvironmentNumber(
+    "ACOUSTIC_MAX_GPU_USD_PER_AUDIO_HOUR"
+  ),
+};
 if (!evaluatorUrl || !manifestPath) {
-  console.log(formatShadowBenchmark(summarizeShadowBenchmark([])));
+  console.log(formatShadowBenchmark(summarizeShadowBenchmark([], costOptions)));
   console.log(
     "Set QURAN_EVALUATOR_URL and ACOUSTIC_BENCHMARK_MANIFEST to run authorized recordings."
   );
@@ -36,6 +45,15 @@ const recordings = Array.isArray(manifest.recordings)
   ? manifest.recordings
   : [];
 const runs: ShadowBenchmarkRun[] = [];
+
+function parseNonNegativeEnvironmentNumber(name: string) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0)
+    throw new Error(`${name} must be a finite non-negative number.`);
+  return parsed;
+}
 
 for (const entry of recordings) {
   const fixture = ACOUSTIC_BENCHMARK_FIXTURES.find(
@@ -58,6 +76,7 @@ for (const entry of recordings) {
   ).toString("base64");
   const started = performance.now();
   let analysis = parseShadowAnalysis(null);
+  let audioDurationMs: number | null = null;
   try {
     const headers: Record<string, string> = {
       "content-type": "application/json",
@@ -84,8 +103,14 @@ for (const entry of recordings) {
     );
     if (response.ok) {
       const body = (await response.json()) as {
-        measurements?: { shadow?: unknown };
+        measurements?: { audioDurationMs?: unknown; shadow?: unknown };
       };
+      if (
+        typeof body.measurements?.audioDurationMs === "number" &&
+        Number.isFinite(body.measurements.audioDurationMs) &&
+        body.measurements.audioDurationMs > 0
+      )
+        audioDurationMs = body.measurements.audioDurationMs;
       analysis = parseShadowAnalysis(body.measurements?.shadow);
     }
   } catch {
@@ -94,7 +119,10 @@ for (const entry of recordings) {
   runs.push({
     ...analysis,
     latencyMs: performance.now() - started,
+    audioDurationMs,
   });
 }
 
-console.log(formatShadowBenchmark(summarizeShadowBenchmark(runs)));
+const report = summarizeShadowBenchmark(runs, costOptions);
+console.log(formatShadowBenchmark(report));
+if (report.costGate === "fail") process.exitCode = 2;
