@@ -28,7 +28,7 @@
     "acoustic:dev": "tsx watch services/quran-acoustic-evaluator/index.ts",
     "test:acoustic": "pnpm test -- services/quran-acoustic-evaluator",
     "test:acoustic-python": "python services/quran-acoustic-evaluator-python/test_muaalem_shadow.py",
-    "verify:acoustic-container": "bash -n services/quran-acoustic-evaluator/entrypoint.sh && node scripts/verify-acoustic-container.mjs"
+    "verify:acoustic-container": "bash -n services/quran-acoustic-evaluator/entrypoint.sh && node scripts/verify-acoustic-container.mjs && node scripts/verify-acoustic-bundle.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
