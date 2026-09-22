@@ -265,6 +265,23 @@ describe("mic/listening resume is recorded", () => {
     expect(trace?.details).toMatchObject({ kind: "interim.abandoned", attempts: 3 });
     expect(trace?.runId).toBe(RUN_ID);
   });
+
+  it("records attempt lifecycle traces into the run log, allow-listed", async () => {
+    setUrl(`?validation=1&validationRunId=${RUN_ID}`);
+    const wiring = await mountWiring();
+    wiring.traceAttempt?.({
+      stage: "submission.skipped",
+      path: "final",
+      attemptId: "turn-9",
+      correlationId: null,
+      details: { scope: "ayah", skipReason: "no-audio", audioBase64: "AAAA" } as never,
+    });
+
+    const event = wiring.log!.events.find((entry) => entry.type === "attempt.lifecycle");
+    expect(event).toMatchObject({ runId: RUN_ID, attemptId: "turn-9", correlationId: null });
+    expect(event?.details).toEqual({ stage: "submission.skipped", path: "final", scope: "ayah", skipReason: "no-audio" });
+    expect(wiring.log!.attemptLifecycleSummary().skipReasons.final).toEqual({ "no-audio": 1 });
+  });
 });
 
 /* --------------------------------------- 3. events carry the active run */
@@ -303,6 +320,7 @@ describe("events carry the active validation run", () => {
     expect(wiring.log).toBeNull();
     expect(wiring.instrumentPlayback).toBeUndefined();
     expect(wiring.instrumentLive).toBeUndefined();
+    expect(wiring.traceAttempt).toBeUndefined();
   });
 });
 
@@ -314,6 +332,7 @@ describe("ordinary non-validation sessions are unaffected", () => {
     expect(wiring.log).toBeNull();
     expect(wiring.instrumentPlayback).toBeUndefined();
     expect(wiring.instrumentLive).toBeUndefined();
+    expect(wiring.traceAttempt).toBeUndefined();
     expect(
       (window as unknown as { __quranValidationLog?: unknown }).__quranValidationLog,
     ).toBeUndefined();

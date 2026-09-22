@@ -72,6 +72,7 @@ import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTuto
 import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn, type InterimTurnAudio } from "@/hooks/useContinuousTutorAudio";
 import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
 import { useClientValidationWiring } from "@/hooks/useClientValidationWiring";
+import { createFinalAttemptTrace } from "@/lib/validationCapture";
 import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
 import { createCoachSpeechProvider, type CoachSpeechProvider, type CoachSpeechTextResolver } from "@/lib/coachSpeechProvider";
 import { interruptHandoff, interruptsCapture, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
@@ -892,13 +893,27 @@ export default function Home() {
     } catch { /* an existing browser recognition session may still be closing */ }
   };
 
-  const reviewRecording = async (blob: Blob, attemptScope: AttemptScope, correctionTargetAtStart?: CorrectionTarget) => {
-    if (!activeVerse) return;
+  /** Local trace ids for record-button attempts, which have no capture turn id. */
+  const manualTraceCountRef = useRef(0);
+  const reviewRecording = async (blob: Blob, attemptScope: AttemptScope, correctionTargetAtStart?: CorrectionTarget, turnId?: string) => {
+    // Validation tracing only (no-op outside a staff validation run): which
+    // step this attempt reached on its way to the trusted route. A hands-free
+    // turn is traced under its capture turn id; a record-button recording
+    // gets a local one. Identifiers, enums, and sizes only — never the audio.
+    const trace = createFinalAttemptTrace(validationWiring.traceAttempt, {
+      attemptId: turnId ?? `manual-${++manualTraceCountRef.current}`,
+      scope: attemptScope,
+    });
+    if (!activeVerse) {
+      trace.skipped("no-active-verse");
+      return;
+    }
     // Checked before the lesson stage moves: an empty capture means nothing
     // was recorded, so there is nothing to review — the lesson stays where it
     // was and the learner is told to try again, instead of stranding the UI in
     // a "review" stage for an attempt that never existed.
     if (!blob.size) {
+      trace.skipped("no-audio", { bytes: 0 });
       const message = t("recorder.empty");
       setReviewError(message);
       setRecorderMessage(message);
@@ -910,6 +925,7 @@ export default function Home() {
     // why. Failing here means the learner gets a recovery path instead of a dead
     // request.
     if (isRecordingTooLarge(blob.size)) {
+      trace.skipped("too-large", { bytes: blob.size });
       const message = t("recorder.tooLarge", {
         size: formatMegabytes(blob.size),
         limit: formatMegabytes(MAX_AUDIO_BYTES),
@@ -918,6 +934,7 @@ export default function Home() {
       setRecorderMessage(message);
       return;
     }
+    trace.eligible(blob);
     try {
       setReviewError(null);
       setRecorderMessage(t("recorder.reviewing"));
@@ -952,6 +969,7 @@ export default function Home() {
       // the one the panel just answered.
       let attemptOutcome: TutorRecitationOutcome | null = null;
       let attemptRevision: number | null = null;
+      trace.started(tutorReference ? "tutor" : "study");
       if (tutorReference) {
         const handoff = await evaluateWithTutor.mutateAsync({
           session: tutorReference,
@@ -961,6 +979,7 @@ export default function Home() {
           // are the tutor's, and the server reads them from the tutor.
           attempt: { audioBase64, mimeType, learningLevel, uiLanguage, attemptScope },
         });
+        trace.responded("tutor", handoff);
         // The lesson moved, or did not, on the server. Either way this is the
         // answer and the page does not second-guess it.
         tutorRef.current.applyHandoff(handoff.tutor);
@@ -1000,6 +1019,7 @@ export default function Home() {
             attemptsOnCurrentAyah: position.attemptsOnCurrentAyah,
           },
         });
+        trace.responded("study", { recitation: result });
       }
       const rawReview = result as RecitationFeedback;
       const review: RecitationFeedback = {
@@ -1060,6 +1080,7 @@ export default function Home() {
       // sometimes a network stack trace. The learner gets the locale's
       // review-failed sentence; the error itself is already in the console.
       console.warn("[recitation] review request failed", error);
+      trace.failed(error);
       const trpcCode = (error as { data?: { code?: unknown } } | null)?.data?.code;
       const message = trpcCode === "TOO_MANY_REQUESTS"
         ? t("recorder.rateLimited")
@@ -1440,7 +1461,7 @@ export default function Home() {
           durationMs: Math.max(0, turn.captureEndedAtMs - turn.captureStartedAtMs),
           turnId: turn.turnId,
         });
-        await reviewRecordingRef.current(turn.blob, turn.scope);
+        await reviewRecordingRef.current(turn.blob, turn.scope, undefined, turn.turnId);
       } finally {
         // Whatever the server said — accepted, rejected, unreachable — the
         // learner is no longer being checked, and the next plan may open the
@@ -1474,8 +1495,19 @@ export default function Home() {
     setHandsFreeOn(false);
   }, []);
 
+  /**
+   * Wave 0 validation wiring. Outside a staff validation run this returns
+   * nulls/undefineds and the instrumented hooks behave exactly as before —
+   * `onInstrument` unset means "do not instrument". Inside a run it connects
+   * the existing client validation capture to the real capture, playback,
+   * and submission transitions below. Observation only: it never touches Quran
+   * state, transport, VAD, transcription, alignment, or advancement.
+   */
+  const validationWiring = useClientValidationWiring();
+
   const continuous = useContinuousTutorAudio({
     onTurn: handleFinalisedTurn,
+    onAttemptTrace: validationWiring.traceAttempt,
     onInterim: handleInterimAudioRef,
     onUnavailable: handleMicrophoneUnavailable,
     /**
@@ -1525,16 +1557,6 @@ export default function Home() {
     && continuous.state !== "paused"
     && continuous.state !== "session-lost"
     && continuous.state !== "microphone-unavailable";
-
-  /**
-   * Wave 0 validation wiring. Outside a staff validation run this returns
-   * nulls/undefineds and the instrumented hooks behave exactly as before —
-   * `onInstrument` unset means "do not instrument". Inside a run it connects
-   * the existing client validation capture to the real playback and
-   * microphone transitions below. Observation only: it never touches Quran
-   * state, transport, VAD, transcription, alignment, or advancement.
-   */
-  const validationWiring = useClientValidationWiring();
 
   const playback = useTutorPlaybackOrchestrator({
     plan: handsFreePlan,
@@ -1589,6 +1611,7 @@ export default function Home() {
     uiLanguage: locale as SupportedLanguageCode,
     onEvent: handleLiveEvent,
     onInstrument: validationWiring.instrumentLive,
+    onAttemptTrace: validationWiring.traceAttempt,
   });
   liveStreamRef.current = liveStream;
 

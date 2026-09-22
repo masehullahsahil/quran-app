@@ -59,6 +59,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoiceActivity, voiceActivitySupported } from "./useVoiceActivity";
 import { HANDS_FREE_TIMING } from "@/lib/handsFreePlan";
+import { emitAttemptTrace, type AttemptTraceFn } from "@/lib/validationCapture";
 import {
   canCapture,
   type MicrophoneFailure,
@@ -128,6 +129,12 @@ export type UseContinuousTutorAudioInput = {
   onIdle?: () => void;
   /** The microphone could not be used. The caller falls back to manual Study. */
   onUnavailable?: (failure: MicrophoneFailure) => void;
+  /**
+   * Additive validation tracing: a turn opened, a turn closed, and why a
+   * closed turn produced nothing to submit. Identifiers and enums only.
+   * Never changes capture behavior.
+   */
+  onAttemptTrace?: AttemptTraceFn;
 };
 
 export type ContinuousTutorAudio = {
@@ -309,6 +316,22 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
     turn.endedAtMs = Date.now();
     turn.endReason = reason;
     turn.submit = reason === "silence" || reason === "max-turn" || reason === "manual";
+    emitAttemptTrace(callbacks.current.onAttemptTrace, {
+      stage: "capture.finalized",
+      path: "final",
+      attemptId: turn.turnId,
+      correlationId: null,
+      details: { scope: turn.scope, endReason: reason, durationMs: Math.max(0, turn.endedAtMs - turn.startedAtMs) },
+    });
+    if (!turn.submit) {
+      emitAttemptTrace(callbacks.current.onAttemptTrace, {
+        stage: "submission.skipped",
+        path: "final",
+        attemptId: turn.turnId,
+        correlationId: null,
+        details: { scope: turn.scope, skipReason: reason === "interrupt" ? "capture-interrupted" : "capture-abandoned" },
+      });
+    }
 
     const recorder = turn.recorder;
     if (!recorder || recorder.state === "inactive") {
@@ -538,6 +561,13 @@ export function useContinuousTutorAudio(input: UseContinuousTutorAudioInput): Co
     };
 
     openTurnRef.current = turn;
+    emitAttemptTrace(callbacks.current.onAttemptTrace, {
+      stage: "capture.started",
+      path: "final",
+      attemptId: turn.turnId,
+      correlationId: null,
+      details: { scope: nextScope },
+    });
     setScope(nextScope);
     setTurnId(turn.turnId);
     applyState("learner-listening");

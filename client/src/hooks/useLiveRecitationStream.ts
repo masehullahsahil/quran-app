@@ -83,6 +83,12 @@ import {
   type LiveSessionReference,
   type LiveTutorServerEvent,
 } from "@/lib/tutorLiveTransport";
+import {
+  attemptErrorCode,
+  emitAttemptTrace,
+  type AttemptSkipReason,
+  type AttemptTraceFn,
+} from "@/lib/validationCapture";
 import type { InterimTurnAudio } from "./useContinuousTutorAudio";
 
 export type UseLiveRecitationStreamInput = {
@@ -99,6 +105,13 @@ export type UseLiveRecitationStreamInput = {
    * after its bounded retries. Never changes streaming behavior.
    */
   onInstrument?: (kind: "interim.abandoned", details: Record<string, unknown>) => void;
+  /**
+   * Additive validation tracing: why each rolling chunk was or was not sent,
+   * and how each send resolved. Identifiers, enums, and sizes only — never
+   * the audio. Interim chunks never reach the acoustic evaluator; this exists
+   * so their drops are not mistaken for missing final submissions.
+   */
+  onAttemptTrace?: AttemptTraceFn;
 };
 
 /**
@@ -303,15 +316,44 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
     if (!mutate) return;
     inFlightRef.current = true;
     setAwaitingAnswer(true);
+    const traceIds = { path: "interim" as const, attemptId: request.payload.chunkId, correlationId: null };
+    const sentAtMs = Date.now();
+    emitAttemptTrace(latest.current.onAttemptTrace, {
+      ...traceIds,
+      stage: "submission.started",
+      details: { route: "live", attempt: request.attempts + 1, sequence: request.payload.sequence },
+    });
     void Promise.resolve(mutate(request.payload))
       .then((answer) => {
         // Resolved, whatever it says. The request is no longer unknown.
         unresolvedRef.current = null;
         setAwaitingAnswer(false);
+        emitAttemptTrace(latest.current.onAttemptTrace, {
+          ...traceIds,
+          stage: "submission.responded",
+          details: {
+            route: "live",
+            attempt: request.attempts + 1,
+            elapsedMs: Date.now() - sentAtMs,
+            acknowledgementStatus: answer?.acknowledgement?.status,
+            recognitionStatus: answer?.recognitionStatus,
+          },
+        });
         if (answer) handleAnswer(answer);
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         request.attempts += 1;
+        emitAttemptTrace(latest.current.onAttemptTrace, {
+          ...traceIds,
+          stage: "submission.failed",
+          details: {
+            route: "live",
+            attempt: request.attempts,
+            elapsedMs: Date.now() - sentAtMs,
+            errorCode: attemptErrorCode(error),
+            willRetry: request.attempts < LIVE_RETRY.maxAttempts,
+          },
+        });
         if (request.attempts >= LIVE_RETRY.maxAttempts) {
           // Bounded. The live path is down; the lesson continues on finalised
           // turns, and nothing about the Quran is invented to cover the gap.
@@ -395,28 +437,56 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
   useEffect(() => () => closeStream(), [closeStream]);
 
   const sendInterim = useCallback((chunk: InterimTurnAudio) => {
+    // A chunk dropped before it was given a chunk id is traced under its turn
+    // id. `correlationId` stays null: only the server's request id joins the
+    // ledger, and the server does not return it.
+    const skip = (skipReason: AttemptSkipReason, attemptId: string = chunk.turnId) => {
+      emitAttemptTrace(latest.current.onAttemptTrace, {
+        stage: "submission.skipped",
+        path: "interim",
+        attemptId,
+        correlationId: null,
+        details: { scope: chunk.scope, skipReason },
+      });
+    };
     const streamId = streamIdRef.current;
     const reference = latest.current.reference;
-    if (!streamId || !reference || !ingest?.mutateAsync) return;
+    if (!streamId || !reference || !ingest?.mutateAsync) return skip("no-stream");
     // The server refuses an open chunk during a correction or a word turn.
     // Reading its own directive is how the browser knows without reasoning
     // about the lesson.
-    if (!acceptsInterimAudio(directiveRef.current)) return;
-    if (chunk.scope !== "ayah") return;
+    if (!acceptsInterimAudio(directiveRef.current)) return skip("directive-refused");
+    if (chunk.scope !== "ayah") return skip("not-ayah-scope");
     // One uncertain request at a time, and newer audio never leapfrogs it. The
     // next cumulative sample contains everything this one would have, so
     // dropping costs nothing; sending would ask the server a different question
     // while the answer to the last one is still unknown.
-    if (inFlightRef.current || unresolvedRef.current) return;
+    if (inFlightRef.current || unresolvedRef.current) return skip("request-outstanding");
 
     const sequence = appliedSequenceRef.current + 1;
     sentCountRef.current += 1;
     const attemptId = sentCountRef.current;
+    const traceId = chunkId(chunk.turnId, attemptId);
+    emitAttemptTrace(latest.current.onAttemptTrace, {
+      stage: "submission.eligible",
+      path: "interim",
+      attemptId: traceId,
+      correlationId: null,
+      details: {
+        scope: chunk.scope,
+        route: "live",
+        acousticEligible: false,
+        sequence,
+        bytes: chunk.blob.size,
+        mimeType: chunk.mimeType,
+        durationMs: Math.max(0, chunk.captureEndedAtMs - chunk.captureStartedAtMs),
+      },
+    });
     void blobToBase64(chunk.blob)
       .then((audioBase64) => {
         // Guard again: encoding is asynchronous, and the world may have moved.
-        if (streamIdRef.current !== streamId) return;
-        if (inFlightRef.current || unresolvedRef.current) return;
+        if (streamIdRef.current !== streamId) return skip("stream-changed", traceId);
+        if (inFlightRef.current || unresolvedRef.current) return skip("request-outstanding", traceId);
         const request: UnresolvedRequest = {
           attempts: 0,
           payload: {
@@ -444,6 +514,7 @@ export function useLiveRecitationStream(input: UseLiveRecitationStreamInput): Li
       })
       .catch(() => {
         // The blob could not be read. Nothing was sent, so nothing is unknown.
+        skip("encode-failed", traceId);
       });
   }, [attempt, ingest]);
 
