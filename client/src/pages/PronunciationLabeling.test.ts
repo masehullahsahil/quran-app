@@ -11,11 +11,25 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import PronunciationLabeling from "./PronunciationLabeling";
-import { LABEL_DEFINITIONS, PRONUNCIATION_LABELS, SEVERITY_LEVELS } from "@shared/pronunciationDataset";
+import PronunciationLabeling, {
+  BENCHMARK_TEACHER_LABELS,
+  BenchmarkLabeling,
+  buildBenchmarkReview,
+  emptyBenchmarkDraft,
+  parseBenchmarkReviews,
+  serializeBenchmarkReviews,
+  type BenchmarkDraft,
+} from "./PronunciationLabeling";
+import {
+  LABEL_DEFINITIONS,
+  PRONUNCIATION_LABELS,
+  SEVERITY_LEVELS,
+  type TeacherReviewer,
+} from "@shared/pronunciationDataset";
 import { FIXTURE_SAMPLE_IKHLAS, FIXTURE_SAMPLES } from "@shared/pronunciationDatasetFixtures";
 
 const markup = renderToStaticMarkup(createElement(PronunciationLabeling));
+const benchmarkMarkup = renderToStaticMarkup(createElement(BenchmarkLabeling));
 
 describe("the prototype opens honestly", () => {
   it("says the samples are synthetic and no audio is stored", () => {
@@ -111,5 +125,114 @@ describe("the fixture set covers each workflow state", () => {
   it("shows no ground truth for the sample nobody has reviewed", () => {
     // The first fixture is machine-output-only; its ground truth must read as none.
     expect(markup).toContain("none yet");
+  });
+});
+
+describe("the benchmark review workflow", () => {
+  it("captures the six required benchmark fields", () => {
+    expect(benchmarkMarkup).toContain("Sample ID");
+    expect(benchmarkMarkup).toContain("Surah");
+    expect(benchmarkMarkup).toContain("Ayah");
+    expect(benchmarkMarkup).toContain("Correct — no pronunciation issue heard");
+    expect(benchmarkMarkup).toContain("Known pronunciation issue");
+    expect(benchmarkMarkup).toContain("Insufficient evidence");
+    expect(benchmarkMarkup).toContain("Reviewer notes");
+    // The scope controls appear once "Known pronunciation issue" is chosen; the
+    // initial render states the scope vocabulary in the label summary instead.
+    expect(benchmarkMarkup).toContain("a word (by word index) or a phoneme");
+    expect(benchmarkMarkup).toContain("Consent and retention confirmed");
+    expect(benchmarkMarkup).toContain("Record benchmark label");
+    expect(benchmarkMarkup).toContain("Benchmark labels recorded (0)");
+  });
+
+  it("says abstention is not accuracy evidence and measures nothing", () => {
+    expect(benchmarkMarkup).toContain("A labeling tool only");
+    expect(benchmarkMarkup).toContain("does not evaluate pronunciation");
+    expect(benchmarkMarkup).toContain("does not measure model accuracy");
+    expect(benchmarkMarkup).toContain("abstention is not evidence");
+    expect(benchmarkMarkup).toContain("not accuracy evidence");
+  });
+
+  it("bundles no audio and plays consented recordings locally only", () => {
+    expect(benchmarkMarkup).not.toContain("data:audio");
+    expect(benchmarkMarkup).not.toContain(".mp3");
+    expect(benchmarkMarkup).toContain("bundles no samples and no audio");
+    expect(benchmarkMarkup).toContain("never uploaded, stored or attached");
+    expect(benchmarkMarkup).toContain("Open a consented recording locally");
+  });
+
+  it("offers exactly the three benchmark teacher labels", () => {
+    expect(BENCHMARK_TEACHER_LABELS).toEqual(["correct", "issue", "insufficient"]);
+  });
+});
+
+describe("benchmark review validation", () => {
+  const reviewer: TeacherReviewer = { reviewerId: "qari-1", qualification: "Ijazah holder" };
+
+  function draft(overrides: Partial<BenchmarkDraft>): BenchmarkDraft {
+    return {
+      ...emptyBenchmarkDraft(),
+      sampleId: "shadow-bench-001",
+      surah: "1",
+      ayah: "2",
+      label: "correct",
+      consentConfirmed: true,
+      ...overrides,
+    };
+  }
+
+  it("records a valid review with every field intact", () => {
+    const { review, errors } = buildBenchmarkReview(
+      draft({ label: "issue", scope: "word", scopeDetail: "word 3", notes: "lengthened" }),
+      reviewer,
+    );
+    expect(errors).toEqual([]);
+    expect(review).not.toBeNull();
+    const recorded = review!;
+    expect(recorded.sampleId).toBe("shadow-bench-001");
+    expect(recorded.surah).toBe(1);
+    expect(recorded.ayah).toBe(2);
+    expect(recorded.label).toBe("issue");
+    expect(recorded.scope).toBe("word");
+    expect(recorded.scopeDetail).toBe("word 3");
+    expect(recorded.notes).toBe("lengthened");
+    expect(recorded.consentConfirmed).toBe(true);
+    expect(recorded.reviewer.reviewerId).toBe("qari-1");
+    expect(recorded.reviewedAt).toBeTruthy();
+  });
+
+  it("refuses a review missing sample ID, surah/ayah, label, or consent", () => {
+    expect(buildBenchmarkReview(draft({ sampleId: "" }), reviewer).review).toBeNull();
+    expect(buildBenchmarkReview(draft({ surah: "" }), reviewer).review).toBeNull();
+    expect(buildBenchmarkReview(draft({ ayah: "0" }), reviewer).review).toBeNull();
+    const noLabel = buildBenchmarkReview(draft({ label: "" }), reviewer);
+    expect(noLabel.review).toBeNull();
+    expect(noLabel.errors.join(" ")).toContain("teacher label");
+    const noConsent = buildBenchmarkReview(draft({ consentConfirmed: false }), reviewer);
+    expect(noConsent.review).toBeNull();
+    expect(noConsent.errors.join(" ")).toContain("Consent/retention confirmation");
+  });
+
+  it("refuses a review without reviewer identity or qualification", () => {
+    const { review, errors } = buildBenchmarkReview(draft({}), { reviewerId: "", qualification: "" });
+    expect(review).toBeNull();
+    expect(errors.join(" ")).toContain("qualification");
+  });
+
+  it("keeps the issue scope optional: an issue without a scope still records", () => {
+    const { review, errors } = buildBenchmarkReview(draft({ label: "issue", scope: "" }), reviewer);
+    expect(errors).toEqual([]);
+    expect(review!.scope).toBeNull();
+  });
+
+  it("round-trips through export and drops malformed entries", () => {
+    const { review } = buildBenchmarkReview(draft({}), reviewer);
+    const restored = parseBenchmarkReviews(serializeBenchmarkReviews([review!]));
+    expect(restored).toHaveLength(1);
+    expect(restored[0].sampleId).toBe("shadow-bench-001");
+    expect(restored[0].consentConfirmed).toBe(true);
+    expect(parseBenchmarkReviews(serializeBenchmarkReviews([review!, { bogus: true } as never]))).toHaveLength(1);
+    expect(parseBenchmarkReviews("not json")).toEqual([]);
+    expect(parseBenchmarkReviews(null)).toEqual([]);
   });
 });
