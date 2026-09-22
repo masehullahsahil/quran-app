@@ -23,10 +23,13 @@ import {
   type UseLiveRecitationStreamInput,
 } from "./useLiveRecitationStream";
 import type { InterimTurnAudio } from "./useContinuousTutorAudio";
+import type { AttemptTraceInput } from "@/lib/validationCapture";
 
 /* ------------------------------------------------------------------ fakes */
 
 const networkDown = () => Promise.reject(new Error("network down"));
+/** What `ingestLiveAudio` does in the current test. Network down by default. */
+let ingestImpl: (payload: unknown) => Promise<unknown> = networkDown;
 
 /**
  * Deterministic FileReader.
@@ -62,7 +65,7 @@ vi.mock("@/lib/trpc", () => ({
   trpc: {
     recitation: {
       startLive: { useMutation: () => ({ mutateAsync: () => Promise.resolve(startLiveAnswer) }) },
-      ingestLiveAudio: { useMutation: () => ({ mutateAsync: networkDown }) },
+      ingestLiveAudio: { useMutation: () => ({ mutateAsync: (payload: unknown) => ingestImpl(payload) }) },
     },
   },
 }));
@@ -71,6 +74,7 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 let latest: LiveRecitationStream | null = null;
 const instrumented: Array<{ kind: string; details: Record<string, unknown> }> = [];
+const traces: AttemptTraceInput[] = [];
 
 function baseInput(overrides: Partial<UseLiveRecitationStreamInput> = {}): UseLiveRecitationStreamInput {
   return {
@@ -81,6 +85,9 @@ function baseInput(overrides: Partial<UseLiveRecitationStreamInput> = {}): UseLi
     onEvent: () => {},
     onInstrument: (kind, details) => {
       instrumented.push({ kind, details });
+    },
+    onAttemptTrace: (input) => {
+      traces.push(input);
     },
     ...overrides,
   };
@@ -148,6 +155,8 @@ beforeEach(() => {
   vi.stubGlobal("FileReader", DeterministicFileReader);
   latest = null;
   instrumented.length = 0;
+  traces.length = 0;
+  ingestImpl = networkDown;
 });
 
 afterEach(async () => {
@@ -220,5 +229,112 @@ describe("interim stream abandonment", () => {
 
     expect(instrumented).toEqual([]);
     expect(latest?.interimAbandoned).toBe(false);
+  });
+});
+
+describe("interim attempt lifecycle tracing", () => {
+  const stages = () => traces.map((trace) => trace.stage);
+  /** The encoded audio the stub FileReader produces; must never be traced. */
+  const ENCODED = "ZHVtbXktYXVkaW8=";
+
+  async function openStream() {
+    await renderStream(baseInput());
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(latest?.open).toBe(true);
+  }
+
+  it("traces a normal submit: eligible, started, responded", async () => {
+    ingestImpl = () => Promise.resolve({
+      acknowledgement: { status: "applied", sequence: 1, appliedSequence: 1 },
+      nextChannel: "keep-listening",
+      recognitionStatus: "transcribed",
+      stream: null,
+      event: null,
+      tutor: null,
+    });
+    await openStream();
+    await act(async () => {
+      latest?.sendInterim(chunk());
+    });
+    for (let i = 0; i < 5; i += 1) {
+      await act(async () => {
+        await Promise.resolve();
+      });
+    }
+
+    expect(stages()).toEqual(["submission.eligible", "submission.started", "submission.responded"]);
+    expect(traces.every((trace) => trace.path === "interim" && trace.attemptId === "turn-1:1")).toBe(true);
+    expect(traces[0]?.details).toMatchObject({ route: "live", acousticEligible: false, sequence: 1, bytes: 5, durationMs: 3000 });
+    expect(traces[1]?.details).toMatchObject({ attempt: 1, sequence: 1 });
+    expect(traces[2]?.details).toMatchObject({ acknowledgementStatus: "applied", recognitionStatus: "transcribed" });
+    expect(JSON.stringify(traces)).not.toContain(ENCODED);
+  });
+
+  it("traces a dropped chunk with its skip reason and sends nothing", async () => {
+    let calls = 0;
+    ingestImpl = () => {
+      calls += 1;
+      return new Promise(() => {});
+    };
+    await openStream();
+    // A word turn is never streamed.
+    await act(async () => {
+      latest?.sendInterim({ ...chunk(), scope: "word" });
+    });
+    // The first ayah chunk goes out and never answers; the next is dropped.
+    await act(async () => {
+      latest?.sendInterim(chunk());
+    });
+    await waitForFirstAttempt();
+    await act(async () => {
+      latest?.sendInterim(chunk());
+    });
+
+    const skipped = traces.filter((trace) => trace.stage === "submission.skipped");
+    expect(skipped.map((trace) => trace.details?.skipReason)).toEqual(["not-ayah-scope", "request-outstanding"]);
+    expect(skipped.every((trace) => trace.attemptId === null && trace.correlationId === "turn-1")).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it("traces a network failure per attempt until the stream gives up", async () => {
+    await openStream();
+    await act(async () => {
+      latest?.sendInterim(chunk());
+    });
+    await waitForFirstAttempt();
+    for (let attempt = 0; attempt < LIVE_RETRY.maxAttempts; attempt += 1) {
+      await flushAttempt();
+    }
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const failed = traces.filter((trace) => trace.stage === "submission.failed");
+    expect(failed.map((trace) => [trace.details?.attempt, trace.details?.willRetry])).toEqual([
+      [1, true],
+      [2, true],
+      [3, false],
+    ]);
+    expect(failed.every((trace) => trace.details?.errorCode === "Error")).toBe(true);
+    expect(JSON.stringify(traces)).not.toContain("network down");
+    expect(traces.filter((trace) => trace.stage === "submission.started")).toHaveLength(LIVE_RETRY.maxAttempts);
+    // Behavior unchanged: the existing abandonment signal still fires once.
+    expect(instrumented).toHaveLength(1);
+    expect(latest?.interimAbandoned).toBe(true);
+  });
+
+  it("changes nothing when no trace callback is given", async () => {
+    await renderStream(baseInput({ onAttemptTrace: undefined }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      latest?.sendInterim(chunk());
+    });
+    await waitForFirstAttempt();
+    expect(latest?.awaitingAnswer).toBe(true);
+    expect(traces).toEqual([]);
   });
 });

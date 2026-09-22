@@ -31,6 +31,7 @@ import {
   type InterimTurnAudio,
 } from "./useContinuousTutorAudio";
 import { HANDS_FREE_TIMING } from "@/lib/handsFreePlan";
+import type { AttemptTraceInput } from "@/lib/validationCapture";
 
 /* -------------------------------------------------------------- the fakes */
 
@@ -84,6 +85,7 @@ class FakeAudioContext {
 let controller: ContinuousTutorAudio;
 const submitted: FinalisedTurn[] = [];
 const interims: InterimTurnAudio[] = [];
+const traces: AttemptTraceInput[] = [];
 let container: HTMLDivElement;
 let root: Root;
 
@@ -91,6 +93,7 @@ function Harness() {
   controller = useContinuousTutorAudio({
     onTurn: (turn) => submitted.push(turn),
     onInterim: (chunk) => interims.push(chunk),
+    onAttemptTrace: (input) => traces.push(input),
   });
   return null;
 }
@@ -112,6 +115,7 @@ const latest = () => FakeRecorder.instances[FakeRecorder.instances.length - 1];
 beforeEach(async () => {
   submitted.length = 0;
   interims.length = 0;
+  traces.length = 0;
   tracks.length = 0;
   FakeRecorder.instances.length = 0;
   Object.defineProperty(window, "MediaRecorder", { value: FakeRecorder, configurable: true, writable: true });
@@ -379,5 +383,37 @@ describe("the microphone", () => {
     expect(tracks[0].stopped).toBe(true);
     // Re-created in afterEach's unmount; this one is already gone.
     root = createRoot(document.createElement("div"));
+  });
+});
+
+describe("capture lifecycle tracing", () => {
+  const traced = () => traces.map((trace) => [trace.stage, trace.details?.endReason ?? trace.details?.skipReason ?? null]);
+
+  it("traces a submitted turn from start to finalised, under its turn id", async () => {
+    await act(async () => controller.listen("ayah"));
+    latest().slice("AYAH");
+    await act(async () => controller.finish());
+    await act(async () => latest().flush());
+
+    expect(submitted).toHaveLength(1);
+    expect(traced()).toEqual([
+      ["capture.started", null],
+      ["capture.finalized", "manual"],
+    ]);
+    expect(traces.every((trace) => trace.attemptId === submitted[0].turnId && trace.path === "final")).toBe(true);
+  });
+
+  it("traces an interrupted turn as skipped, with nothing submitted", async () => {
+    await act(async () => controller.listen("ayah"));
+    latest().slice("PARTIAL");
+    await act(async () => controller.interrupt());
+    await act(async () => latest().flush());
+
+    expect(submitted).toHaveLength(0);
+    expect(traced()).toEqual([
+      ["capture.started", null],
+      ["capture.finalized", "interrupt"],
+      ["submission.skipped", "capture-interrupted"],
+    ]);
   });
 });

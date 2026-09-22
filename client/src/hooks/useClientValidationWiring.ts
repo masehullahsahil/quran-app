@@ -16,6 +16,11 @@
  *     gap since playback ended
  * - `useLiveRecitationStream` → `instrumentLive`
  *   - `interim.abandoned` → a numeric `client.event` trace
+ * - capture, live stream, and finalised-turn review → `traceAttempt`
+ *   - one `attempt.lifecycle` event per step (capture started/finalised,
+ *     submission eligible/started/responded/failed/skipped), details
+ *     allow-listed by `sanitizeAttemptTraceDetails`; aggregate view via
+ *     `window.__quranValidationLog.attemptLifecycleSummary()`
  *
  * Outside a validation run every callback is `undefined` and no log exists,
  * so ordinary sessions are byte-for-byte unaffected: the hooks treat an
@@ -42,6 +47,7 @@ import {
   collectDeviceMetadata,
   createClientValidationLog,
   getActiveValidationRunId,
+  type AttemptTraceFn,
   type ClientValidationLog,
 } from "@/lib/validationCapture";
 
@@ -67,6 +73,12 @@ export type ClientValidationWiring = {
   instrumentLive:
     | ((kind: LiveInstrumentKind, details: Record<string, unknown>) => void)
     | undefined;
+  /**
+   * Per-attempt submission lifecycle tracing for the capture hook, the live
+   * stream, and the finalised-turn review. `undefined` when no validation run
+   * is active.
+   */
+  traceAttempt: AttemptTraceFn | undefined;
 };
 
 /** Finite numbers pass; everything else is not evidence. */
@@ -100,7 +112,7 @@ function exposeForStaffExport(log: ClientValidationLog): void {
 function createWiring(): ClientValidationWiring {
   const runId = getActiveValidationRunId();
   if (!runId) {
-    return { log: null, instrumentPlayback: undefined, instrumentLive: undefined };
+    return { log: null, instrumentPlayback: undefined, instrumentLive: undefined, traceAttempt: undefined };
   }
   const log = createClientValidationLog({ runId });
   log.recordDeviceMetadata(collectDeviceMetadata());
@@ -144,7 +156,11 @@ function createWiring(): ClientValidationWiring {
     }
   };
 
-  return { log, instrumentPlayback, instrumentLive };
+  const traceAttempt: AttemptTraceFn = (input) => {
+    log.recordAttemptLifecycle(input);
+  };
+
+  return { log, instrumentPlayback, instrumentLive, traceAttempt };
 }
 
 /**
