@@ -66,6 +66,8 @@ import { createLiveQuranTracker, updateLiveQuranTracker } from "./liveRecitation
 import {
   activeValidationRunFromCtx,
   correlationIdFromCtx,
+  observeFinalRecitationFailure,
+  observeFinalRecitationResult,
   observeLiveRouterResult,
 } from "./validation/liveObservation";
 import type {
@@ -493,6 +495,34 @@ const observedLiveProcedure = publicProcedure.use(async ({ ctx, path, next }) =>
   return result;
 });
 
+/**
+ * Finalized recitation observation. Unlike the live-stream observer, this
+ * records one terminal event per request so a client attempt can be joined to
+ * the exact server request that did (or did not) reach the shadow evaluator.
+ */
+const observedFinalRecitationProcedure = publicProcedure.use(async ({ ctx, path, next }) => {
+  const run = activeValidationRunFromCtx(ctx);
+  if (!run) return next();
+  const correlationId = correlationIdFromCtx(ctx);
+  const result = await next();
+  if (result.ok) observeFinalRecitationResult(run, path, result.data, { correlationId });
+  else observeFinalRecitationFailure(run, path, result.error, { correlationId });
+  return result;
+});
+
+/**
+ * Returns the genuine server request ID only during an active staff validation
+ * run. Ordinary app responses remain unchanged, including in Production.
+ */
+function withValidationCorrelation<T extends Record<string, unknown>>(
+  ctx: TrpcContext,
+  payload: T,
+): T & { validationCorrelationId?: string } {
+  const run = activeValidationRunFromCtx(ctx);
+  const correlationId = run ? correlationIdFromCtx(ctx) : null;
+  return correlationId ? { ...payload, validationCorrelationId: correlationId } : payload;
+}
+
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
   system: systemRouter,
@@ -918,10 +948,14 @@ export const appRouter = router({
       // Stateless, typed chunk orchestration. Clients carry the returned session
       // into the next request; only finalized chunks can change its durable place.
       ingestChunk: publicProcedure.input(recitationChunkInput).mutation(({ input }) => ingestRecitationChunk(input)),
-      evaluate: publicProcedure.input(recitationInput).mutation(evaluateRecitationAttempt),
-      evaluateWithTutor: publicProcedure.input(tutorRecitationInput).mutation(async ({ ctx, input }) => {
+      evaluate: observedFinalRecitationProcedure.input(recitationInput).mutation(async ({ ctx, input }) =>
+        withValidationCorrelation(ctx, await evaluateRecitationAttempt({ ctx, input }))),
+      evaluateWithTutor: observedFinalRecitationProcedure.input(tutorRecitationInput).mutation(async ({ ctx, input }) => {
+        const respond = <T extends Record<string, unknown>>(payload: T) => withValidationCorrelation(ctx, payload);
         const lookup = getTrustedTutorSession(input.session);
-        if (lookup.status !== "current") return { recitation: null, tutor: lookup.handoff, outcome: tutorOutcome(lookup.handoff) };
+        if (lookup.status !== "current") {
+          return respond({ recitation: null, tutor: lookup.handoff, outcome: tutorOutcome(lookup.handoff) });
+        }
 
         let trustedInput: RecitationEvaluationInput | null;
         try {
@@ -935,7 +969,7 @@ export const appRouter = router({
         }
         if (!trustedInput) {
           const rejected = rejectTrustedTutorRecitation(input.session);
-          return { recitation: null, tutor: rejected, outcome: tutorOutcome(rejected) };
+          return respond({ recitation: null, tutor: rejected, outcome: tutorOutcome(rejected) });
         }
 
         const recitation = await evaluateRecitationAttempt({ ctx, input: trustedInput });
@@ -948,9 +982,9 @@ export const appRouter = router({
         // The session may change while transcription is in flight. Never hand a
         // now-stale completion result to the browser as an accepted tutor turn.
         // The outcome travels with the pair so every surface reads one verdict.
-        return tutor.status === "updated"
+        return respond(tutor.status === "updated"
           ? { recitation, tutor, outcome: tutorOutcome(tutor, recitation.verseFollowing.reason) }
-          : { recitation: null, tutor, outcome: tutorOutcome(tutor) };
+          : { recitation: null, tutor, outcome: tutorOutcome(tutor) });
       }),
       // Validation observation (real-device validation plan, Wave 0): records
       // server-held position checkpoints, exact correction decisions, and

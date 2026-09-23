@@ -213,6 +213,18 @@ export type ObserveOptions = {
   correlationId?: string | null;
 };
 
+/** Finalized recitation routes that can reach the shadow acoustic evaluator. */
+export const OBSERVED_FINAL_RECITATION_PATHS = [
+  "recitation.evaluate",
+  "recitation.evaluateWithTutor",
+] as const;
+
+function isObservedFinalRecitationPath(
+  path: string,
+): path is (typeof OBSERVED_FINAL_RECITATION_PATHS)[number] {
+  return (OBSERVED_FINAL_RECITATION_PATHS as readonly string[]).includes(path);
+}
+
 function checkpointDetails(
   tracker: ObservedTracker,
   checkpoint: Omit<PositionCheckpoint, "surah" | "ayah" | "wordIndex">,
@@ -337,5 +349,68 @@ export function observeLiveRouterResult(
     else if (path === "recitation.ingestLiveAudio") observeIngestLiveAudio(run, result, opts);
   } catch {
     // Observation is best-effort; the live Tutor must never fail because of it.
+  }
+}
+
+/**
+ * Records one privacy-safe terminal event for a finalized recitation request.
+ *
+ * This is the server half of the client attempt lifecycle trace. The two logs
+ * join on runId + correlationId; no audio, transcript, Quran text, learner
+ * identity, or error message is copied into the ledger.
+ */
+export function observeFinalRecitationResult(
+  run: ActiveValidationRun,
+  path: string,
+  result: unknown,
+  opts: ObserveOptions = {},
+): void {
+  try {
+    if (!isObservedFinalRecitationPath(path)) return;
+    const outer = asRecord(result);
+    const recitation = path === "recitation.evaluateWithTutor"
+      ? asRecord(outer?.recitation)
+      : outer;
+    const tutor = path === "recitation.evaluateWithTutor" ? asRecord(outer?.tutor) : null;
+    const quranAwareReview = asRecord(recitation?.quranAwareReview);
+    run.ledger.record(
+      "attempt.completed",
+      {
+        route: path === "recitation.evaluateWithTutor" ? "tutor" : "study",
+        outcome: recitation ? "responded" : "not-applied",
+        recitationReturned: Boolean(recitation),
+        attemptScope: asString(recitation?.attemptScope),
+        reviewStatus: asString(recitation?.reviewStatus),
+        acousticStatus: asString(quranAwareReview?.status),
+        tutorStatus: asString(tutor?.status),
+      },
+      { correlationId: opts.correlationId ?? null },
+    );
+  } catch {
+    // Observation is best-effort; a review must never fail because of it.
+  }
+}
+
+/** Records a failed finalized request by stable error code only. */
+export function observeFinalRecitationFailure(
+  run: ActiveValidationRun,
+  path: string,
+  error: unknown,
+  opts: ObserveOptions = {},
+): void {
+  try {
+    if (!isObservedFinalRecitationPath(path)) return;
+    const code = asString(asRecord(error)?.code) ?? "UNKNOWN";
+    run.ledger.record(
+      "attempt.completed",
+      {
+        route: path === "recitation.evaluateWithTutor" ? "tutor" : "study",
+        outcome: "failed",
+        errorCode: code,
+      },
+      { correlationId: opts.correlationId ?? null },
+    );
+  } catch {
+    // Observation is best-effort; preserve the original procedure failure.
   }
 }

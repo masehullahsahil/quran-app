@@ -600,6 +600,18 @@ export function attemptErrorCode(error: unknown): string {
   }, "unknown");
 }
 
+/** Genuine server request ID returned in a success payload or tRPC error. */
+export function attemptCorrelationId(value: unknown): string | null {
+  return safe(() => {
+    const record = value as {
+      validationCorrelationId?: unknown;
+      data?: { correlationId?: unknown };
+    } | null;
+    const candidate = record?.validationCorrelationId ?? record?.data?.correlationId;
+    return typeof candidate === "string" && TRACE_TOKEN.test(candidate) ? candidate : null;
+  }, null);
+}
+
 /**
  * Calls a tracing callback without letting it affect the caller: a missing
  * callback is a no-op and a throwing one is swallowed.
@@ -710,6 +722,9 @@ export function summarizeAttemptLifecycles(events: ClientValidationEvent[]): Att
       byId.set(key, entry);
       summary.attempts.push(entry);
     }
+    // Early capture/submission events do not yet know the server request ID.
+    // The terminal response/error fills it in once the server returns it.
+    if (event.correlationId) entry.correlationId = event.correlationId;
     entry.stages.push(stage);
     if (eligibleEvent) entry.acousticEligible = true;
     if (stage === "submission.responded") {
@@ -729,6 +744,7 @@ export function summarizeAttemptLifecycles(events: ClientValidationEvent[]): Att
 export type FinalAttemptAnswer = {
   recitation?: { quranAwareReview?: { status?: string } | null; reviewStatus?: string } | null;
   tutor?: { status?: string } | null;
+  validationCorrelationId?: string | null;
 };
 
 /**
@@ -745,14 +761,16 @@ export function createFinalAttemptTrace(
 ) {
   let startedAtMs: number | null = null;
   let answered = false;
-  const emit = (stage: AttemptLifecycleStage, details: AttemptTraceDetails = {}) =>
+  const emit = (
+    stage: AttemptLifecycleStage,
+    details: AttemptTraceDetails = {},
+    correlationId: string | null = null,
+  ) =>
     emitAttemptTrace(fn, {
       stage,
       path: "final",
       attemptId: ids.attemptId,
-      // The server does not return its request correlation id; a client id
-      // here would never join the ledger.
-      correlationId: null,
+      correlationId,
       details: { scope: ids.scope, ...details },
     });
   const elapsed = () => (startedAtMs === null ? undefined : now() - startedAtMs);
@@ -783,7 +801,7 @@ export function createFinalAttemptTrace(
         tutorStatus: answer?.tutor?.status,
         acousticStatus: recitation?.quranAwareReview?.status,
         reviewStatus: recitation?.reviewStatus,
-      });
+      }, attemptCorrelationId(answer));
     },
     /**
      * The review threw. Before `started` nothing was sent (the audio could
@@ -796,7 +814,11 @@ export function createFinalAttemptTrace(
         return;
       }
       if (answered) return;
-      emit("submission.failed", { elapsedMs: elapsed(), errorCode: attemptErrorCode(error), willRetry: false });
+      emit(
+        "submission.failed",
+        { elapsedMs: elapsed(), errorCode: attemptErrorCode(error), willRetry: false },
+        attemptCorrelationId(error),
+      );
     },
   };
 }

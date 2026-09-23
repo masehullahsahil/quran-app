@@ -6,6 +6,8 @@ import {
   deactivateValidationRun,
   exportValidationRun,
   getActiveValidationRun,
+  observeFinalRecitationFailure,
+  observeFinalRecitationResult,
   observeLiveRouterResult,
   playbackDirectiveOf,
   resetValidationRunsForTests,
@@ -205,6 +207,76 @@ describe("observeLiveRouterResult", () => {
       observeLiveRouterResult(run, "recitation.ingestLiveAudio", { acknowledgement: 42 }, {});
     }).not.toThrow();
     expect(run.ledger.events).toHaveLength(1); // only session.start
+  });
+});
+
+describe("final recitation observation", () => {
+  it("records only structural evaluator status with the genuine request correlation", () => {
+    const run = activateValidationRun(createRunId());
+    observeFinalRecitationResult(
+      run,
+      "recitation.evaluateWithTutor",
+      {
+        recitation: {
+          attemptScope: "ayah",
+          reviewStatus: "available",
+          quranAwareReview: { status: "abstained" },
+          transcript: "must not enter the ledger",
+          audioBase64: "must-not-enter",
+        },
+        tutor: { status: "updated" },
+      },
+      { correlationId: "req-final-1" },
+    );
+    const events = run.ledger.eventsOfType("attempt.completed");
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ correlationId: "req-final-1" });
+    expect(events[0].details).toEqual({
+      route: "tutor",
+      outcome: "responded",
+      recitationReturned: true,
+      attemptScope: "ayah",
+      reviewStatus: "available",
+      acousticStatus: "abstained",
+      tutorStatus: "updated",
+    });
+    expect(JSON.stringify(events[0])).not.toContain("must not enter");
+  });
+
+  it("records not-applied and failed requests without messages or payloads", () => {
+    const run = activateValidationRun(createRunId());
+    observeFinalRecitationResult(
+      run,
+      "recitation.evaluateWithTutor",
+      { recitation: null, tutor: { status: "stale" } },
+      { correlationId: "req-stale-1" },
+    );
+    observeFinalRecitationFailure(
+      run,
+      "recitation.evaluate",
+      { code: "TOO_MANY_REQUESTS", message: "private details" },
+      { correlationId: "req-failed-1" },
+    );
+    const events = run.ledger.eventsOfType("attempt.completed");
+    expect(events[0].details).toMatchObject({
+      route: "tutor",
+      outcome: "not-applied",
+      recitationReturned: false,
+      tutorStatus: "stale",
+    });
+    expect(events[1].details).toEqual({
+      route: "study",
+      outcome: "failed",
+      errorCode: "TOO_MANY_REQUESTS",
+    });
+    expect(JSON.stringify(events)).not.toContain("private details");
+  });
+
+  it("ignores unrelated routes", () => {
+    const run = activateValidationRun(createRunId());
+    observeFinalRecitationResult(run, "learner.syncProgress", {}, { correlationId: "req-x" });
+    observeFinalRecitationFailure(run, "learner.syncProgress", {}, { correlationId: "req-y" });
+    expect(run.ledger.eventsOfType("attempt.completed")).toHaveLength(0);
   });
 });
 
