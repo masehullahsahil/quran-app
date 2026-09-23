@@ -16,7 +16,10 @@ import {
   resetValidationRunsForTests,
   STAFF_API_ENV_VAR,
 } from "./liveObservation";
-import { registerStaffValidationEndpoints } from "./staffEndpoints";
+import {
+  checkStaffValidationPreflight,
+  registerStaffValidationEndpoints,
+} from "./staffEndpoints";
 import { isRunId } from "./validationRun";
 
 const savedEnv = { ...process.env };
@@ -38,7 +41,7 @@ function routeList(app: express.Express): string[] {
   }>) {
     if (layer.route) {
       const methods = Object.keys(layer.route.methods)
-        .filter((m) => layer.route?.methods[m])
+        .filter(m => layer.route?.methods[m])
         .join(",")
         .toUpperCase();
       seen.push(`${methods} ${layer.route.path}`);
@@ -47,11 +50,16 @@ function routeList(app: express.Express): string[] {
   return seen;
 }
 
-async function listen(app: express.Express): Promise<{ port: number; close: () => Promise<void> }> {
+async function listen(
+  app: express.Express
+): Promise<{ port: number; close: () => Promise<void> }> {
   const server = app.listen(0, "127.0.0.1");
-  await new Promise<void>((resolve) => server.on("listening", () => resolve()));
+  await new Promise<void>(resolve => server.on("listening", () => resolve()));
   const port = (server.address() as AddressInfo).port;
-  return { port, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  return {
+    port,
+    close: () => new Promise<void>(resolve => server.close(() => resolve())),
+  };
 }
 
 describe("isStaffValidationApiEnabled", () => {
@@ -60,10 +68,19 @@ describe("isStaffValidationApiEnabled", () => {
     expect(isStaffValidationApiEnabled(env)).toBe(false);
   });
 
-  it("is true only for the exact value \"1\"", () => {
-    expect(isStaffValidationApiEnabled({ ...process.env, [STAFF_API_ENV_VAR]: "1" })).toBe(true);
-    expect(isStaffValidationApiEnabled({ ...process.env, [STAFF_API_ENV_VAR]: "true" })).toBe(false);
-    expect(isStaffValidationApiEnabled({ ...process.env, [STAFF_API_ENV_VAR]: "" })).toBe(false);
+  it('is true only for the exact value "1"', () => {
+    expect(
+      isStaffValidationApiEnabled({ ...process.env, [STAFF_API_ENV_VAR]: "1" })
+    ).toBe(true);
+    expect(
+      isStaffValidationApiEnabled({
+        ...process.env,
+        [STAFF_API_ENV_VAR]: "true",
+      })
+    ).toBe(false);
+    expect(
+      isStaffValidationApiEnabled({ ...process.env, [STAFF_API_ENV_VAR]: "" })
+    ).toBe(false);
   });
 });
 
@@ -73,14 +90,18 @@ describe("registerStaffValidationEndpoints gating", () => {
     const app = express();
     registerStaffValidationEndpoints(app, env);
     const routes = routeList(app);
-    expect(routes.some((r) => r.includes("/api/validation/runs"))).toBe(false);
+    expect(routes.some(r => r.includes("/api/validation/runs"))).toBe(false);
   });
 
   it("registers activate/export/deactivate routes when the flag is on", () => {
     const app = express();
-    registerStaffValidationEndpoints(app, { ...process.env, [STAFF_API_ENV_VAR]: "1" });
+    registerStaffValidationEndpoints(app, {
+      ...process.env,
+      [STAFF_API_ENV_VAR]: "1",
+    });
     const routes = routeList(app);
     expect(routes).toContain("POST /api/validation/runs");
+    expect(routes).toContain("GET /api/validation/preflight");
     expect(routes).toContain("GET /api/validation/runs/:runId/ledger");
     expect(routes).toContain("POST /api/validation/runs/:runId/deactivate");
   });
@@ -89,15 +110,86 @@ describe("registerStaffValidationEndpoints gating", () => {
     const { [STAFF_API_ENV_VAR]: _drop, ...env } = process.env;
     process.env = env;
     const routes = routeList(createApp());
-    expect(routes.some((r) => r.includes("/api/validation/runs"))).toBe(false);
+    expect(routes.some(r => r.includes("/api/validation/runs"))).toBe(false);
   });
 
   it("createApp exposes the validation routes when the flag is on", () => {
     process.env = { ...process.env, [STAFF_API_ENV_VAR]: "1" };
     const routes = routeList(createApp());
     expect(routes).toContain("POST /api/validation/runs");
+    expect(routes).toContain("GET /api/validation/preflight");
     expect(routes).toContain("GET /api/validation/runs/:runId/ledger");
     expect(routes).toContain("POST /api/validation/runs/:runId/deactivate");
+  });
+});
+
+describe("credential-aware validation preflight", () => {
+  it("proves transcription auth, evaluator auth, and shadow readiness without audio", async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const fakeFetch = (async (
+      input: string | URL | Request,
+      init?: RequestInit
+    ) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url.includes("/models/")) return new Response("{}", { status: 200 });
+      if (url.endsWith("/health")) {
+        return Response.json({
+          status: "ready",
+          shadowReady: true,
+          shadowModelId: "obadx/muaalem-model-v3_2",
+        });
+      }
+      return Response.json({ error: "invalid_request" }, { status: 400 });
+    }) as typeof fetch;
+    const result = await checkStaffValidationPreflight(
+      {
+        OPENAI_API_KEY: "openai-secret",
+        OPENAI_TRANSCRIPTION_MODEL: "gpt-transcribe",
+        QURAN_EVALUATOR_URL: "https://evaluator.example",
+        QURAN_EVALUATOR_API_KEY: "evaluator-secret",
+      },
+      { fetch: fakeFetch }
+    );
+    expect(result).toEqual({
+      staffApi: true,
+      serverMode: "single-instance",
+      transcription: { status: "ready", model: "gpt-transcribe" },
+      evaluator: {
+        status: "ready",
+        shadowReady: true,
+        modelId: "obadx/muaalem-model-v3_2",
+      },
+    });
+    const authProbe = calls.find(call => call.url.endsWith("/v1/evaluate"));
+    expect(authProbe?.init?.body).toBe("{}");
+    expect(JSON.stringify(calls)).not.toContain("audioBase64");
+  });
+
+  it("distinguishes invalid credentials and absent configuration", async () => {
+    const unauthorizedFetch = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/health"))
+        return Response.json({ status: "ready", shadowReady: true });
+      return new Response("unauthorized", { status: 401 });
+    }) as typeof fetch;
+    const unauthorized = await checkStaffValidationPreflight(
+      {
+        OPENAI_API_KEY: "wrong",
+        QURAN_EVALUATOR_URL: "https://evaluator.example",
+        QURAN_EVALUATOR_API_KEY: "wrong",
+      },
+      { fetch: unauthorizedFetch }
+    );
+    expect(unauthorized.transcription.status).toBe("unauthorized");
+    expect(unauthorized.evaluator.status).toBe("unauthorized");
+
+    const absent = await checkStaffValidationPreflight(
+      {},
+      { fetch: unauthorizedFetch }
+    );
+    expect(absent.transcription.status).toBe("not_configured");
+    expect(absent.evaluator.status).toBe("not_configured");
   });
 });
 
@@ -107,17 +199,27 @@ describe("staff validation endpoints over HTTP", () => {
     const app = createApp();
     const { port, close } = await listen(app);
     try {
-      const activate = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceMetadata: { device: "staff-laptop", browser: "chrome" } }),
-      });
+      const activate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            deviceMetadata: { device: "staff-laptop", browser: "chrome" },
+          }),
+        }
+      );
       expect(activate.status).toBe(201);
-      const activated = (await activate.json()) as { runId: string; activatedAt: string };
+      const activated = (await activate.json()) as {
+        runId: string;
+        activatedAt: string;
+      };
       expect(isRunId(activated.runId)).toBe(true);
       expect(() => new Date(activated.activatedAt).toISOString()).not.toThrow();
 
-      const ledger = await fetch(`http://127.0.0.1:${port}/api/validation/runs/${activated.runId}/ledger`);
+      const ledger = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${activated.runId}/ledger`
+      );
       expect(ledger.status).toBe(200);
       const exported = (await ledger.json()) as {
         runId: string;
@@ -126,7 +228,7 @@ describe("staff validation endpoints over HTTP", () => {
       };
       expect(exported.runId).toBe(activated.runId);
       expect(Array.isArray(exported.events)).toBe(true);
-      expect(exported.events.some((e) => e.type === "session.start")).toBe(true);
+      expect(exported.events.some(e => e.type === "session.start")).toBe(true);
       expect(exported.deviceMetadata.device).toBe("staff-laptop");
     } finally {
       await close();
@@ -138,16 +240,25 @@ describe("staff validation endpoints over HTTP", () => {
     const app = createApp();
     const { port, close } = await listen(app);
     try {
-      const activate = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceMetadata: { device: "staff-laptop", apiKey: "sk-secret-123" } }),
-      });
+      const activate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            deviceMetadata: { device: "staff-laptop", apiKey: "sk-secret-123" },
+          }),
+        }
+      );
       expect(activate.status).toBe(201);
       const { runId } = (await activate.json()) as { runId: string };
 
-      const ledger = await fetch(`http://127.0.0.1:${port}/api/validation/runs/${runId}/ledger`);
-      const exported = (await ledger.json()) as { deviceMetadata: Record<string, unknown> };
+      const ledger = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${runId}/ledger`
+      );
+      const exported = (await ledger.json()) as {
+        deviceMetadata: Record<string, unknown>;
+      };
       expect(JSON.stringify(exported)).not.toContain("sk-secret-123");
       expect(exported.deviceMetadata.apiKey).toBe("[redacted]");
     } finally {
@@ -160,12 +271,18 @@ describe("staff validation endpoints over HTTP", () => {
     const app = createApp();
     const { port, close } = await listen(app);
     try {
-      const activate = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, { method: "POST" });
+      const activate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs`,
+        { method: "POST" }
+      );
       const { runId } = (await activate.json()) as { runId: string };
 
-      const deactivate = await fetch(`http://127.0.0.1:${port}/api/validation/runs/${runId}/deactivate`, {
-        method: "POST",
-      });
+      const deactivate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${runId}/deactivate`,
+        {
+          method: "POST",
+        }
+      );
       expect(deactivate.status).toBe(200);
       const done = (await deactivate.json()) as {
         runId: string;
@@ -177,7 +294,9 @@ describe("staff validation endpoints over HTTP", () => {
       expect(done.ledger.runId).toBe(runId);
       expect(Array.isArray(done.ledger.events)).toBe(true);
 
-      const again = await fetch(`http://127.0.0.1:${port}/api/validation/runs/${runId}/ledger`);
+      const again = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${runId}/ledger`
+      );
       expect(again.status).toBe(404);
     } finally {
       await close();
@@ -189,11 +308,16 @@ describe("staff validation endpoints over HTTP", () => {
     const app = createApp();
     const { port, close } = await listen(app);
     try {
-      const ledger = await fetch(`http://127.0.0.1:${port}/api/validation/runs/not-a-run-id/ledger`);
+      const ledger = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/not-a-run-id/ledger`
+      );
       expect(ledger.status).toBe(400);
-      const deactivate = await fetch(`http://127.0.0.1:${port}/api/validation/runs/not-a-run-id/deactivate`, {
-        method: "POST",
-      });
+      const deactivate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/not-a-run-id/deactivate`,
+        {
+          method: "POST",
+        }
+      );
       expect(deactivate.status).toBe(400);
     } finally {
       await close();
@@ -210,11 +334,16 @@ describe("staff validation endpoints over HTTP", () => {
     try {
       const unknown = "run_aaaaaaaaaaaaaaaaaaaaaaaa";
       expect(isRunId(unknown)).toBe(true);
-      const ledger = await fetch(`http://127.0.0.1:${port}/api/validation/runs/${unknown}/ledger`);
+      const ledger = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${unknown}/ledger`
+      );
       expect(ledger.status).toBe(404);
-      const deactivate = await fetch(`http://127.0.0.1:${port}/api/validation/runs/${unknown}/deactivate`, {
-        method: "POST",
-      });
+      const deactivate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${unknown}/deactivate`,
+        {
+          method: "POST",
+        }
+      );
       expect(deactivate.status).toBe(404);
     } finally {
       await close();
@@ -227,7 +356,9 @@ describe("staff validation endpoints over HTTP", () => {
     const app = createApp();
     const { port, close } = await listen(app);
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, { method: "POST" });
+      const res = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, {
+        method: "POST",
+      });
       expect(res.status).toBe(404);
     } finally {
       await close();

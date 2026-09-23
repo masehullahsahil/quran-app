@@ -34,6 +34,56 @@ validation header → ledger export → client/server evidence join → ECHO-01.
 
 ## Procedure
 
+### Preferred: guarded local launcher
+
+The staff launcher removes the manual run-ID and browser-console workflow and
+prevents a run from starting until the recitation dependencies are genuinely
+ready. It is available only on a local single-instance server whose staff API
+flag is enabled; the page may render elsewhere, but its activation/preflight
+endpoints do not exist unless `QURAN_VALIDATION_STAFF_API=1`.
+
+1. On Windows, start the guarded local server with one command (the key prompt
+   is hidden and the key remains process-only):
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\start-wave0-validation.ps1 -EnvFile .env.production.local
+   ```
+
+   The helper forces shadow-only evaluator behavior, enables the staff API
+   locally, normalizes the port, installs the locked dependencies, and by
+   default replaces the configured database URL with an unreachable local
+   placeholder so the unsigned rehearsal cannot write learner state to a
+   remote database. Pass `-UseConfiguredDatabase` only for a separately
+   authorized learner-persistence rehearsal.
+
+   On other platforms, start the local server as described in the manual
+   procedure below.
+
+2. Open `http://localhost:3000/validation-launcher` (use the actual local port).
+3. Start the RunPod evaluator, then select **Refresh**. The launcher verifies:
+   - the configured transcription credential and model through a zero-spend
+     model lookup;
+   - evaluator bearer authentication with an intentionally invalid,
+     zero-audio request;
+   - the Muaalem shadow worker reports `ready`;
+   - Chrome records both encoded microphone bytes and a real voice-energy
+     signal during a four-second local-only preflight.
+4. Only after every required check passes, select **Create validation run**
+   and **Open Al-Fatihah validation session**.
+5. The in-session **Validation evidence** panel shows each final attempt's
+   outcome, genuine server correlation ID, and Muaalem status. It downloads
+   the client log and server ledger without DevTools. **Finish & download
+   bundle** deactivates the run and downloads one JSON file containing both
+   sides of the correlation join.
+
+The microphone preflight never uploads or stores its recording. The service
+preflight sends no audio, Quran text, transcript, learner identity, or secret
+in its response. A database outage is shown but is not a blocker for the
+unsigned recitation wiring rehearsal; it remains a blocker for signed-in
+learner-persistence validation.
+
+The manual procedure remains below as a fallback for engineering diagnosis.
+
 ### 1. Start the single-instance server with the staff API enabled
 
 ```bash
@@ -130,7 +180,7 @@ and in-memory — it never calls the network and cannot mutate Quran state.
 In the rehearsal browser tab, open devtools → Console and run:
 
 ```js
-copy(JSON.stringify(window.__quranValidationLog.toJSON()))
+copy(JSON.stringify(window.__quranValidationLog.toJSON()));
 ```
 
 then paste the clipboard into `/tmp/validation-client-log.json`. (The handle
