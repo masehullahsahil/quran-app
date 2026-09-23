@@ -134,6 +134,7 @@ export const VALIDATION_EVENT_TYPES = [
   "playback.ended",
   "mic.reopened",
   "attempt.completed",
+  "attempt.diagnostics",
   "safety.outcome",
   "blocker.recorded",
   "client.event",
@@ -217,7 +218,22 @@ const REDACTED_KEYS = new Set([
   "transcriptreturned",
   "normalizedtranscript",
   "rawtranscript",
-  // PII.
+  "transcriptchunk",
+  // Quran text and decoded model output (the ledger keeps indexes and
+  // aggregate counts only).
+  "arabic",
+  "expectedarabic",
+  "focusarabic",
+  "canonicalarabic",
+  "tokens",
+  "phonemetokenlist",
+  "decodedtokens",
+  "levels",
+  "pcmbase64",
+  // PII / learner identity.
+  "openid",
+  "userid",
+  "learnerid",
   "email",
   "emailaddress",
   "phone",
@@ -450,7 +466,38 @@ export class ValidationLedger {
         playbackLeakFalseEvidenceRate: this.computeEchoLeak().playbackLeakFalseEvidenceRate,
       },
       verdict: this.computeVerdict(),
+      attemptDiagnostics: this.computeAttemptDiagnostics(),
     };
+  }
+
+  /**
+   * One row per finalized attempt: the terminal `attempt.completed` (Study /
+   * Tutor) or `attempt.diagnostics` (finalized live turn) event, joined on
+   * attemptId + correlationId. Aggregates only; the underlying events already
+   * passed the sanitizer.
+   */
+  computeAttemptDiagnostics(): AttemptDiagnosticsRow[] {
+    const rows: AttemptDiagnosticsRow[] = [];
+    for (const event of this.eventsList) {
+      if (event.type !== "attempt.completed" && event.type !== "attempt.diagnostics") continue;
+      const d = event.details as Record<string, unknown>;
+      // Harness samples record their own attempt shape without these blocks.
+      if (!("acoustic" in d) && !("decision" in d)) continue;
+      const acoustic = (d.acoustic ?? null) as Record<string, unknown> | null;
+      rows.push({
+        attemptId: event.attemptId,
+        correlationId: event.correlationId,
+        t: event.t,
+        route: typeof d.route === "string" ? d.route : null,
+        outcome: typeof d.outcome === "string" ? d.outcome : event.type === "attempt.diagnostics" ? "responded" : null,
+        attemptScope: typeof d.attemptScope === "string" ? d.attemptScope : null,
+        acousticStatus: typeof d.acousticStatus === "string" ? d.acousticStatus : null,
+        evaluatorLatencyMs: typeof acoustic?.evaluatorLatencyMs === "number" ? acoustic.evaluatorLatencyMs : null,
+        acoustic,
+        decision: (d.decision ?? null) as Record<string, unknown> | null,
+      });
+    }
+    return rows;
   }
 }
 
@@ -607,6 +654,21 @@ export type ValidationLedgerExport = {
     playbackLeakFalseEvidenceRate: number | null;
   };
   verdict: ValidationVerdict;
+  /** Per finalized attempt Muaalem shadow + tutor decision diagnostics. */
+  attemptDiagnostics: AttemptDiagnosticsRow[];
+};
+
+export type AttemptDiagnosticsRow = {
+  attemptId: string | null;
+  correlationId: string | null;
+  t: string;
+  route: string | null;
+  outcome: string | null;
+  attemptScope: string | null;
+  acousticStatus: string | null;
+  evaluatorLatencyMs: number | null;
+  acoustic: Record<string, unknown> | null;
+  decision: Record<string, unknown> | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -731,6 +793,29 @@ export function renderMarkdownReport(
     for (const event of echo.mutationsDuringPlayback) {
       lines.push(
         `  - seq ${event.seq} at ${event.t} (attempt \`${event.attemptId ?? "—"}\`): ${JSON.stringify(event.details.quranStateMutation)}`,
+      );
+    }
+  }
+  lines.push("");
+
+  const attemptDiagnostics = ledger.computeAttemptDiagnostics();
+  lines.push("## Finalized attempts — Muaalem shadow and tutor decision");
+  lines.push("");
+  lines.push("Shadow diagnostics are research telemetry only; they never drive learner corrections.");
+  lines.push("");
+  if (attemptDiagnostics.length === 0) {
+    lines.push("_none recorded_");
+  } else {
+    lines.push(
+      "| Attempt | Correlation | Route | Outcome | Evaluator | Latency | Shadow | Model | Levels | Phoneme tokens | Avg posterior | Verse reason | Review code | Matched | Score | Tutor outcome |",
+    );
+    lines.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+    for (const row of attemptDiagnostics) {
+      const a = row.acoustic ?? {};
+      const d = row.decision ?? {};
+      const cell = (value: unknown) => (value === null || value === undefined ? "n/a" : String(value));
+      lines.push(
+        `| \`${row.attemptId ?? "—"}\` | \`${row.correlationId ?? "—"}\` | ${cell(row.route)} | ${cell(row.outcome)} | ${cell(a.evaluatorStatus)} | ${fmtMs(row.evaluatorLatencyMs)} | ${cell(a.shadowStatus)} | ${cell(a.shadowModelId)} | ${cell(a.shadowDecodedLevels)} | ${cell(a.shadowPhonemeTokens)} | ${cell(a.shadowAveragePosterior)} | ${cell(d.verseFollowingReason)} | ${cell(d.reviewMessageCode)} | ${cell(d.matchedCount)}/${cell(d.totalWords)} | ${cell(d.score)} | ${cell(d.tutorOutcome)} |`,
       );
     }
   }

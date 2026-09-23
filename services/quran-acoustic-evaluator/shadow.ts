@@ -13,13 +13,19 @@ export type ShadowAnalysis = {
   decodedLevelCount: number;
   phonemeTokenCount: number;
   averagePosterior: number | null;
+  /** Round-trip time of the shadow worker call, when one was made. */
+  latencyMs?: number | null;
+};
+
+export type ShadowAnalysisInput = {
+  audio: PcmAudio;
+  evidenceOrigin: "learner_microphone";
+  /** Opaque app request ID, forwarded so worker logs can be joined. */
+  correlationId?: string | null;
 };
 
 export interface AcousticShadowEvaluator {
-  analyze(input: {
-    audio: PcmAudio;
-    evidenceOrigin: "learner_microphone";
-  }): Promise<ShadowAnalysis>;
+  analyze(input: ShadowAnalysisInput): Promise<ShadowAnalysis>;
 }
 
 const EMPTY_SHADOW_ANALYSIS: ShadowAnalysis = {
@@ -30,6 +36,21 @@ const EMPTY_SHADOW_ANALYSIS: ShadowAnalysis = {
   phonemeTokenCount: 0,
   averagePosterior: null,
 };
+
+/** Request correlation header shared with the app server. */
+export const CORRELATION_HEADER = "x-correlation-id";
+
+const SAFE_CORRELATION_ID = /^[A-Za-z0-9_-]{8,64}$/;
+
+/**
+ * Accepts only the app's opaque, URL-safe request ID. Anything else (absent,
+ * oversized, or containing control characters) is dropped rather than logged.
+ */
+export function safeCorrelationId(value: unknown): string | null {
+  return typeof value === "string" && SAFE_CORRELATION_ID.test(value)
+    ? value
+    : null;
+}
 
 const MAX_LEVELS = 16;
 const MAX_TOKENS_PER_LEVEL = 4096;
@@ -140,10 +161,13 @@ export class HttpAcousticShadowEvaluator implements AcousticShadowEvaluator {
   async analyze({
     audio,
     evidenceOrigin,
-  }: {
-    audio: PcmAudio;
-    evidenceOrigin: "learner_microphone";
-  }): Promise<ShadowAnalysis> {
+    correlationId,
+  }: ShadowAnalysisInput): Promise<ShadowAnalysis> {
+    const started = Date.now();
+    const timed = (analysis: ShadowAnalysis): ShadowAnalysis => ({
+      ...analysis,
+      latencyMs: Date.now() - started,
+    });
     try {
       const response = await fetch(this.url, {
         method: "POST",
@@ -151,6 +175,7 @@ export class HttpAcousticShadowEvaluator implements AcousticShadowEvaluator {
           "content-type": "application/json",
           accept: "application/json",
           ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}),
+          ...(correlationId ? { [CORRELATION_HEADER]: correlationId } : {}),
         },
         signal: AbortSignal.timeout(
           Math.min(Math.max(this.timeoutMs, 1_000), 30_000)
@@ -166,10 +191,10 @@ export class HttpAcousticShadowEvaluator implements AcousticShadowEvaluator {
         }),
       });
       if (!response.ok)
-        return { ...EMPTY_SHADOW_ANALYSIS, status: "unavailable" };
-      return parseShadowAnalysis(await response.json());
+        return timed({ ...EMPTY_SHADOW_ANALYSIS, status: "unavailable" });
+      return timed(parseShadowAnalysis(await response.json()));
     } catch {
-      return { ...EMPTY_SHADOW_ANALYSIS, status: "unavailable" };
+      return timed({ ...EMPTY_SHADOW_ANALYSIS, status: "unavailable" });
     }
   }
 }

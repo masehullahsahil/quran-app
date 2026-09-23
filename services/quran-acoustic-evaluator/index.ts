@@ -8,9 +8,12 @@ import {
 } from "./phoneme";
 import {
   AbstainingAcousticShadowEvaluator,
+  CORRELATION_HEADER,
   HttpAcousticShadowEvaluator,
+  safeCorrelationId,
 } from "./shadow";
 import { deriveShadowHealthUrl, probeShadowWorker } from "./serviceHealth";
+import { acousticEvaluationLogLine } from "./evaluationLog";
 
 const phonemes = process.env.QURAN_PHONEME_CLASSIFIER_URL
   ? new AlignedPhonemeEvaluator(
@@ -58,6 +61,7 @@ app.use((req, res, next) => {
 });
 app.post("/v1/evaluate", async (req, res) => {
   const started = Date.now();
+  const correlationId = safeCorrelationId(req.header(CORRELATION_HEADER));
   const input = req.body as Partial<EvaluateInput>;
   if (
     typeof input.audioBase64 !== "string" ||
@@ -67,26 +71,16 @@ app.post("/v1/evaluate", async (req, res) => {
     !Number.isInteger(input.ayah)
   )
     return res.status(400).json({ error: "invalid_request" });
-  const result = await evaluate(input as EvaluateInput, phonemes, shadow);
+  const result = await evaluate(input as EvaluateInput, phonemes, shadow, {
+    correlationId,
+  });
   console.info(
-    JSON.stringify({
-      event: "quran_acoustic_evaluation",
-      requestDurationMs: Date.now() - started,
-      audioDurationMs: result.measurements?.audioDurationMs ?? null,
-      preprocessingResult: result.measurements ? "usable" : "rejected",
-      alignmentConfidence: result.measurements?.alignmentConfidence ?? 0,
-      alignedWords: result.measurements?.words.length ?? 0,
-      abstentionReason:
-        result.status === "abstained" ? "insufficient_reliable_evidence" : null,
-      findingsReturned: result.findings.length,
-      shadowStatus: result.measurements?.shadow?.status ?? "not_run",
-      shadowProvider: result.measurements?.shadow?.provider ?? null,
-      shadowModelId: result.measurements?.shadow?.modelId ?? null,
-      shadowDecodedLevels: result.measurements?.shadow?.decodedLevelCount ?? 0,
-      shadowPhonemeTokens: result.measurements?.shadow?.phonemeTokenCount ?? 0,
-      shadowAveragePosterior:
-        result.measurements?.shadow?.averagePosterior ?? null,
-    })
+    JSON.stringify(
+      acousticEvaluationLogLine(result, {
+        correlationId,
+        requestDurationMs: Date.now() - started,
+      })
+    )
   );
   res.json(result);
 });

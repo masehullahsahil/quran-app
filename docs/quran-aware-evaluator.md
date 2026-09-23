@@ -27,7 +27,9 @@ The app makes a server-to-server `POST` request to:
 {QURAN_EVALUATOR_URL}/v1/evaluate
 ```
 
-with JSON content and, when configured, an `Authorization: Bearer <QURAN_EVALUATOR_API_KEY>` header.
+with JSON content and, when configured, an `Authorization: Bearer <QURAN_EVALUATOR_API_KEY>` header. It also sends `x-correlation-id: <app request ID>` (the same opaque ID the app returns as `x-request-id`, matching `^[A-Za-z0-9_-]{8,64}$`). The bundled service logs it as `correlationId` in its `quran_acoustic_evaluation` line and forwards it to the Muaalem shadow worker, so a staff validation ledger row can be joined to the evaluator log. The ID carries no learner identity.
+
+If the response includes `measurements.shadow`, the app reads only its aggregate fields (`status`, `provider`, `modelId`, `decodedLevelCount`, `phonemeTokenCount`, `averagePosterior`, `latencyMs`) for the staff validation ledger during an active validation run. Those diagnostics never enter the learner response and never influence findings, correction focus, or advancement.
 
 ```json
 {

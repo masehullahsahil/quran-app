@@ -7,6 +7,7 @@ import {
 import type { LearningLevel } from "@shared/learningPath";
 import type { SupportedLanguageCode } from "@shared/languages";
 import { ENV } from "./_core/env";
+import { isSafeRequestId } from "./_core/requestId";
 
 const MINIMUM_CONFIDENCE = 0.75;
 const MAX_FINDINGS = 3;
@@ -30,6 +31,44 @@ type QuranEvaluatorRequest = {
   uiLanguage: SupportedLanguageCode;
 };
 
+/** Header carrying the app request's correlation ID to the evaluator. */
+export const EVALUATOR_CORRELATION_HEADER = "x-correlation-id";
+
+export type ShadowDiagnosticStatus =
+  | "not_run"
+  | "not_configured"
+  | "available"
+  | "abstained"
+  | "unavailable";
+
+/**
+ * Aggregate, server-only diagnostics for one evaluator call. Counts, enums,
+ * bounded identifiers and timings only: never audio, transcripts, Quran text,
+ * decoded phoneme tokens, credentials, or learner identity. These never feed
+ * the learner-facing review, correction focus, or advancement.
+ */
+export type QuranEvaluatorDiagnostics = {
+  evaluatorCalled: boolean;
+  evaluatorStatus: QuranAwareReview["status"];
+  evaluatorHttpStatus: number | null;
+  evaluatorLatencyMs: number | null;
+  primaryCorrectionsEnabled: boolean;
+  shadowStatus: ShadowDiagnosticStatus;
+  shadowProvider: string | null;
+  shadowModelId: string | null;
+  shadowDecodedLevels: number;
+  shadowPhonemeTokens: number;
+  shadowAveragePosterior: number | null;
+  shadowLatencyMs: number | null;
+};
+
+export type QuranEvaluatorCallOptions = {
+  /** The app request's correlation ID, forwarded as `x-correlation-id`. */
+  correlationId?: string | null;
+  /** Receives aggregate diagnostics for the validation ledger. */
+  onDiagnostics?: (diagnostics: QuranEvaluatorDiagnostics) => void;
+};
+
 type UnknownRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is UnknownRecord {
@@ -44,6 +83,59 @@ function boundedString(value: unknown, maxLength: number): string | null {
 
 function boundedConfidence(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+}
+
+function boundedCount(value: unknown, maximum: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= maximum ? value : 0;
+}
+
+function boundedLatency(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 600_000
+    ? Math.round(value)
+    : null;
+}
+
+const SHADOW_STATUSES = new Set<ShadowDiagnosticStatus>(["not_configured", "available", "abstained", "unavailable"]);
+
+/**
+ * Reads only the aggregate shadow fields from `measurements.shadow`. Word
+ * timings (which carry Quran text) and any decoded level payloads are never
+ * read, so they cannot reach the ledger even if a service returns them.
+ */
+export function parseShadowDiagnostics(value: unknown): Pick<
+  QuranEvaluatorDiagnostics,
+  | "shadowStatus"
+  | "shadowProvider"
+  | "shadowModelId"
+  | "shadowDecodedLevels"
+  | "shadowPhonemeTokens"
+  | "shadowAveragePosterior"
+  | "shadowLatencyMs"
+> {
+  const shadow = isRecord(value) && isRecord(value.measurements) ? value.measurements.shadow : null;
+  if (!isRecord(shadow)) {
+    return {
+      shadowStatus: "not_run",
+      shadowProvider: null,
+      shadowModelId: null,
+      shadowDecodedLevels: 0,
+      shadowPhonemeTokens: 0,
+      shadowAveragePosterior: null,
+      shadowLatencyMs: null,
+    };
+  }
+  const status = typeof shadow.status === "string" && SHADOW_STATUSES.has(shadow.status as ShadowDiagnosticStatus)
+    ? shadow.status as ShadowDiagnosticStatus
+    : "unavailable";
+  return {
+    shadowStatus: status,
+    shadowProvider: boundedString(shadow.provider, 80),
+    shadowModelId: boundedString(shadow.modelId, 160),
+    shadowDecodedLevels: boundedCount(shadow.decodedLevelCount, 16),
+    shadowPhonemeTokens: boundedCount(shadow.phonemeTokenCount, 4096),
+    shadowAveragePosterior: boundedConfidence(shadow.averagePosterior),
+    shadowLatencyMs: boundedLatency(shadow.latencyMs),
+  };
 }
 
 function parseFinding(value: unknown): QuranEvaluationFinding | null {
@@ -119,13 +211,44 @@ export function isQuranEvaluatorConfigured(): boolean {
  * must return `abstained` when it cannot assess the recording. Network or
  * schema failures degrade to the app's existing transcript-based word review.
  */
-export async function evaluateQuranAwareAudio(input: QuranEvaluatorRequest): Promise<QuranAwareReview> {
-  if (!isQuranEvaluatorConfigured()) return EMPTY_QURAN_AWARE_REVIEW;
+export async function evaluateQuranAwareAudio(
+  input: QuranEvaluatorRequest,
+  options: QuranEvaluatorCallOptions = {},
+): Promise<QuranAwareReview> {
+  const report = (review: QuranAwareReview, call: {
+    called: boolean;
+    httpStatus?: number | null;
+    latencyMs?: number | null;
+    body?: unknown;
+  }): QuranAwareReview => {
+    if (options.onDiagnostics) {
+      try {
+        options.onDiagnostics({
+          evaluatorCalled: call.called,
+          evaluatorStatus: review.status,
+          evaluatorHttpStatus: call.httpStatus ?? null,
+          evaluatorLatencyMs: call.latencyMs ?? null,
+          primaryCorrectionsEnabled: ENV.quranEvaluatorPrimaryCorrections,
+          ...parseShadowDiagnostics(call.body),
+          ...(call.called ? {} : { shadowStatus: "not_run" as const }),
+        });
+      } catch {
+        // Diagnostics are observation only; never affect the review.
+      }
+    }
+    return review;
+  };
 
+  if (!isQuranEvaluatorConfigured()) return report(EMPTY_QURAN_AWARE_REVIEW, { called: false });
+
+  const started = Date.now();
   try {
     const url = new URL("v1/evaluate", `${ENV.quranEvaluatorUrl.replace(/\/+$/, "")}/`);
     const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json" };
     if (ENV.quranEvaluatorApiKey) headers.authorization = `Bearer ${ENV.quranEvaluatorApiKey}`;
+    // Only the opaque, pattern-checked request ID crosses the boundary, so
+    // the evaluator's structured log can be joined to the app's ledger.
+    if (isSafeRequestId(options.correlationId)) headers[EVALUATOR_CORRELATION_HEADER] = options.correlationId;
 
     const response = await fetch(url, {
       method: "POST",
@@ -136,13 +259,26 @@ export async function evaluateQuranAwareAudio(input: QuranEvaluatorRequest): Pro
 
     if (!response.ok) {
       console.warn(`[quran-evaluator] Service returned ${response.status}; using word-alignment fallback`);
-      return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
+      return report({ ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" }, {
+        called: true,
+        httpStatus: response.status,
+        latencyMs: Date.now() - started,
+      });
     }
 
     const maximumWordIndex = input.expectedArabic.trim().split(/\s+/).filter(Boolean).length;
-    return parseResponse(await response.json(), maximumWordIndex);
+    const body: unknown = await response.json();
+    return report(parseResponse(body, maximumWordIndex), {
+      called: true,
+      httpStatus: response.status,
+      latencyMs: Date.now() - started,
+      body,
+    });
   } catch (error) {
     console.warn("[quran-evaluator] Service unavailable; using word-alignment fallback", error instanceof Error ? error.name : "unknown error");
-    return { ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" };
+    return report({ ...EMPTY_QURAN_AWARE_REVIEW, status: "unavailable" }, {
+      called: true,
+      latencyMs: Date.now() - started,
+    });
   }
 }
