@@ -141,7 +141,7 @@ export const strings: TranslatableStrings = {
   "tutor.reciteFullAyah": "الآن اقرأ الآية كاملة.",
   "tutor.offerHint": "أتريد تلميحًا؟",
   "tutor.hintGiven": "ابدأ من {word}.",
-  "tutor.uncertain": "لم أسمع ذلك بوضوح. أعد المحاولة مرة أخرى.",
+  "tutor.uncertain": "تعذّرت مطابقة هذه التلاوة مع الآية بثقة. حاول مرة أخرى.",
   "tutor.paused": "خذ وقتك. قل لي متى نتابع.",
   "tutor.finished": "أحسنت. نقف هنا الآن.",
   "tutor.stopped": "توقفنا هنا.",

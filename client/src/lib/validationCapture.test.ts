@@ -3,6 +3,7 @@ import type { LiveRecitationStreamSnapshot } from "@shared/liveRecitation";
 import {
   attemptCorrelationId,
   attemptErrorCode,
+  attemptServerId,
   collectDeviceMetadata,
   createClientValidationLog,
   createFinalAttemptTrace,
@@ -168,6 +169,7 @@ describe("attempt lifecycle tracing", () => {
     trace.responded("tutor", {
       recitation: { quranAwareReview: { status: "available" }, reviewStatus: "ready" },
       tutor: { status: "updated" },
+      validationAttemptId: "att_0123456789abcdef01234567",
     });
 
     const lifecycle = log.events.filter((event) => event.type === "attempt.lifecycle");
@@ -190,12 +192,14 @@ describe("attempt lifecycle tracing", () => {
       tutorStatus: "updated",
       acousticStatus: "available",
       reviewStatus: "ready",
+      serverAttemptId: "att_0123456789abcdef01234567",
     });
 
     const summary = log.attemptLifecycleSummary();
     expect(summary.attempts).toEqual([
       expect.objectContaining({
         attemptId: "turn-1",
+        serverAttemptId: "att_0123456789abcdef01234567",
         path: "final",
         outcome: "responded",
         skipReason: null,
@@ -298,6 +302,15 @@ describe("attempt lifecycle tracing", () => {
     expect(attemptCorrelationId(null)).toBeNull();
   });
 
+  it("accepts only the validation route's safe server attempt ID", () => {
+    expect(attemptServerId({ validationAttemptId: "att_0123456789abcdef01234567" })).toBe(
+      "att_0123456789abcdef01234567",
+    );
+    expect(attemptServerId({ validationAttemptId: "contains spaces" })).toBeNull();
+    expect(attemptServerId({ validationAttemptId: "line\nbreak" })).toBeNull();
+    expect(attemptServerId(null)).toBeNull();
+  });
+
   it("is a no-op without a sink and swallows a throwing sink", () => {
     const input: AttemptTraceInput = { stage: "capture.started", path: "final", attemptId: "t" };
     expect(() => emitAttemptTrace(undefined, input)).not.toThrow();
@@ -337,9 +350,11 @@ describe("attempt lifecycle tracing", () => {
       recitation: { quranAwareReview: { status: "abstained" }, reviewStatus: "available" },
       tutor: { status: "updated" },
       validationCorrelationId: "req_success-1",
+      validationAttemptId: "att_0123456789abcdef01234567",
     });
     expect(success.log.attemptLifecycleSummary().attempts[0]).toMatchObject({
       attemptId: "turn-success",
+      serverAttemptId: "att_0123456789abcdef01234567",
       correlationId: "req_success-1",
       outcome: "responded",
     });

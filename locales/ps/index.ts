@@ -139,7 +139,7 @@ export const strings: TranslatableStrings = {
   "tutor.reciteFullAyah": "اوس ټول آیت ولولئ.",
   "tutor.offerHint": "لارښوونه غواړئ؟",
   "tutor.hintGiven": "له {word} څخه پیل وکړئ.",
-  "tutor.uncertain": "دا مې په څرګنده توګه وا نه اورېده. بیا یې هڅه وکړئ.",
+  "tutor.uncertain": "دا تلاوت له آیت سره په ډاډه توګه برابر نه شو. بیا یې هڅه وکړئ.",
   "tutor.paused": "خپل وخت واخلئ. کله چې مخته ځو، راته ووایاست.",
   "tutor.finished": "ښه دي. اوس به دلته ودریږو.",
   "tutor.stopped": "اوس مو ودرول.",

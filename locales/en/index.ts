@@ -333,7 +333,7 @@ export const strings = {
   "tutor.reciteFullAyah": "Now recite the whole ayah.",
   "tutor.offerHint": "Would you like a hint?",
   "tutor.hintGiven": "Start from {word}.",
-  "tutor.uncertain": "I couldn’t hear that clearly. Try once more.",
+  "tutor.uncertain": "I couldn’t match that to this ayah confidently. Try again.",
   "tutor.paused": "Take your time. Tell me when to carry on.",
   "tutor.finished": "Good. We’ll stop here for now.",
   "tutor.stopped": "Stopped for now.",

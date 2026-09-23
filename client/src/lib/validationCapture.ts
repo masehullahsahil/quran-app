@@ -707,6 +707,8 @@ export type AttemptTraceDetails = {
   reviewStatus?: string;
   recognitionStatus?: string;
   acknowledgementStatus?: string;
+  /** Server-owned attempt ID returned only during an active validation run. */
+  serverAttemptId?: string;
   /** tRPC error code or error class name. Never the message. */
   errorCode?: string;
 };
@@ -738,6 +740,7 @@ const TRACE_ENUM_KEYS = [
   "reviewStatus",
   "recognitionStatus",
   "acknowledgementStatus",
+  "serverAttemptId",
   "errorCode",
 ] as const;
 /** Short identifier-like tokens only: no spaces, so no sentences or payloads. */
@@ -814,6 +817,8 @@ export type AttemptLifecycleOutcome = "responded" | "failed" | "skipped" | "inco
 
 export type AttemptLifecycleRecord = {
   attemptId: string;
+  /** Server-owned attempt ID; distinct from the browser capture ID above. */
+  serverAttemptId: string | null;
   correlationId: string | null;
   path: AttemptTracePath;
   stages: AttemptLifecycleStage[];
@@ -895,6 +900,7 @@ export function summarizeAttemptLifecycles(events: ClientValidationEvent[]): Att
     if (!entry) {
       entry = {
         attemptId: event.attemptId,
+        serverAttemptId: null,
         correlationId: event.correlationId,
         path,
         stages: [],
@@ -909,6 +915,9 @@ export function summarizeAttemptLifecycles(events: ClientValidationEvent[]): Att
     // Early capture/submission events do not yet know the server request ID.
     // The terminal response/error fills it in once the server returns it.
     if (event.correlationId) entry.correlationId = event.correlationId;
+    if (typeof event.details["serverAttemptId"] === "string") {
+      entry.serverAttemptId = event.details["serverAttemptId"];
+    }
     entry.stages.push(stage);
     if (eligibleEvent) entry.acousticEligible = true;
     if (stage === "submission.responded") {
@@ -929,7 +938,16 @@ export type FinalAttemptAnswer = {
   recitation?: { quranAwareReview?: { status?: string } | null; reviewStatus?: string } | null;
   tutor?: { status?: string } | null;
   validationCorrelationId?: string | null;
+  validationAttemptId?: string | null;
 };
+
+/** Genuine server attempt ID returned only by validation-enabled final routes. */
+export function attemptServerId(value: unknown): string | null {
+  return safe(() => {
+    const candidate = (value as { validationAttemptId?: unknown } | null)?.validationAttemptId;
+    return typeof candidate === "string" && TRACE_TOKEN.test(candidate) ? candidate : null;
+  }, null);
+}
 
 /**
  * The lifecycle trace for one finalised recording on its way to
@@ -985,6 +1003,7 @@ export function createFinalAttemptTrace(
         tutorStatus: answer?.tutor?.status,
         acousticStatus: recitation?.quranAwareReview?.status,
         reviewStatus: recitation?.reviewStatus,
+        serverAttemptId: attemptServerId(answer) ?? undefined,
       }, attemptCorrelationId(answer));
     },
     /**

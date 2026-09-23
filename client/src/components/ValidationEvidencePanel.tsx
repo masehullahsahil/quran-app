@@ -135,6 +135,7 @@ export default function ValidationEvidencePanel() {
               <div>
                 <strong>{attempt.attemptId}</strong> · {attempt.outcome}
               </div>
+              <div>Server attempt: {attempt.serverAttemptId ?? "not returned"}</div>
               <div>Correlation: {attempt.correlationId ?? "not returned"}</div>
               <div>
                 Muaalem status:{" "}
