@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { LiveRecitationStreamSnapshot } from "@shared/liveRecitation";
 import {
+  attemptCorrelationId,
   attemptErrorCode,
   collectDeviceMetadata,
   createClientValidationLog,
@@ -289,6 +290,14 @@ describe("attempt lifecycle tracing", () => {
     expect(attemptErrorCode(null)).toBe("unknown");
   });
 
+  it("accepts only a safe genuine server correlation ID", () => {
+    expect(attemptCorrelationId({ validationCorrelationId: "req_server-123" })).toBe("req_server-123");
+    expect(attemptCorrelationId({ data: { correlationId: "req_error-456" } })).toBe("req_error-456");
+    expect(attemptCorrelationId({ validationCorrelationId: "contains spaces" })).toBeNull();
+    expect(attemptCorrelationId({ data: { correlationId: "line\nbreak" } })).toBeNull();
+    expect(attemptCorrelationId(null)).toBeNull();
+  });
+
   it("is a no-op without a sink and swallows a throwing sink", () => {
     const input: AttemptTraceInput = { stage: "capture.started", path: "final", attemptId: "t" };
     expect(() => emitAttemptTrace(undefined, input)).not.toThrow();
@@ -318,6 +327,33 @@ describe("attempt lifecycle tracing", () => {
     expect(lifecycle.every((event) => event.correlationId === null)).toBe(true);
     expect(new Set(lifecycle.map((event) => event.attemptId))).toEqual(new Set(["turn-10", "manual-1"]));
     expect(log.attemptLifecycleSummary().attempts.every((attempt) => attempt.correlationId === null)).toBe(true);
+  });
+
+  it("fills the attempt with the server request ID returned by success or failure", () => {
+    const success = traced();
+    const completed = createFinalAttemptTrace(success.sink, { attemptId: "turn-success", scope: "ayah" }, clock());
+    completed.started("tutor");
+    completed.responded("tutor", {
+      recitation: { quranAwareReview: { status: "abstained" }, reviewStatus: "available" },
+      tutor: { status: "updated" },
+      validationCorrelationId: "req_success-1",
+    });
+    expect(success.log.attemptLifecycleSummary().attempts[0]).toMatchObject({
+      attemptId: "turn-success",
+      correlationId: "req_success-1",
+      outcome: "responded",
+    });
+
+    const failure = traced();
+    const failed = createFinalAttemptTrace(failure.sink, { attemptId: "turn-failed", scope: "ayah" }, clock());
+    failed.started("study");
+    failed.failed({ data: { code: "BAD_GATEWAY", correlationId: "req_failed-1" }, message: "private" });
+    expect(failure.log.attemptLifecycleSummary().attempts[0]).toMatchObject({
+      attemptId: "turn-failed",
+      correlationId: "req_failed-1",
+      outcome: "failed",
+    });
+    expect(JSON.stringify(failure.log.toJSON())).not.toContain("private");
   });
 
   it("counts acoustic statuses only for acoustic-eligible ayah attempts, never word-scope", () => {

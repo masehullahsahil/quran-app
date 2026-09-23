@@ -348,4 +348,85 @@ describe("live router validation wiring", () => {
     expect(result.acknowledgement.status).toBe("applied");
     expect(liveObservation.getActiveValidationRun(createRunId())).toBeUndefined();
   });
+
+  it("correlates a finalized Study attempt with its server ledger event", async () => {
+    stubServices([FATIHA[1]]);
+    const { appRouter, liveObservation, createRunId } = await setup();
+    const runId = createRunId();
+    liveObservation.activateValidationRun(runId);
+    const caller = appRouter.createCaller(context({ runId, requestId: "req-final-study" }));
+
+    const result = await caller.recitation.evaluate({
+      expectedArabic: FATIHA[1],
+      audioBase64: audio(21),
+      mimeType: "audio/webm",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learningLevel: "qaida",
+      uiLanguage: "en",
+      attemptScope: "ayah",
+    });
+
+    expect(result.validationCorrelationId).toBe("req-final-study");
+    const events = liveObservation.getActiveValidationRun(runId)?.ledger.eventsOfType("attempt.completed") ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({ correlationId: "req-final-study" });
+    expect(events[0].details).toMatchObject({
+      route: "study",
+      outcome: "responded",
+      recitationReturned: true,
+      attemptScope: "ayah",
+      reviewStatus: "available",
+    });
+  });
+
+  it("correlates a finalized trusted Tutor attempt without exposing it outside an active run", async () => {
+    stubServices([FATIHA[1], FATIHA[1]]);
+    const { appRouter, liveObservation, createRunId } = await setup();
+    const runId = createRunId();
+    liveObservation.activateValidationRun(runId);
+    const activeCaller = appRouter.createCaller(context({ runId, requestId: "req-final-tutor" }));
+    const activeTutor = await activeCaller.tutor.start({
+      mode: "guided-recitation",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learnerLanguage: "en",
+    });
+    const activeResult = await activeCaller.recitation.evaluateWithTutor({
+      session: reference(activeTutor.session),
+      attempt: {
+        audioBase64: audio(22),
+        mimeType: "audio/webm",
+        learningLevel: "qaida",
+        uiLanguage: "en",
+        attemptScope: "ayah",
+      },
+    });
+    expect(activeResult.validationCorrelationId).toBe("req-final-tutor");
+    const events = liveObservation.getActiveValidationRun(runId)?.ledger.eventsOfType("attempt.completed") ?? [];
+    expect(events).toHaveLength(1);
+    expect(events[0].details).toMatchObject({ route: "tutor", recitationReturned: true, tutorStatus: "updated" });
+
+    const ordinaryCaller = appRouter.createCaller(context({ requestId: "req-ordinary" }));
+    const ordinaryTutor = await ordinaryCaller.tutor.start({
+      mode: "guided-recitation",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learnerLanguage: "en",
+    });
+    const ordinaryResult = await ordinaryCaller.recitation.evaluateWithTutor({
+      session: reference(ordinaryTutor.session),
+      attempt: {
+        audioBase64: audio(23),
+        mimeType: "audio/webm",
+        learningLevel: "qaida",
+        uiLanguage: "en",
+        attemptScope: "ayah",
+      },
+    });
+    expect(ordinaryResult).not.toHaveProperty("validationCorrelationId");
+  });
 });

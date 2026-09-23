@@ -1019,7 +1019,10 @@ export default function Home() {
             attemptsOnCurrentAyah: position.attemptsOnCurrentAyah,
           },
         });
-        trace.responded("study", { recitation: result });
+        trace.responded("study", {
+          recitation: result,
+          validationCorrelationId: result.validationCorrelationId,
+        });
       }
       const rawReview = result as RecitationFeedback;
       const review: RecitationFeedback = {
