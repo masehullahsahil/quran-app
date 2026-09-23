@@ -99,6 +99,53 @@ function stubServices(transcripts: string[]) {
   }) as unknown as typeof fetch;
 }
 
+type EvaluatorCall = { headers: Record<string, string>; body: Record<string, unknown> };
+
+/**
+ * Like stubServices, plus a Quran acoustic evaluator that answers the way the
+ * RunPod service does: an abstaining learner review whose `measurements`
+ * carry aligned Quran words and Muaalem shadow aggregates.
+ */
+function stubServicesWithEvaluator(transcripts: string[]): EvaluatorCall[] {
+  stubServices(transcripts);
+  const base = global.fetch;
+  const calls: EvaluatorCall[] = [];
+  global.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.startsWith("https://evaluator.example.test/")) {
+      calls.push({
+        headers: { ...(init?.headers as Record<string, string>) },
+        body: JSON.parse(String(init?.body ?? "{}")),
+      });
+      return new Response(JSON.stringify({
+        status: "abstained",
+        provider: "quran-acoustic-prototype",
+        confidence: 0.4,
+        summary: null,
+        findings: [],
+        measurements: {
+          audioDurationMs: 2100,
+          alignmentConfidence: 0.4,
+          words: [{ wordIndex: 1, arabic: "ٱلْحَمْدُ", startMs: 0, endMs: 400 }],
+          uncertainRegions: [],
+          shadow: {
+            status: "available",
+            provider: "muaalem-shadow",
+            modelId: "obadx/muaalem-model-v3_2",
+            decodedLevelCount: 2,
+            phonemeTokenCount: 5,
+            averagePosterior: 0.85,
+            latencyMs: 640,
+            tokens: ["ا", "ل", "ح"],
+          },
+        },
+      }), { status: 200 });
+    }
+    return base(input, init);
+  }) as unknown as typeof fetch;
+  return calls;
+}
+
 function context(opts: { runId?: string; requestId?: string } = {}): TrpcContext {
   const headers: Record<string, string> = {};
   if (opts.runId) headers[VALIDATION_RUN_HEADER] = opts.runId;
@@ -428,5 +475,158 @@ describe("live router validation wiring", () => {
       },
     });
     expect(ordinaryResult).not.toHaveProperty("validationCorrelationId");
+  });
+
+  it("joins a finalized attempt to the evaluator log by correlation ID, keeping shadow diagnostics server-only", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://evaluator.example.test");
+    vi.stubEnv("QURAN_EVALUATOR_API_KEY", "evaluator-secret-key");
+    vi.stubEnv("QURAN_EVALUATOR_PRIMARY_CORRECTIONS", "0");
+    const evaluatorCalls = stubServicesWithEvaluator([FATIHA[1]]);
+    const { appRouter, liveObservation, createRunId } = await setup();
+    const runId = createRunId();
+    liveObservation.activateValidationRun(runId);
+    const caller = appRouter.createCaller(context({ runId, requestId: "req_join_study_1" }));
+
+    const result = await caller.recitation.evaluate({
+      expectedArabic: FATIHA[1],
+      audioBase64: audio(31),
+      mimeType: "audio/webm",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learningLevel: "qaida",
+      uiLanguage: "en",
+      attemptScope: "ayah",
+    });
+
+    // The evaluator receives the same correlation ID the ledger records.
+    expect(evaluatorCalls).toHaveLength(1);
+    expect(evaluatorCalls[0].headers["x-correlation-id"]).toBe("req_join_study_1");
+
+    const [event] = liveObservation.getActiveValidationRun(runId)?.ledger.eventsOfType("attempt.completed") ?? [];
+    expect(event.correlationId).toBe("req_join_study_1");
+    expect(event.attemptId).toMatch(/^att_[0-9a-f]{24}$/);
+    expect(result.validationAttemptId).toBe(event.attemptId);
+    expect(event.details.acoustic).toMatchObject({
+      evaluatorCalled: true,
+      evaluatorStatus: "abstained",
+      evaluatorHttpStatus: 200,
+      primaryCorrectionsEnabled: false,
+      shadowStatus: "available",
+      shadowProvider: "muaalem-shadow",
+      shadowModelId: "obadx/muaalem-model-v3_2",
+      shadowDecodedLevels: 2,
+      shadowPhonemeTokens: 5,
+      shadowAveragePosterior: 0.85,
+      shadowLatencyMs: 640,
+    });
+    expect(typeof (event.details.acoustic as { evaluatorLatencyMs: unknown }).evaluatorLatencyMs).toBe("number");
+    expect(event.details.decision).toMatchObject({
+      verseFollowingReason: result.verseFollowing.reason,
+      shouldAdvance: result.verseFollowing.shouldAdvance,
+      reviewMessageCode: null,
+      matchedCount: result.matchedCount,
+      totalWords: result.totalWords,
+      score: result.score,
+    });
+
+    // Diagnostics never reach the learner-facing response.
+    const response = JSON.stringify(result);
+    expect(response).not.toContain("shadow");
+    expect(response).not.toContain("muaalem");
+    expect(response).not.toContain("measurements");
+    expect(result.quranAwareReview).toMatchObject({ status: "abstained", findings: [] });
+
+    // Redaction: no audio, transcript, Quran text, tokens, keys or identity.
+    const exported = JSON.stringify(liveObservation.exportValidationRun(runId));
+    expect(exported).not.toMatch(/[\u0600-\u06FF]/);
+    for (const forbidden of [audio(31), "evaluator-secret-key", "validation-user", "\"tokens\"", "\"words\""]) {
+      expect(exported).not.toContain(forbidden);
+    }
+  });
+
+  it("keeps learner decisions identical whether or not the Muaalem shadow is running", async () => {
+    const request = {
+      expectedArabic: FATIHA[1],
+      audioBase64: audio(32),
+      mimeType: "audio/webm" as const,
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learningLevel: "qaida" as const,
+      uiLanguage: "en" as const,
+      attemptScope: "ayah" as const,
+    };
+    const partialTranscript = FATIHA[1].split(" ").slice(0, 2).join(" ");
+    const pick = (value: Awaited<ReturnType<Caller["recitation"]["evaluate"]>>) => ({
+      verseFollowing: value.verseFollowing,
+      matchedCount: value.matchedCount,
+      totalWords: value.totalWords,
+      score: value.score,
+      corrections: value.corrections,
+      correctionSession: value.correctionSession,
+      reviewMessageCode: value.reviewMessageCode,
+      canDriveLearnerCorrection: value.quranAwareReview.canDriveLearnerCorrection ?? false,
+    });
+
+    stubServices([partialTranscript]);
+    const baseline = await setup();
+    const withoutShadow = await baseline.appRouter
+      .createCaller(context({ requestId: "req_shadow_off_1" }))
+      .recitation.evaluate(request);
+
+    vi.resetModules();
+    resetRecitationRateLimitForTests();
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://evaluator.example.test");
+    stubServicesWithEvaluator([partialTranscript]);
+    const shadowed = await setup();
+    const runId = shadowed.createRunId();
+    shadowed.liveObservation.activateValidationRun(runId);
+    const withShadow = await shadowed.appRouter
+      .createCaller(context({ runId, requestId: "req_shadow_on_1" }))
+      .recitation.evaluate(request);
+
+    expect(pick(withShadow)).toEqual(pick(withoutShadow));
+    expect(pick(withShadow).canDriveLearnerCorrection).toBe(false);
+  });
+
+  it("forwards the correlation ID but collects nothing outside an active run", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://evaluator.example.test");
+    const evaluatorCalls = stubServicesWithEvaluator([FATIHA[1]]);
+    const { appRouter } = await setup();
+    const result = await appRouter.createCaller(context({ requestId: "req_ordinary_1" })).recitation.evaluate({
+      expectedArabic: FATIHA[1],
+      audioBase64: audio(33),
+      mimeType: "audio/webm",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learningLevel: "qaida",
+      uiLanguage: "en",
+      attemptScope: "ayah",
+    });
+    expect(evaluatorCalls[0].headers["x-correlation-id"]).toBe("req_ordinary_1");
+    expect(result).not.toHaveProperty("validationAttemptId");
+    expect(result).not.toHaveProperty("validationCorrelationId");
+  });
+
+  it("gives live-turn server events the client turn ID instead of null", async () => {
+    stubServices(["الحمد"]);
+    const { appRouter, liveObservation, createRunId } = await setup();
+    const runId = createRunId();
+    liveObservation.activateValidationRun(runId);
+    const caller = appRouter.createCaller(context({ runId, requestId: "req_live_turn_1" }));
+    const started = await start(caller);
+    await caller.recitation.ingestLiveAudio(liveInput({
+      streamId: started.stream.streamId,
+      session: reference(started.tutor.session),
+      sequence: 1,
+      turnId: "turn-live-1",
+    }));
+    const events = liveObservation.getActiveValidationRun(runId)?.ledger.events ?? [];
+    const requestEvents = events.filter((event) => event.type !== "session.start");
+    expect(requestEvents.length).toBeGreaterThan(0);
+    for (const event of requestEvents) expect(event.attemptId).not.toBeNull();
+    expect(requestEvents.some((event) => event.attemptId === "turn-live-1")).toBe(true);
   });
 });

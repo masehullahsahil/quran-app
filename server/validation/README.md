@@ -113,6 +113,49 @@ Human/deployment decision required: choose the Wave 0 server target —
 single-instance Node (recommended, no code change) vs. Vercel serverless
 (requires a shared run-registry/export design, not built).
 
+## Per-attempt Muaalem observability
+
+Every event a validation request records carries a non-null `attemptId`:
+
+- `recitation.evaluate` / `recitation.evaluateWithTutor` / `recitation.startLive`
+  — a fresh server `att_…` ID minted by the observation middleware. During an
+  active run the finalized routes also return it as `validationAttemptId`
+  next to `validationCorrelationId`, so a client log can join on it later.
+- `recitation.ingestLiveAudio` — the client's own `turnId` (token-shaped IDs
+  only; anything else gets a fresh `att_…`), so server checkpoints and the
+  client's playback events for the same turn group together.
+
+The app forwards the request correlation ID (`ctx.requestId`, pattern-checked)
+to the acoustic evaluator as `x-correlation-id`. The RunPod service includes
+it as `correlationId` in its `quran_acoustic_evaluation` log line and forwards
+it to the Muaalem shadow worker, so a ledger row joins the RunPod log on
+`correlationId`.
+
+Each finalized attempt (`attempt.completed` for Study/Tutor, the new
+`attempt.diagnostics` for an applied live turn-complete) records:
+
+- `acoustic` — `evaluatorCalled`, `evaluatorStatus`, `evaluatorHttpStatus`,
+  `evaluatorLatencyMs`, `primaryCorrectionsEnabled`, `shadowStatus`,
+  `shadowProvider`, `shadowModelId`, `shadowDecodedLevels`,
+  `shadowPhonemeTokens` (a count), `shadowAveragePosterior`,
+  `shadowLatencyMs`. Attempts that never reached the evaluator record
+  `shadowStatus: "not_run"`.
+- `decision` — `verseFollowingReason`, `verseFollowingState`,
+  `shouldAdvance`, `reviewMessageCode`, `matchedCount`, `totalWords`,
+  `score`, `tutorOutcome`, `tutorActionKind`, `tutorActionReason`.
+
+`toJSON()` exports these as `attemptDiagnostics` (one row per finalized
+attempt), and the markdown report renders them as a table. The staff
+evidence panel's server-ledger download and final bundle include them.
+
+These diagnostics are collected only during an active staff validation run,
+travel from the evaluator adapter to the ledger through the tRPC context
+(never the response), and are copied field-by-field: decoded phoneme tokens,
+word timings with Quran text, audio, transcripts, keys and learner identity
+cannot enter the ledger. The shadow never changes the learner review,
+correction focus, or advancement; `QURAN_EVALUATOR_PRIMARY_CORRECTIONS`
+stays `0`.
+
 ## Safety rules
 
 - No audio bytes, no raw transcripts (word indexes only), no tokens/secrets,

@@ -19,9 +19,11 @@
  * - No PII.
  */
 import type { TrpcContext } from "../_core/context";
+import type { QuranEvaluatorDiagnostics } from "../quranEvaluator";
 import {
   ValidationLedger,
   captureBuildInfo,
+  createAttemptId,
   isRunId,
   type DeviceMetadata,
   type PositionCheckpoint,
@@ -145,6 +147,134 @@ export function correlationIdFromCtx(ctx: TrpcContext): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Per-attempt scope
+// ---------------------------------------------------------------------------
+
+/**
+ * Server-side state for one observed request inside an active validation
+ * run. The observation middleware creates it and hands it to the procedure
+ * through the tRPC context; the procedure fills in the acoustic diagnostics
+ * the response deliberately does not carry. Exists only during an active
+ * run, so ordinary requests never collect anything.
+ */
+export type ValidationAttemptScope = {
+  attemptId: string;
+  correlationId: string | null;
+  acoustic: QuranEvaluatorDiagnostics | null;
+};
+
+/** Client turn/chunk IDs are accepted as attempt IDs only if token-shaped. */
+const SAFE_CLIENT_ATTEMPT_ID = /^[A-Za-z0-9_.:-]{1,80}$/;
+
+/**
+ * The attempt ID for one observed request. A live turn keeps the client's own
+ * turn ID so server checkpoints, corrections and the client's playback events
+ * for that turn group together; every other request gets a fresh server
+ * `att_…` ID. Never null.
+ */
+export function validationAttemptIdFor(path: string, rawInput: unknown): string {
+  if (path === "recitation.ingestLiveAudio") {
+    const turnId = asRecord(rawInput)?.turnId;
+    if (typeof turnId === "string" && SAFE_CLIENT_ATTEMPT_ID.test(turnId)) return turnId;
+  }
+  return createAttemptId();
+}
+
+export function createValidationAttemptScope(
+  ctx: TrpcContext,
+  path: string,
+  rawInput: unknown,
+): ValidationAttemptScope {
+  return {
+    attemptId: validationAttemptIdFor(path, rawInput),
+    correlationId: correlationIdFromCtx(ctx),
+    acoustic: null,
+  };
+}
+
+/** Recorded when a finalized attempt never reached the acoustic evaluator. */
+export const ACOUSTIC_NOT_RUN: Readonly<QuranEvaluatorDiagnostics> = Object.freeze({
+  evaluatorCalled: false,
+  evaluatorStatus: "not_configured",
+  evaluatorHttpStatus: null,
+  evaluatorLatencyMs: null,
+  primaryCorrectionsEnabled: false,
+  shadowStatus: "not_run",
+  shadowProvider: null,
+  shadowModelId: null,
+  shadowDecodedLevels: 0,
+  shadowPhonemeTokens: 0,
+  shadowAveragePosterior: null,
+  shadowLatencyMs: null,
+});
+
+/**
+ * Copies only the known aggregate fields, so an unexpected property on the
+ * diagnostics object can never ride into the ledger.
+ */
+export function acousticAttemptDetails(
+  diagnostics: QuranEvaluatorDiagnostics | null | undefined,
+): QuranEvaluatorDiagnostics {
+  const d = diagnostics ?? ACOUSTIC_NOT_RUN;
+  return {
+    evaluatorCalled: d.evaluatorCalled === true,
+    evaluatorStatus: d.evaluatorStatus,
+    evaluatorHttpStatus: asNumber(d.evaluatorHttpStatus),
+    evaluatorLatencyMs: asNumber(d.evaluatorLatencyMs),
+    primaryCorrectionsEnabled: d.primaryCorrectionsEnabled === true,
+    shadowStatus: d.shadowStatus,
+    shadowProvider: safeToken(d.shadowProvider, 80),
+    shadowModelId: safeToken(d.shadowModelId, 160),
+    shadowDecodedLevels: asNumber(d.shadowDecodedLevels) ?? 0,
+    shadowPhonemeTokens: asNumber(d.shadowPhonemeTokens) ?? 0,
+    shadowAveragePosterior: asNumber(d.shadowAveragePosterior),
+    shadowLatencyMs: asNumber(d.shadowLatencyMs),
+  };
+}
+
+/** Why the tutor held or advanced, from the response's structural fields. */
+export type AttemptDecisionDetails = {
+  verseFollowingReason: string | null;
+  verseFollowingState: string | null;
+  shouldAdvance: boolean | null;
+  reviewMessageCode: string | null;
+  matchedCount: number | null;
+  totalWords: number | null;
+  score: number | null;
+  tutorOutcome: string | null;
+  tutorActionKind: string | null;
+  tutorActionReason: string | null;
+};
+
+/** Identifier-shaped strings only: an enum value or model ID, never prose. */
+const SAFE_TOKEN = /^[A-Za-z0-9_.:/@+-]+$/;
+
+function safeToken(value: unknown, maxLength = 64): string | null {
+  return typeof value === "string" && value.length <= maxLength && SAFE_TOKEN.test(value) ? value : null;
+}
+
+export function attemptDecisionDetails(
+  recitation: Record<string, unknown> | null,
+  outer: Record<string, unknown> | null,
+): AttemptDecisionDetails {
+  const verseFollowing = asRecord(recitation?.verseFollowing);
+  const action = asRecord(asRecord(outer?.tutor)?.action);
+  const shouldAdvance = verseFollowing?.shouldAdvance;
+  return {
+    verseFollowingReason: safeToken(verseFollowing?.reason),
+    verseFollowingState: safeToken(verseFollowing?.state),
+    shouldAdvance: typeof shouldAdvance === "boolean" ? shouldAdvance : null,
+    reviewMessageCode: safeToken(recitation?.reviewMessageCode),
+    matchedCount: asNumber(recitation?.matchedCount),
+    totalWords: asNumber(recitation?.totalWords),
+    score: asNumber(recitation?.score),
+    tutorOutcome: safeToken(outer?.outcome),
+    tutorActionKind: safeToken(action?.kind),
+    tutorActionReason: safeToken(action?.reason),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Response observation
 // ---------------------------------------------------------------------------
 
@@ -211,7 +341,15 @@ export function playbackDirectiveOf(action: unknown): PlaybackDirective | null {
 
 export type ObserveOptions = {
   correlationId?: string | null;
+  /** Server attempt ID for every event this request records. */
+  attemptId?: string | null;
+  /** Aggregate acoustic diagnostics collected during the request. */
+  acoustic?: QuranEvaluatorDiagnostics | null;
 };
+
+function recordOptions(opts: ObserveOptions) {
+  return { correlationId: opts.correlationId ?? null, attemptId: opts.attemptId ?? null };
+}
 
 /** Finalized recitation routes that can reach the shadow acoustic evaluator. */
 export const OBSERVED_FINAL_RECITATION_PATHS = [
@@ -259,7 +397,7 @@ function observeStartLive(run: ActiveValidationRun, result: unknown, opts: Obser
       },
       { streamId: asString(stream?.streamId) },
     ),
-    { correlationId: opts.correlationId ?? null },
+    recordOptions(opts),
   );
 }
 
@@ -303,7 +441,28 @@ function observeIngestLiveAudio(run: ActiveValidationRun, result: unknown, opts:
         },
         ackContext,
       ),
-      { correlationId: opts.correlationId ?? null },
+      recordOptions(opts),
+    );
+  }
+
+  // A finalized live turn is a full evaluated attempt: record why the tutor
+  // held or advanced and what the acoustic shadow saw. A replayed duplicate
+  // carries the same recitation without evaluating again, so only an
+  // applied input records it.
+  const recitation = asRecord(response?.recitation);
+  if (applied && recitation) {
+    run.ledger.record(
+      "attempt.diagnostics",
+      {
+        route: "live",
+        attemptScope: asString(recitation.attemptScope),
+        reviewStatus: asString(recitation.reviewStatus),
+        acousticStatus: asString(asRecord(recitation.quranAwareReview)?.status),
+        decision: attemptDecisionDetails(recitation, response),
+        acoustic: acousticAttemptDetails(opts.acoustic),
+        ...ackContext,
+      },
+      recordOptions(opts),
     );
   }
 
@@ -329,7 +488,7 @@ function observeIngestLiveAudio(run: ActiveValidationRun, result: unknown, opts:
         ...(directive ? { playbackDirective: directive } : {}),
         ...ackContext,
       },
-      { correlationId: opts.correlationId ?? null },
+      recordOptions(opts),
     );
   }
 }
@@ -383,8 +542,10 @@ export function observeFinalRecitationResult(
         reviewStatus: asString(recitation?.reviewStatus),
         acousticStatus: asString(quranAwareReview?.status),
         tutorStatus: asString(tutor?.status),
+        decision: attemptDecisionDetails(recitation, outer),
+        acoustic: acousticAttemptDetails(opts.acoustic),
       },
-      { correlationId: opts.correlationId ?? null },
+      recordOptions(opts),
     );
   } catch {
     // Observation is best-effort; a review must never fail because of it.
@@ -406,9 +567,10 @@ export function observeFinalRecitationFailure(
       {
         route: path === "recitation.evaluateWithTutor" ? "tutor" : "study",
         outcome: "failed",
-        errorCode: code,
+        errorCode: safeToken(code) ?? "UNKNOWN",
+        acoustic: acousticAttemptDetails(opts.acoustic),
       },
-      { correlationId: opts.correlationId ?? null },
+      recordOptions(opts),
     );
   } catch {
     // Observation is best-effort; preserve the original procedure failure.

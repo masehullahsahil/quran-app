@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import {
+  ACOUSTIC_NOT_RUN,
   activateValidationRun,
   activeValidationRunFromCtx,
   correlationIdFromCtx,
@@ -12,8 +13,9 @@ import {
   playbackDirectiveOf,
   resetValidationRunsForTests,
   VALIDATION_RUN_HEADER,
+  validationAttemptIdFor,
 } from "./liveObservation";
-import { createRunId } from "./validationRun";
+import { createRunId, isAttemptId } from "./validationRun";
 import type { TrpcContext } from "../_core/context";
 
 function ctxWith(headers: Record<string, string>, requestId?: string): TrpcContext {
@@ -239,6 +241,19 @@ describe("final recitation observation", () => {
       reviewStatus: "available",
       acousticStatus: "abstained",
       tutorStatus: "updated",
+      decision: {
+        verseFollowingReason: null,
+        verseFollowingState: null,
+        shouldAdvance: null,
+        reviewMessageCode: null,
+        matchedCount: null,
+        totalWords: null,
+        score: null,
+        tutorOutcome: null,
+        tutorActionKind: null,
+        tutorActionReason: null,
+      },
+      acoustic: ACOUSTIC_NOT_RUN,
     });
     expect(JSON.stringify(events[0])).not.toContain("must not enter");
   });
@@ -268,6 +283,7 @@ describe("final recitation observation", () => {
       route: "study",
       outcome: "failed",
       errorCode: "TOO_MANY_REQUESTS",
+      acoustic: ACOUSTIC_NOT_RUN,
     });
     expect(JSON.stringify(events)).not.toContain("private details");
   });
@@ -292,5 +308,155 @@ describe("playbackDirectiveOf", () => {
     expect(playbackDirectiveOf({ kind: "listen", hint: null })).toBeNull();
     expect(playbackDirectiveOf({ kind: "ask-full-ayah", hint: { kind: "target-word" } })).toBeNull();
     expect(playbackDirectiveOf(null)).toBeNull();
+  });
+});
+
+describe("per-attempt Muaalem diagnostics", () => {
+  const shadowDiagnostics = {
+    evaluatorCalled: true,
+    evaluatorStatus: "abstained" as const,
+    evaluatorHttpStatus: 200,
+    evaluatorLatencyMs: 1432,
+    primaryCorrectionsEnabled: false,
+    shadowStatus: "available" as const,
+    shadowProvider: "muaalem-shadow",
+    shadowModelId: "obadx/muaalem-model-v3_2",
+    shadowDecodedLevels: 11,
+    shadowPhonemeTokens: 37,
+    shadowAveragePosterior: 0.91,
+    shadowLatencyMs: 812,
+  };
+
+  it("gives every finalized request a server attempt ID and live turns their turn ID", () => {
+    expect(isAttemptId(validationAttemptIdFor("recitation.evaluate", {}))).toBe(true);
+    expect(isAttemptId(validationAttemptIdFor("recitation.evaluateWithTutor", null))).toBe(true);
+    expect(isAttemptId(validationAttemptIdFor("recitation.startLive", {}))).toBe(true);
+    expect(validationAttemptIdFor("recitation.ingestLiveAudio", { turnId: "turn-7" })).toBe("turn-7");
+    // A hostile or prose-shaped client turn ID is never trusted as a join key.
+    const hostile = validationAttemptIdFor("recitation.ingestLiveAudio", { turnId: "بسم الله\nx" });
+    expect(isAttemptId(hostile)).toBe(true);
+  });
+
+  it("records shadow aggregates and why the tutor held, joined on attempt and correlation", () => {
+    const runId = createRunId();
+    const run = activateValidationRun(runId);
+    observeFinalRecitationResult(
+      run,
+      "recitation.evaluateWithTutor",
+      {
+        recitation: {
+          attemptScope: "ayah",
+          reviewStatus: "available",
+          reviewMessageCode: null,
+          matchedCount: 2,
+          totalWords: 4,
+          score: 50,
+          verseFollowing: { reason: "mistake_to_correct", state: "correcting", shouldAdvance: false },
+          quranAwareReview: { status: "abstained" },
+          transcript: "الحمد لله",
+          expectedWords: [{ expected: "ٱلْحَمْدُ", heard: "الحمد" }],
+        },
+        tutor: { status: "updated", action: { kind: "ask-target-word", reason: "missed-word" } },
+        outcome: "correction_required",
+      },
+      { correlationId: "req_abcdefgh1234", attemptId: "att_0123456789abcdef01234567", acoustic: shadowDiagnostics },
+    );
+    const [event] = run.ledger.eventsOfType("attempt.completed");
+    expect(event).toMatchObject({ attemptId: "att_0123456789abcdef01234567", correlationId: "req_abcdefgh1234" });
+    expect(event.details.acoustic).toEqual(shadowDiagnostics);
+    expect(event.details.decision).toEqual({
+      verseFollowingReason: "mistake_to_correct",
+      verseFollowingState: "correcting",
+      shouldAdvance: false,
+      reviewMessageCode: null,
+      matchedCount: 2,
+      totalWords: 4,
+      score: 50,
+      tutorOutcome: "correction_required",
+      tutorActionKind: "ask-target-word",
+      tutorActionReason: "missed-word",
+    });
+
+    const exported = exportValidationRun(runId)!;
+    expect(exported.attemptDiagnostics).toEqual([
+      expect.objectContaining({
+        attemptId: "att_0123456789abcdef01234567",
+        correlationId: "req_abcdefgh1234",
+        route: "tutor",
+        outcome: "responded",
+        evaluatorLatencyMs: 1432,
+        acoustic: shadowDiagnostics,
+      }),
+    ]);
+    const serialized = JSON.stringify(exported);
+    expect(serialized).not.toMatch(/[\u0600-\u06FF]/);
+  });
+
+  it("copies only known aggregate fields and drops prose, tokens and identity", () => {
+    const run = activateValidationRun(createRunId());
+    observeFinalRecitationResult(
+      run,
+      "recitation.evaluate",
+      {
+        attemptScope: "ayah",
+        reviewStatus: "available",
+        reviewMessageCode: "Recite ٱلْحَمْدُ again please",
+        verseFollowing: { reason: "ayah_complete", state: "following", shouldAdvance: true },
+      },
+      {
+        correlationId: "req_abcdefgh5678",
+        attemptId: "att_0123456789abcdef01234568",
+        acoustic: {
+          ...shadowDiagnostics,
+          shadowModelId: "model with spaces and ٱلْحَمْدُ",
+          tokens: ["ا", "ل"],
+          levels: { phonemes: { tokens: ["ا"] } },
+          openId: "learner-1",
+          apiKey: "secret",
+        } as typeof shadowDiagnostics,
+      },
+    );
+    const [event] = run.ledger.eventsOfType("attempt.completed");
+    const acoustic = event.details.acoustic as Record<string, unknown>;
+    expect(Object.keys(acoustic).sort()).toEqual(Object.keys(shadowDiagnostics).sort());
+    expect(acoustic.shadowModelId).toBeNull();
+    expect((event.details.decision as Record<string, unknown>).reviewMessageCode).toBeNull();
+    const serialized = JSON.stringify(run.ledger.toJSON());
+    for (const forbidden of ["learner-1", "secret", "ٱلْحَمْدُ", "\"tokens\"", "\"levels\""]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  it("records a finalized live turn's diagnostics under the client turn ID", () => {
+    const run = activateValidationRun(createRunId());
+    observeLiveRouterResult(
+      run,
+      "recitation.ingestLiveAudio",
+      {
+        acknowledgement: { status: "applied", turnId: "turn-9", chunkId: "turn-9:1", sequence: 3 },
+        stream: { streamId: "s-1", tracker: { surah: 1, ayah: 2, expectedWordIndex: 1 } },
+        recognitionStatus: "transcribed",
+        recitation: {
+          attemptScope: "ayah",
+          reviewStatus: "available",
+          matchedCount: 4,
+          totalWords: 4,
+          score: 100,
+          verseFollowing: { reason: "ayah_complete", state: "following", shouldAdvance: true },
+          quranAwareReview: { status: "abstained" },
+        },
+        tutor: { status: "updated", action: { kind: "continue-recitation", reason: "ayah-completed" } },
+        outcome: "accepted",
+      },
+      { correlationId: "req_live12345", attemptId: "turn-9", acoustic: shadowDiagnostics },
+    );
+    const events = run.ledger.events.filter((event) => event.type !== "session.start");
+    expect(events.map((event) => event.type)).toEqual(["position.checkpoint", "attempt.diagnostics"]);
+    for (const event of events) expect(event.attemptId).toBe("turn-9");
+    expect(events[1].details).toMatchObject({
+      route: "live",
+      decision: { verseFollowingReason: "ayah_complete", shouldAdvance: true, tutorOutcome: "accepted" },
+      acoustic: { shadowStatus: "available", shadowPhonemeTokens: 37 },
+    });
   });
 });

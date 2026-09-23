@@ -26,7 +26,8 @@ const MIN_FINDING_CONFIDENCE = 0.75;
 export async function evaluate(
   input: EvaluateInput,
   phonemes: PhonemeEvaluator = new AbstainingPhonemeEvaluator(),
-  shadow: AcousticShadowEvaluator = new AbstainingAcousticShadowEvaluator()
+  shadow: AcousticShadowEvaluator = new AbstainingAcousticShadowEvaluator(),
+  context: { correlationId?: string | null } = {}
 ): Promise<EvaluationResult> {
   let audio;
   try {
@@ -70,6 +71,7 @@ export async function evaluate(
   const shadowAnalysisPromise = shadow.analyze({
     audio,
     evidenceOrigin: "learner_microphone",
+    correlationId: context.correlationId ?? null,
   });
   const findings: AcousticFinding[] = [];
   // Only directly measured, unusually long internal silence is currently learner-facing.
@@ -137,7 +139,7 @@ export async function evaluate(
       console.info(
         JSON.stringify({
           event: "quran_phoneme_observation",
-          targetWord: word?.arabic ?? null,
+          targetWordIndex: observation.wordIndex,
           targetGrapheme: observation.target,
           alignmentConfidence: observation.alignmentConfidence,
           segmentDurationMs: observation.segmentDurationMs,

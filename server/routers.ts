@@ -65,10 +65,11 @@ import {
 import { createLiveQuranTracker, updateLiveQuranTracker } from "./liveRecitationTracker";
 import {
   activeValidationRunFromCtx,
-  correlationIdFromCtx,
+  createValidationAttemptScope,
   observeFinalRecitationFailure,
   observeFinalRecitationResult,
   observeLiveRouterResult,
+  type ValidationAttemptScope,
 } from "./validation/liveObservation";
 import type {
   LiveAudioTiming,
@@ -474,6 +475,12 @@ function tutorOutcome(
 }
 
 /**
+ * The tRPC context inside an observed procedure. `validationAttempt` is set by
+ * the observation middleware only during an active staff validation run.
+ */
+type ValidationAwareContext = TrpcContext & { validationAttempt?: ValidationAttemptScope };
+
+/**
  * Live-router validation observation (real-device validation plan, Wave 0).
  *
  * Wraps `recitation.startLive` / `recitation.ingestLiveAudio` so their
@@ -483,15 +490,21 @@ function tutorOutcome(
  * no active validation run this is a plain pass-through and router behavior
  * is unchanged.
  */
-const observedLiveProcedure = publicProcedure.use(async ({ ctx, path, next }) => {
+const observedLiveProcedure = publicProcedure.use(async ({ ctx, path, next, getRawInput }) => {
   const run = activeValidationRunFromCtx(ctx);
   if (!run) return next();
-  const correlationId = correlationIdFromCtx(ctx);
-  const result = await next();
+  const validationAttempt = createValidationAttemptScope(ctx, path, await getRawInput().catch(() => null));
+  const result = await next({ ctx: { validationAttempt } });
   // tRPC v11 middlewares receive the procedure result envelope; the actual
   // response payload is `data`. Failures (`ok: false`) produce no response
   // to observe.
-  if (result.ok) observeLiveRouterResult(run, path, result.data, { correlationId });
+  if (result.ok) {
+    observeLiveRouterResult(run, path, result.data, {
+      correlationId: validationAttempt.correlationId,
+      attemptId: validationAttempt.attemptId,
+      acoustic: validationAttempt.acoustic,
+    });
+  }
   return result;
 });
 
@@ -500,13 +513,18 @@ const observedLiveProcedure = publicProcedure.use(async ({ ctx, path, next }) =>
  * records one terminal event per request so a client attempt can be joined to
  * the exact server request that did (or did not) reach the shadow evaluator.
  */
-const observedFinalRecitationProcedure = publicProcedure.use(async ({ ctx, path, next }) => {
+const observedFinalRecitationProcedure = publicProcedure.use(async ({ ctx, path, next, getRawInput }) => {
   const run = activeValidationRunFromCtx(ctx);
   if (!run) return next();
-  const correlationId = correlationIdFromCtx(ctx);
-  const result = await next();
-  if (result.ok) observeFinalRecitationResult(run, path, result.data, { correlationId });
-  else observeFinalRecitationFailure(run, path, result.error, { correlationId });
+  const validationAttempt = createValidationAttemptScope(ctx, path, await getRawInput().catch(() => null));
+  const result = await next({ ctx: { validationAttempt } });
+  const observeOptions = {
+    correlationId: validationAttempt.correlationId,
+    attemptId: validationAttempt.attemptId,
+    acoustic: validationAttempt.acoustic,
+  };
+  if (result.ok) observeFinalRecitationResult(run, path, result.data, observeOptions);
+  else observeFinalRecitationFailure(run, path, result.error, observeOptions);
   return result;
 });
 
@@ -515,12 +533,16 @@ const observedFinalRecitationProcedure = publicProcedure.use(async ({ ctx, path,
  * run. Ordinary app responses remain unchanged, including in Production.
  */
 function withValidationCorrelation<T extends Record<string, unknown>>(
-  ctx: TrpcContext,
+  ctx: ValidationAwareContext,
   payload: T,
-): T & { validationCorrelationId?: string } {
-  const run = activeValidationRunFromCtx(ctx);
-  const correlationId = run ? correlationIdFromCtx(ctx) : null;
-  return correlationId ? { ...payload, validationCorrelationId: correlationId } : payload;
+): T & { validationCorrelationId?: string; validationAttemptId?: string } {
+  const scope = activeValidationRunFromCtx(ctx) ? ctx.validationAttempt : undefined;
+  if (!scope) return payload;
+  return {
+    ...payload,
+    ...(scope.correlationId ? { validationCorrelationId: scope.correlationId } : {}),
+    validationAttemptId: scope.attemptId,
+  };
 }
 
 export const appRouter = router({
@@ -604,7 +626,7 @@ export const appRouter = router({
 
   recitation: (() => {
     const evaluateRecitationAttempt = async ({ ctx, input }: {
-      ctx: TrpcContext;
+      ctx: ValidationAwareContext;
       input: RecitationEvaluationInput;
     }) => {
       const learningPlan = getLearningCoachPlan(input.learningLevel);
@@ -721,6 +743,16 @@ export const appRouter = router({
             // The external evaluator writes the summary and finding guidance
             // the learner reads; it needs the language to write them in.
             uiLanguage: input.uiLanguage,
+          }, {
+            // The opaque request ID lets the evaluator's log join this
+            // request. Diagnostics are collected only inside an active staff
+            // validation run and never enter the response.
+            correlationId: ctx.requestId ?? null,
+            onDiagnostics: ctx.validationAttempt
+              ? (diagnostics) => {
+                  if (ctx.validationAttempt) ctx.validationAttempt.acoustic = diagnostics;
+                }
+              : undefined,
           })
         : Promise.resolve(EMPTY_QURAN_AWARE_REVIEW);
       const transcription = await transcribeAudio({

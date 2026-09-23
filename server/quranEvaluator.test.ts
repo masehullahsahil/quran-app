@@ -140,4 +140,94 @@ describe("Quran-aware evaluator adapter", () => {
     const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
     await expect(evaluateQuranAwareAudio(evaluatorInput)).resolves.toMatchObject({ status: "unavailable", findings: [] });
   });
+
+  describe("per-attempt diagnostics", () => {
+    const shadowResponse = {
+      status: "abstained",
+      provider: "quran-acoustic-prototype",
+      confidence: 0.4,
+      summary: null,
+      findings: [],
+      measurements: {
+        audioDurationMs: 2000,
+        alignmentConfidence: 0.4,
+        words: [{ wordIndex: 1, arabic: "بسم" }],
+        shadow: {
+          status: "available",
+          provider: "muaalem-shadow",
+          modelId: "obadx/muaalem-model-v3_2",
+          decodedLevelCount: 11,
+          phonemeTokenCount: 37,
+          averagePosterior: 0.9,
+          latencyMs: 700,
+          tokens: ["ب", "س", "م"],
+        },
+      },
+    };
+
+    it("forwards only a safe correlation ID as x-correlation-id", async () => {
+      vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify(shadowResponse), { status: 200 }));
+      global.fetch = fetchMock as unknown as typeof fetch;
+      const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+
+      await evaluateQuranAwareAudio(evaluatorInput, { correlationId: "req_abcdefgh1234" });
+      await evaluateQuranAwareAudio(evaluatorInput, { correlationId: "bad id\r\ninjected: 1" });
+      await evaluateQuranAwareAudio(evaluatorInput);
+
+      const headersOf = (call: number) =>
+        ((fetchMock.mock.calls[call] as unknown as [unknown, RequestInit])[1].headers ?? {}) as Record<string, string>;
+      expect(headersOf(0)["x-correlation-id"]).toBe("req_abcdefgh1234");
+      expect(headersOf(1)).not.toHaveProperty("x-correlation-id");
+      expect(headersOf(2)).not.toHaveProperty("x-correlation-id");
+    });
+
+    it("reports aggregate shadow diagnostics without changing the learner review", async () => {
+      vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+      vi.stubEnv("QURAN_EVALUATOR_PRIMARY_CORRECTIONS", "0");
+      global.fetch = vi.fn(async () => new Response(JSON.stringify(shadowResponse), { status: 200 })) as unknown as typeof fetch;
+      const { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+
+      const plain = await evaluateQuranAwareAudio(evaluatorInput);
+      const onDiagnostics = vi.fn();
+      const observed = await evaluateQuranAwareAudio(evaluatorInput, { onDiagnostics });
+
+      expect(observed).toEqual(plain);
+      expect(observed).not.toHaveProperty("measurements");
+      expect(onDiagnostics).toHaveBeenCalledTimes(1);
+      const diagnostics = onDiagnostics.mock.calls[0][0];
+      expect(diagnostics).toMatchObject({
+        evaluatorCalled: true,
+        evaluatorStatus: "abstained",
+        evaluatorHttpStatus: 200,
+        primaryCorrectionsEnabled: false,
+        shadowStatus: "available",
+        shadowProvider: "muaalem-shadow",
+        shadowModelId: "obadx/muaalem-model-v3_2",
+        shadowDecodedLevels: 11,
+        shadowPhonemeTokens: 37,
+        shadowAveragePosterior: 0.9,
+        shadowLatencyMs: 700,
+      });
+      expect(typeof diagnostics.evaluatorLatencyMs).toBe("number");
+      expect(JSON.stringify(diagnostics)).not.toMatch(/[\u0600-\u06FF]/);
+    });
+
+    it("reports a not-run shadow when the service is missing or unreachable, and survives a throwing sink", async () => {
+      vi.stubEnv("QURAN_EVALUATOR_URL", "");
+      let { evaluateQuranAwareAudio } = await import("./quranEvaluator");
+      const notConfigured = vi.fn();
+      await evaluateQuranAwareAudio(evaluatorInput, { onDiagnostics: notConfigured });
+      expect(notConfigured.mock.calls[0][0]).toMatchObject({ evaluatorCalled: false, shadowStatus: "not_run" });
+
+      vi.resetModules();
+      vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");
+      global.fetch = vi.fn(async () => { throw new Error("down"); }) as unknown as typeof fetch;
+      ({ evaluateQuranAwareAudio } = await import("./quranEvaluator"));
+      const review = await evaluateQuranAwareAudio(evaluatorInput, {
+        onDiagnostics: () => { throw new Error("sink failure"); },
+      });
+      expect(review).toMatchObject({ status: "unavailable", findings: [] });
+    });
+  });
 });
