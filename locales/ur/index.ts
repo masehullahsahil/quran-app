@@ -139,7 +139,7 @@ export const strings: TranslatableStrings = {
   "tutor.reciteFullAyah": "اب پوری آیت پڑھیں۔",
   "tutor.offerHint": "کیا اشارہ چاہیے؟",
   "tutor.hintGiven": "{word} سے شروع کریں۔",
-  "tutor.uncertain": "یہ واضح سنائی نہیں دیا۔ ایک بار پھر کوشش کریں۔",
+  "tutor.uncertain": "یہ تلاوت اعتماد کے ساتھ آیت سے مطابقت نہیں کیا جا سکا۔ ایک بار پھر کوشش کریں۔",
   "tutor.paused": "اطمینان سے۔ جب کہیں، آگے بڑھیں گے۔",
   "tutor.finished": "اچھا۔ فی الحال یہیں تک۔",
   "tutor.stopped": "ابھی کے لیے روک دیا۔",

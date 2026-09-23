@@ -218,6 +218,8 @@ describe("an attempt the teacher could not judge", () => {
     await show(session("uncertain", { target: TARGET }));
 
     expect(message()?.textContent).toBe(en.strings["tutor.uncertain"]);
+    expect(message()?.textContent?.toLowerCase()).not.toContain("hear");
+    expect(message()?.textContent?.toLowerCase()).toContain("match");
     for (const claim of ["wrong", "incorrect", "mistake", "missed"]) {
       expect(text().toLowerCase(), claim).not.toContain(claim);
     }

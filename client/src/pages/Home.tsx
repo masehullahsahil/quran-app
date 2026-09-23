@@ -1031,6 +1031,7 @@ export default function Home() {
         trace.responded("study", {
           recitation: result,
           validationCorrelationId: result.validationCorrelationId,
+          validationAttemptId: result.validationAttemptId,
         });
       }
       const rawReview = result as RecitationFeedback;
