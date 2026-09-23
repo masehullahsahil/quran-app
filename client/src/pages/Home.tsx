@@ -72,6 +72,11 @@ import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTuto
 import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn, type InterimTurnAudio } from "@/hooks/useContinuousTutorAudio";
 import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
 import { useClientValidationWiring } from "@/hooks/useClientValidationWiring";
+import {
+  attemptFailureLocaleKeys,
+  classifyAttemptFailure,
+  selectPlaceReasonKey,
+} from "@/lib/attemptFailureMessage";
 import { createFinalAttemptTrace } from "@/lib/validationCapture";
 import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
 import { createCoachSpeechProvider, type CoachSpeechProvider, type CoachSpeechTextResolver } from "@/lib/coachSpeechProvider";
@@ -912,6 +917,10 @@ export default function Home() {
     // was recorded, so there is nothing to review — the lesson stays where it
     // was and the learner is told to try again, instead of stranding the UI in
     // a "review" stage for an attempt that never existed.
+    // The byte count is also the client's own capture evidence for the
+    // place-reason copy: "nothing was heard" must never render when the
+    // recorder produced audio.
+    lastAttemptBytesRef.current = blob.size;
     if (!blob.size) {
       trace.skipped("no-audio", { bytes: 0 });
       const message = t("recorder.empty");
@@ -1064,15 +1073,36 @@ export default function Home() {
           });
         }
       }
-      // The recorder message is always a locale key: the review's stable reason
-      // code when it has one, otherwise the generic unavailable sentence.
-      // Raw server text (transcription errors, exception messages) is never
-      // shown to the learner — it stays in the response for diagnostics.
+      // The recorder message is always a locale key: the classifier first, so the
+      // sentence never contradicts what the client itself observed (in
+      // run_e6872ef0aa84e7b7dc7ac447 the recorder captured 50,622 bytes and the
+      // review completed, yet the copy said "nothing was heard"); then the
+      // review's stable reason code when it has one; otherwise the generic
+      // unavailable sentence. Raw server text (transcription errors, exception
+      // messages) is never shown to the learner — it stays in the response
+      // for diagnostics.
+      const failureKind = review.wordReviewAvailable
+        ? null
+        : classifyAttemptFailure({
+            bytesCaptured: blob.size,
+            // The learning path does not measure per-attempt voice energy;
+            // the validation launcher's mic preflight measures it separately.
+            signalTooQuiet: null,
+            reviewMessageCode: review.reviewMessageCode,
+            verseFollowReason: review.verseFollowing.reason,
+            verseFollowState: review.verseFollowing.state,
+            // The acoustic review block owns evaluator messaging on this
+            // path; the recorder message stays about the word review.
+            acousticStatus: null,
+            acousticExpected: false,
+          });
       setRecorderMessage(review.wordReviewAvailable
         ? t("recorder.reviewReady")
-        : review.reviewMessageCode
-          ? t(reviewMessageKeys[review.reviewMessageCode])
-          : t("feedback.reviewUnavailable"));
+        : failureKind
+          ? t(attemptFailureLocaleKeys[failureKind])
+          : review.reviewMessageCode
+            ? t(reviewMessageKeys[review.reviewMessageCode])
+            : t("feedback.reviewUnavailable"));
       // Study's own coaching voice, and only Study's. In a hands-free lesson
       // the teacher is already speaking — in the learner's own language, in a
       // sequence built around the Quran boundary — and this line reads the
@@ -1507,6 +1537,15 @@ export default function Home() {
    * state, transport, VAD, transcription, alignment, or advancement.
    */
   const validationWiring = useClientValidationWiring();
+
+  /**
+   * Bytes produced by the most recent finalized capture. Kept in a ref so the
+   * place-reason copy can be corrected by the client's own capture evidence:
+   * when the recorder produced audio but the verse match is uncertain, the UI
+   * must not claim "nothing was heard". Ref (not state) because it is written
+   * in reviewRecording and only read when the review renders.
+   */
+  const lastAttemptBytesRef = useRef<number | null>(null);
 
   const continuous = useContinuousTutorAudio({
     onTurn: handleFinalisedTurn,
@@ -2163,7 +2202,10 @@ export default function Home() {
 
                 {follow && <div className="notes-block notes-place">
                   <div><span className="eyebrow">{t("notes.placeLabel")}</span><strong>{t("follow.ayah", { number: follow.currentAyah })}</strong><span className={`follow-state is-${follow.state}`}>{t(followStateLabels[follow.state])}</span></div>
-                  <p>{t(followReasonCopy[follow.reason])}</p>
+                  {/* Corrected by the client's own capture evidence: the
+                      server's stay-put decision stands, but "nothing was
+                      heard" is false when the recorder produced audio. */}
+                  <p>{t(selectPlaceReasonKey(follow.reason, lastAttemptBytesRef.current, followReasonCopy[follow.reason]))}</p>
                   <small><AlertCircle size={13} /> {t("follow.boundary")}</small>
                 </div>}
 

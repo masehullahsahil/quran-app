@@ -32,9 +32,12 @@
  * forwarded — the mapping picks known-numeric fields explicitly rather than
  * spreading the hook's details object.
  *
- * The log is observation-only and in-memory. It never calls the network, so
- * recording playback evidence cannot mutate Quran state: the server remains
- * the sole authority for position, correction, and advancement.
+ * The log is observation-only. It never calls the network, so recording
+ * playback evidence cannot mutate Quran state: the server remains the sole
+ * authority for position, correction, and advancement. Within one run the log
+ * is also persisted to sessionStorage (scoped by runId) so a page reload
+ * resumes the same evidence instead of orphaning it; the persisted copy is
+ * cleared only when the run is finalized or a new run is explicitly created.
  *
  * Staff export (validation mode only): the log is exposed as
  * `window.__quranValidationLog`; the rehearsal runbook copies
@@ -47,6 +50,7 @@ import {
   collectDeviceMetadata,
   createClientValidationLog,
   getActiveValidationRunId,
+  loadValidationEvidence,
   type AttemptTraceFn,
   type ClientValidationLog,
 } from "@/lib/validationCapture";
@@ -109,13 +113,52 @@ function exposeForStaffExport(log: ClientValidationLog): void {
   }
 }
 
+/**
+ * Gives every attempt that was in flight during a page reload an explicit
+ * terminal stage. Only attempts whose request actually left the browser
+ * (`submission.started` with no later terminal stage) are marked — a capture
+ * that never finalised was abandoned, not interrupted, and stays
+ * `incomplete`. The mark is honest about what happened: `page-reloaded`,
+ * never a fabricated server outcome.
+ */
+function markReloadInterruptedAttempts(log: ClientValidationLog): void {
+  for (const attempt of log.attemptLifecycleSummary().attempts) {
+    if (attempt.outcome !== "incomplete") continue;
+    if (!attempt.stages.includes("submission.started")) continue;
+    log.recordAttemptLifecycle({
+      stage: "submission.failed",
+      path: attempt.path,
+      attemptId: attempt.attemptId,
+      details: { errorCode: "page-reloaded", willRetry: false },
+    });
+  }
+}
+
 function createWiring(): ClientValidationWiring {
   const runId = getActiveValidationRunId();
   if (!runId) {
     return { log: null, instrumentPlayback: undefined, instrumentLive: undefined, traceAttempt: undefined };
   }
-  const log = createClientValidationLog({ runId });
-  log.recordDeviceMetadata(collectDeviceMetadata());
+  // Restore before recording anything new: the log used to be in-memory
+  // only, so a page reload started a blank log and orphaned the server's
+  // correlation ids on the client side (run_e6872ef0aa84e7b7dc7ac447).
+  // Restoring is scoped to this runId — another run's evidence never loads.
+  const restored = loadValidationEvidence(runId);
+  const log = createClientValidationLog({
+    runId,
+    initialEvents: restored ?? undefined,
+    persist: true,
+  });
+  if (restored && restored.length > 0) {
+    // Attempts that reached the network but never got a terminal stage were
+    // in flight when the page went away. The server may hold a response the
+    // client never saw, so each gets an explicit terminal stage instead of
+    // silently staying "incomplete".
+    markReloadInterruptedAttempts(log);
+  } else {
+    log.recordDeviceMetadata(collectDeviceMetadata());
+  }
+  log.record("session.start", { resumed: restored !== null && restored.length > 0 });
   exposeForStaffExport(log);
 
   const instrumentPlayback = (kind: PlaybackInstrumentKind, details: Record<string, unknown>): void => {

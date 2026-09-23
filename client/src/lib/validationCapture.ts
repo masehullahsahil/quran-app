@@ -45,13 +45,53 @@ function safe<T>(fn: () => T, fallback: T): T {
   }
 }
 
-function parseBrowser(userAgent: string): { name: string | null; version: string | null } {
+/** One entry of `navigator.userAgentData.brands` (Chromium User-Agent Client Hints). */
+export type UserAgentDataBrand = { brand?: string; version?: string };
+
+/**
+ * Browser name/version detection.
+ *
+ * Chromium's User-Agent Client Hints (`navigator.userAgentData.brands`) are
+ * preferred when present: they are structured, so a UA string that merely
+ * *mentions* another browser cannot confuse them, and they survive UA-string
+ * reduction. The UA-string fallback is order-sensitive on purpose — an Opera
+ * UA contains "Chrome", so Opera must be matched first — and recognises the
+ * mobile tokens (CriOS/FxiOS/EdgiOS).
+ *
+ * Investigation note (run_e6872ef0aa84e7b7dc7ac447): the old parser was
+ * correct for standard UA strings — a "Firefox" result means the UA string
+ * genuinely contained "firefox/", i.e. the page really ran in Firefox (or a
+ * UA override was in effect). This change adds the client-hints source and
+ * fixes the real parser bugs (Opera-before-Chrome ordering, mobile tokens)
+ * rather than assuming the old output was wrong.
+ */
+export function parseBrowser(
+  userAgent: string,
+  userAgentDataBrands?: UserAgentDataBrand[] | null,
+): { name: string | null; version: string | null } {
+  if (Array.isArray(userAgentDataBrands)) {
+    const brandFor = (match: RegExp): UserAgentDataBrand | undefined =>
+      userAgentDataBrands.find(
+        (entry) => typeof entry?.brand === "string" && match.test(entry.brand),
+      );
+    // Order matters: Edge and Opera also ship a Chromium brand entry.
+    const edge = brandFor(/edge/i);
+    if (edge) return { name: "Edge", version: edge.version ?? null };
+    const opera = brandFor(/opera/i);
+    if (opera) return { name: "Opera", version: opera.version ?? null };
+    const firefox = brandFor(/firefox/i);
+    if (firefox) return { name: "Firefox", version: firefox.version ?? null };
+    const chrome = brandFor(/chrome/i);
+    if (chrome) return { name: "Chrome", version: chrome.version ?? null };
+    const safari = brandFor(/safari/i);
+    if (safari) return { name: "Safari", version: safari.version ?? null };
+  }
   const patterns: Array<[RegExp, string]> = [
-    [/(edg|edge)\/([\d.]+)/i, "Edge"],
-    [/(chrome|crios)\/([\d.]+)/i, "Chrome"],
-    [/firefox\/([\d.]+)/i, "Firefox"],
-    [/version\/([\d.]+).*safari/i, "Safari"],
+    [/(edg|edge|edgios)\/([\d.]+)/i, "Edge"],
     [/(opera|opr)\/([\d.]+)/i, "Opera"],
+    [/(chrome|crios)\/([\d.]+)/i, "Chrome"],
+    [/(firefox|fxios)\/([\d.]+)/i, "Firefox"],
+    [/version\/([\d.]+).*safari/i, "Safari"],
   ];
   for (const [pattern, name] of patterns) {
     const match = userAgent.match(pattern);
@@ -69,7 +109,12 @@ export function collectDeviceMetadata(interfaceLanguage?: string): DeviceMetadat
     () => {
       const nav = typeof navigator !== "undefined" ? navigator : undefined;
       const userAgent = nav?.userAgent ?? null;
-      const { name, version } = userAgent ? parseBrowser(userAgent) : { name: null, version: null };
+      const userAgentDataBrands = (
+        nav as unknown as { userAgentData?: { brands?: UserAgentDataBrand[] } } | undefined
+      )?.userAgentData?.brands;
+      const { name, version } = userAgent
+        ? parseBrowser(userAgent, userAgentDataBrands)
+        : { name: null, version: null };
       const connection = (nav as unknown as
         | { connection?: { effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean } }
         | undefined)?.connection;
@@ -164,6 +209,119 @@ export const VALIDATION_RUN_ID_STORAGE_KEY = "quran.validationRunId";
 /** Well-formed run IDs look like run_<24 hex chars> (see server validationRun.isRunId). */
 export function isValidationRunIdFormat(value: unknown): value is string {
   return typeof value === "string" && /^run_[0-9a-f]{24}$/.test(value);
+}
+
+/** sessionStorage key prefix for one run's persisted client evidence. */
+const EVIDENCE_STORAGE_KEY_PREFIX = "quran.validationEvidence.";
+/** Payload version for the persisted evidence envelope. */
+const EVIDENCE_STORAGE_VERSION = 1;
+
+function evidenceStorage(): Storage | null {
+  return safe(() => (typeof sessionStorage !== "undefined" ? sessionStorage : null), null);
+}
+
+function evidenceStorageKey(runId: string): string {
+  return `${EVIDENCE_STORAGE_KEY_PREFIX}${runId}`;
+}
+
+/**
+ * Structural check for a persisted event. Each event must carry this runId —
+ * a malformed entry or one restored under the wrong run is dropped rather
+ * than trusted, so a cross-run or hand-edited entry can never contaminate
+ * this run's evidence.
+ */
+function isRestorableValidationEvent(value: unknown, runId: string): value is ClientValidationEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const event = value as Record<string, unknown>;
+  return (
+    event["runId"] === runId &&
+    typeof event["seq"] === "number" &&
+    typeof event["t"] === "string" &&
+    typeof event["type"] === "string" &&
+    (event["attemptId"] === null || typeof event["attemptId"] === "string") &&
+    (event["correlationId"] === null || typeof event["correlationId"] === "string") &&
+    typeof event["details"] === "object" &&
+    event["details"] !== null
+  );
+}
+
+/**
+ * Persists a run's client evidence to sessionStorage, scoped by runId.
+ *
+ * This is what makes the evidence survive a page reload: the client log for
+ * run_e6872ef0aa84e7b7dc7ac447 was in-memory only, so reloading the page
+ * orphaned the server's correlation id on the client side. The scope is the
+ * runId — one run's evidence can never leak into another's.
+ *
+ * Best-effort and never throws: a quota error or a private-browsing block
+ * just means the in-memory log is the only copy.
+ */
+export function saveValidationEvidence(
+  runId: string,
+  events: readonly ClientValidationEvent[],
+): void {
+  const storage = evidenceStorage();
+  if (!storage || !isValidationRunIdFormat(runId)) return;
+  safe(() => {
+    storage.setItem(
+      evidenceStorageKey(runId),
+      JSON.stringify({
+        version: EVIDENCE_STORAGE_VERSION,
+        runId,
+        savedAt: new Date().toISOString(),
+        events: [...events],
+      }),
+    );
+  }, undefined);
+}
+
+/**
+ * Restores a run's persisted client evidence after a reload. Returns null
+ * when nothing usable was stored. Never throws.
+ */
+export function loadValidationEvidence(runId: string): ClientValidationEvent[] | null {
+  const storage = evidenceStorage();
+  if (!storage || !isValidationRunIdFormat(runId)) return null;
+  return safe(() => {
+    const raw = storage.getItem(evidenceStorageKey(runId));
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const payload = parsed as Record<string, unknown>;
+    if (payload["version"] !== EVIDENCE_STORAGE_VERSION || payload["runId"] !== runId) return null;
+    if (!Array.isArray(payload["events"])) return null;
+    const events = (payload["events"] as unknown[]).filter((entry) =>
+      isRestorableValidationEvent(entry, runId),
+    );
+    // Re-sort defensively by seq: a hand-edited entry must not reorder history.
+    events.sort((a, b) => a.seq - b.seq);
+    return events;
+  }, null);
+}
+
+/** Removes one run's persisted evidence. Never throws. */
+export function clearValidationEvidence(runId: string): void {
+  const storage = evidenceStorage();
+  if (!storage || !isValidationRunIdFormat(runId)) return;
+  safe(() => storage.removeItem(evidenceStorageKey(runId)), undefined);
+}
+
+/**
+ * Removes every run's persisted evidence. Call only on an explicit new-run
+ * boundary (the launcher's Create action) or after a run is finalized and
+ * its bundle exported — never on reload, navigation, or component mount.
+ */
+export function clearAllValidationEvidence(): void {
+  const storage = evidenceStorage();
+  if (!storage) return;
+  safe(() => {
+    const doomed: string[] = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key && key.startsWith(EVIDENCE_STORAGE_KEY_PREFIX)) doomed.push(key);
+    }
+    for (const key of doomed) storage.removeItem(key);
+  }, undefined);
 }
 
 /**
@@ -285,11 +443,36 @@ export type ClientValidationEvent = {
  * In-memory client event log for a validation run. The analysis step joins
  * this with the server ledger on runId/correlationId.
  */
-export function createClientValidationLog(opts: { runId: string; correlationId?: string | null }) {
+export function createClientValidationLog(opts: {
+  runId: string;
+  correlationId?: string | null;
+  /**
+   * Events restored from a previous page lifetime of the same run (see
+   * {@link loadValidationEvidence}). The log resumes where the reload left
+   * off instead of starting blank — the blank restart is what orphaned the
+   * server's correlation id in run_e6872ef0aa84e7b7dc7ac447.
+   */
+  initialEvents?: readonly ClientValidationEvent[];
+  /** When true, every recorded event is also persisted to sessionStorage. */
+  persist?: boolean;
+}) {
   const runId = opts.runId;
   const defaultCorrelationId = opts.correlationId ?? null;
+  const persist = opts.persist === true;
   let seq = 1;
   const events: ClientValidationEvent[] = [];
+  if (opts.initialEvents) {
+    for (const restored of opts.initialEvents) {
+      // Same-run only: a caller must never seed another run's evidence here.
+      if (restored.runId !== runId) continue;
+      events.push({ ...restored, details: { ...restored.details } });
+      if (restored.seq >= seq) seq = restored.seq + 1;
+    }
+  }
+
+  function persistNow(): void {
+    if (persist) saveValidationEvidence(runId, events);
+  }
 
   function record(
     type: ClientValidationEventType,
@@ -306,6 +489,7 @@ export function createClientValidationLog(opts: { runId: string; correlationId?:
       details,
     };
     events.push(event);
+    persistNow();
     return event;
   }
 

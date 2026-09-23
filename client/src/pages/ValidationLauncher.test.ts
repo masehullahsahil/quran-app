@@ -1,6 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
+import { LocaleProvider } from "@/contexts/LocaleContext";
 import {
   default as ValidationLauncher,
   classifyMicrophonePreflight,
@@ -32,7 +33,9 @@ const readyPreflight: LauncherPreflight = {
 
 describe("validation launcher readiness", () => {
   it("presents the guarded staff workflow before any run can start", () => {
-    const markup = renderToStaticMarkup(createElement(ValidationLauncher));
+    const markup = renderToStaticMarkup(
+      createElement(LocaleProvider, null, createElement(ValidationLauncher))
+    );
     expect(markup).toContain("Quran recitation validation launcher");
     expect(markup).toContain("Single-instance local server only");
     expect(markup).toContain("Test microphone");

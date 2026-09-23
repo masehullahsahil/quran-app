@@ -27,7 +27,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useTutorPlaybackOrchestrator, type TutorPlaybackInput } from "./useTutorPlaybackOrchestrator";
 import { useClientValidationWiring, type ClientValidationWiring } from "./useClientValidationWiring";
-import { createClientValidationLog, extractPlaybackIntervals } from "@/lib/validationCapture";
+import { createClientValidationLog, clearAllValidationEvidence, extractPlaybackIntervals } from "@/lib/validationCapture";
 import { HANDS_FREE_TIMING, type HandsFreePlan } from "@/lib/handsFreePlan";
 
 const RUN_ID = "run_aaaaaaaaaaaaaaaaaaaaaaaa";
@@ -129,6 +129,10 @@ beforeEach(() => {
   fakePlayBehavior = "start";
   (globalThis as { Audio?: unknown }).Audio = FakeAudio;
   localStorage.clear();
+  // Each test simulates a fresh browser profile: the persisted evidence from
+  // a previous test's run must not restore into this test's log. (In
+  // production the same-run restore is the point — see the reload test.)
+  clearAllValidationEvidence();
   delete (window as unknown as { __quranValidationLog?: unknown }).__quranValidationLog;
   setUrl("");
 });
@@ -281,6 +285,58 @@ describe("mic/listening resume is recorded", () => {
     expect(event).toMatchObject({ runId: RUN_ID, attemptId: "turn-9", correlationId: null });
     expect(event?.details).toEqual({ stage: "submission.skipped", path: "final", scope: "ayah", skipReason: "no-audio" });
     expect(wiring.log!.attemptLifecycleSummary().skipReasons.final).toEqual({ "no-audio": 1 });
+  });
+
+  it("survives a reload: same-run evidence restores and in-flight attempts are marked", async () => {
+    // The run_e6872ef0aa84e7b7dc7ac447 orphan: the log was in-memory only, so
+    // a reload wiped the client's attempt stages while the server kept its
+    // correlation id. The restored log must resume the same evidence, and an
+    // attempt whose request left the browser but never got a terminal stage
+    // gets an explicit page-reloaded mark — never a fabricated outcome.
+    setUrl(`?validation=1&validationRunId=${RUN_ID}`);
+    const before = await mountWiring();
+    before.traceAttempt?.({ stage: "capture.started", path: "final", attemptId: "turn-1" });
+    before.traceAttempt?.({ stage: "capture.finalized", path: "final", attemptId: "turn-1" });
+    before.traceAttempt?.({ stage: "submission.started", path: "final", attemptId: "turn-1" });
+    const preReloadCount = before.log!.events.length;
+    await act(async () => { root?.unmount(); });
+    root = null;
+
+    const after = await mountWiring();
+    const types = after.log!.events.map((event) => event.type);
+    expect(types).toContain("device.metadata");
+    expect(types.filter((type) => type === "session.start")).toHaveLength(2);
+    expect(after.log!.events.length).toBeGreaterThan(preReloadCount);
+
+    const summary = after.log!.attemptLifecycleSummary();
+    const attempt = summary.attempts.find((entry) => entry.attemptId === "turn-1");
+    expect(attempt?.outcome).toBe("failed");
+    const mark = after.log!.events.find(
+      (event) =>
+        event.type === "attempt.lifecycle" &&
+        event.details["stage"] === "submission.failed" &&
+        event.attemptId === "turn-1"
+    );
+    expect(mark?.details).toMatchObject({ errorCode: "page-reloaded", willRetry: false });
+    // Sequence numbers continue past the reload instead of restarting.
+    const seqs = after.log!.events.map((event) => event.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
+  });
+
+  it("does not mark a capture that never finalised as reload-interrupted", async () => {
+    setUrl(`?validation=1&validationRunId=${RUN_ID}`);
+    const before = await mountWiring();
+    before.traceAttempt?.({ stage: "capture.started", path: "final", attemptId: "turn-2" });
+    await act(async () => { root?.unmount(); });
+    root = null;
+
+    const after = await mountWiring();
+    const attempt = after.log!.attemptLifecycleSummary().attempts.find(
+      (entry) => entry.attemptId === "turn-2"
+    );
+    // Abandoned, not interrupted: the request never left the browser.
+    expect(attempt?.outcome).toBe("incomplete");
   });
 });
 

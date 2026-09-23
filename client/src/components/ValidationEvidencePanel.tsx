@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Download, FlaskConical } from "lucide-react";
 import {
+  clearValidationEvidence,
   getActiveValidationRunId,
   type AttemptLifecycleSummary,
   type ClientValidationLog,
@@ -68,6 +69,11 @@ export default function ValidationEvidencePanel() {
         `quran-validation-server-${activeRunId}${deactivate ? "-final" : ""}.json`,
         body
       );
+      if (deactivate) {
+        // Run finalized: the bundle is exported, so the persisted client
+        // evidence for this run is cleared. A new run starts clean.
+        clearValidationEvidence(activeRunId);
+      }
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -98,6 +104,9 @@ export default function ValidationEvidencePanel() {
         client: log.toJSON(),
         server,
       });
+      // Run finalized and its bundle exported: clear this run's persisted
+      // client evidence so the next run starts clean.
+      clearValidationEvidence(activeRunId);
     } catch (cause) {
       setError(
         cause instanceof Error
