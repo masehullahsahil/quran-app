@@ -7,7 +7,8 @@ import {
   Server,
   XCircle,
 } from "lucide-react";
-import { collectDeviceMetadata } from "@/lib/validationCapture";
+import { collectDeviceMetadata, clearAllValidationEvidence } from "@/lib/validationCapture";
+import { useLocale } from "@/contexts/LocaleContext";
 
 type ServiceState = "up" | "down" | "configured" | "not_configured";
 
@@ -160,6 +161,7 @@ function StatusIcon({ ok }: { ok: boolean }) {
 }
 
 export default function ValidationLauncher() {
+  const { t } = useLocale();
   const [health, setHealth] = useState<LauncherHealth | null>(null);
   const [preflight, setPreflight] = useState<LauncherPreflight | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
@@ -170,6 +172,11 @@ export default function ValidationLauncher() {
   const [creating, setCreating] = useState(false);
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // The browser name the page actually detected — every mic message names
+  // this instead of hardcoding "Chrome" (run_e6872ef0aa84e7b7dc7ac447's
+  // metadata said Firefox while the tester believed they were in Chrome).
+  const detectedBrowser = useMemo(() => collectDeviceMetadata().browserName, []);
 
   const readiness = useMemo(
     () => validationReadiness(health, preflight, microphone),
@@ -223,7 +230,7 @@ export default function ValidationLauncher() {
       const name =
         cause instanceof DOMException ? cause.name : "microphone-error";
       setError(
-        `Microphone preflight failed (${name}). Check Chrome and Windows microphone permissions.`
+        t("validation.micError", { name, browser: detectedBrowser ?? "this browser" })
       );
     } finally {
       setTestingMic(false);
@@ -264,6 +271,10 @@ export default function ValidationLauncher() {
       ) {
         throw new Error("Run activation returned an invalid run ID.");
       }
+      // Explicit new-run boundary: a new run starts with no carried-over
+      // client evidence. Stale events from a previous run must never be
+      // joined with this run's server ledger.
+      clearAllValidationEvidence();
       sessionStorage.setItem(
         `quran.validationMicPreflight.${body.runId}`,
         "passed"
@@ -389,10 +400,10 @@ export default function ValidationLauncher() {
               className={`mt-3 text-sm font-medium ${microphone.passed ? "text-emerald-700" : "text-red-700"}`}
             >
               {microphone.passed
-                ? "Passed: Chrome captured a real voice signal."
+                ? t("validation.micPassed", { browser: detectedBrowser ?? "this browser" })
                 : microphone.reason === "no-audio-data"
-                  ? "Failed: the recorder produced no usable audio data."
-                  : "Failed: audio was recorded, but the microphone signal was too quiet."}
+                  ? t("validation.micNoAudio")
+                  : t("validation.micTooQuiet")}
             </p>
           )}
         </section>
