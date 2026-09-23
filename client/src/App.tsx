@@ -8,6 +8,8 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import CurriculumAudit from "./pages/CurriculumAudit";
 import PronunciationLabeling from "./pages/PronunciationLabeling";
+import ValidationLauncher from "./pages/ValidationLauncher";
+import ValidationEvidencePanel from "./components/ValidationEvidencePanel";
 
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -19,7 +21,13 @@ function Router() {
       <Route path={"/curriculum-audit"} component={CurriculumAudit} />
       {/* Teacher labeling prototype for the future pronunciation dataset.
           Synthetic fixtures only — it collects and stores no audio. */}
-      <Route path={"/pronunciation-labeling"} component={PronunciationLabeling} />
+      <Route
+        path={"/pronunciation-labeling"}
+        component={PronunciationLabeling}
+      />
+      {/* Local, staff-only Wave 0 launcher. Its server API is absent unless
+          QURAN_VALIDATION_STAFF_API=1, so it cannot activate runs on Vercel. */}
+      <Route path={"/validation-launcher"} component={ValidationLauncher} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />
@@ -43,6 +51,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <Router />
+            <ValidationEvidencePanel />
           </TooltipProvider>
         </LocaleProvider>
       </ThemeProvider>

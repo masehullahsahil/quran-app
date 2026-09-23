@@ -35,6 +35,156 @@ import { logger } from "../_core/logger";
 
 export { isStaffValidationApiEnabled };
 
+export type PreflightState =
+  | "ready"
+  | "not_configured"
+  | "unauthorized"
+  | "model_unavailable"
+  | "not_ready"
+  | "unavailable";
+
+export type StaffValidationPreflight = {
+  staffApi: true;
+  serverMode: "single-instance";
+  transcription: { status: PreflightState; model: string };
+  evaluator: {
+    status: PreflightState;
+    shadowReady: boolean;
+    modelId: string | null;
+  };
+};
+
+export type StaffPreflightDeps = {
+  fetch: typeof fetch;
+};
+
+const PREFLIGHT_TIMEOUT_MS = 5_000;
+
+async function preflightTranscription(
+  env: NodeJS.ProcessEnv,
+  deps: StaffPreflightDeps
+) {
+  const apiKey = env.OPENAI_API_KEY?.trim();
+  const model =
+    env.OPENAI_TRANSCRIPTION_MODEL === "gpt-transcribe"
+      ? "gpt-transcribe"
+      : "whisper-1";
+  if (!apiKey) return { status: "not_configured" as const, model };
+  const base = (env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(
+    /\/+$/,
+    ""
+  );
+  try {
+    const response = await deps.fetch(
+      `${base}/models/${encodeURIComponent(model)}`,
+      {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${apiKey}`,
+          accept: "application/json",
+        },
+        signal: AbortSignal.timeout(PREFLIGHT_TIMEOUT_MS),
+      }
+    );
+    if (response.ok) return { status: "ready" as const, model };
+    if (response.status === 401 || response.status === 403)
+      return { status: "unauthorized" as const, model };
+    if (response.status === 404)
+      return { status: "model_unavailable" as const, model };
+    return { status: "unavailable" as const, model };
+  } catch {
+    return { status: "unavailable" as const, model };
+  }
+}
+
+async function preflightEvaluator(
+  env: NodeJS.ProcessEnv,
+  deps: StaffPreflightDeps
+) {
+  const base = env.QURAN_EVALUATOR_URL?.trim().replace(/\/+$/, "");
+  if (!base)
+    return {
+      status: "not_configured" as const,
+      shadowReady: false,
+      modelId: null,
+    };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    accept: "application/json",
+  };
+  const key = env.QURAN_EVALUATOR_API_KEY?.trim();
+  if (key) headers.authorization = `Bearer ${key}`;
+  try {
+    const [healthResponse, authResponse] = await Promise.all([
+      deps.fetch(`${base}/health`, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(PREFLIGHT_TIMEOUT_MS),
+      }),
+      // Deliberately invalid, payload-free request: 400 proves the bearer key
+      // passed auth without transmitting audio, Quran text, or learner data.
+      deps.fetch(`${base}/v1/evaluate`, {
+        method: "POST",
+        headers,
+        body: "{}",
+        signal: AbortSignal.timeout(PREFLIGHT_TIMEOUT_MS),
+      }),
+    ]);
+    if (authResponse.status === 401 || authResponse.status === 403) {
+      return {
+        status: "unauthorized" as const,
+        shadowReady: false,
+        modelId: null,
+      };
+    }
+    if (authResponse.status !== 400) {
+      return {
+        status: "unavailable" as const,
+        shadowReady: false,
+        modelId: null,
+      };
+    }
+    const health = healthResponse.ok
+      ? ((await healthResponse.json().catch(() => null)) as {
+          status?: unknown;
+          shadowReady?: unknown;
+          shadowModelId?: unknown;
+        } | null)
+      : null;
+    const shadowReady =
+      health?.status === "ready" && health.shadowReady === true;
+    return {
+      status: shadowReady ? ("ready" as const) : ("not_ready" as const),
+      shadowReady,
+      modelId:
+        typeof health?.shadowModelId === "string" ? health.shadowModelId : null,
+    };
+  } catch {
+    return {
+      status: "unavailable" as const,
+      shadowReady: false,
+      modelId: null,
+    };
+  }
+}
+
+/** Credential-aware, zero-audio checks used only by the local staff launcher. */
+export async function checkStaffValidationPreflight(
+  env: NodeJS.ProcessEnv = process.env,
+  deps: StaffPreflightDeps = { fetch }
+): Promise<StaffValidationPreflight> {
+  const [transcription, evaluator] = await Promise.all([
+    preflightTranscription(env, deps),
+    preflightEvaluator(env, deps),
+  ]);
+  return {
+    staffApi: true,
+    serverMode: "single-instance",
+    transcription,
+    evaluator,
+  };
+}
+
 function asDeviceMetadata(value: unknown): Record<string, unknown> {
   if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     return sanitizeDetails(value as Record<string, unknown>);
@@ -56,15 +206,25 @@ function malformedRunId(res: Response, runId: string): void {
  * Registers the staff validation-run endpoints on the app. No-op unless the
  * staff API is explicitly enabled via `QURAN_VALIDATION_STAFF_API=1`.
  */
-export function registerStaffValidationEndpoints(app: Express, env: NodeJS.ProcessEnv = process.env): void {
+export function registerStaffValidationEndpoints(
+  app: Express,
+  env: NodeJS.ProcessEnv = process.env,
+  deps: StaffPreflightDeps = { fetch }
+): void {
   if (!isStaffValidationApiEnabled(env)) return;
+
+  app.get("/api/validation/preflight", async (_req: Request, res: Response) => {
+    res.status(200).json(await checkStaffValidationPreflight(env, deps));
+  });
 
   // Activate (create) a validation run. The client then sends this runId back
   // on every live-tutor request via the x-validation-run-id header.
   app.post("/api/validation/runs", (req: Request, res: Response) => {
     try {
       const runId = createRunId();
-      const deviceMetadata = asDeviceMetadata((req.body as { deviceMetadata?: unknown } | undefined)?.deviceMetadata);
+      const deviceMetadata = asDeviceMetadata(
+        (req.body as { deviceMetadata?: unknown } | undefined)?.deviceMetadata
+      );
       const entry = activateValidationRun(runId, { deviceMetadata });
       logger.info({
         subsystem: "validation",
@@ -74,7 +234,9 @@ export function registerStaffValidationEndpoints(app: Express, env: NodeJS.Proce
         message: `staff activated validation run ${runId}`,
         details: {},
       });
-      res.status(201).json({ runId: entry.runId, activatedAt: entry.activatedAt });
+      res
+        .status(201)
+        .json({ runId: entry.runId, activatedAt: entry.activatedAt });
     } catch (error) {
       logger.error({
         subsystem: "validation",
@@ -86,51 +248,76 @@ export function registerStaffValidationEndpoints(app: Express, env: NodeJS.Proce
         details: {},
       });
       res.status(500).json({
-        error: { code: "INTERNAL_ERROR", message: "Could not activate validation run." },
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "Could not activate validation run.",
+        },
       });
     }
   });
 
   // Export the active run's ledger for offline joining with the client log
   // on runId + correlationId.
-  app.get("/api/validation/runs/:runId/ledger", (req: Request, res: Response) => {
-    const runId = req.params.runId;
-    if (!isRunId(runId)) {
-      malformedRunId(res, runId);
-      return;
+  app.get(
+    "/api/validation/runs/:runId/ledger",
+    (req: Request, res: Response) => {
+      const runId = req.params.runId;
+      if (!isRunId(runId)) {
+        malformedRunId(res, runId);
+        return;
+      }
+      const exported = exportValidationRun(runId);
+      if (!exported) {
+        res.status(404).json({
+          error: {
+            code: "NOT_FOUND",
+            message:
+              "No active validation run with that ID on this server instance.",
+            runId,
+          },
+        });
+        return;
+      }
+      res.status(200).json(exported);
     }
-    const exported = exportValidationRun(runId);
-    if (!exported) {
-      res.status(404).json({
-        error: { code: "NOT_FOUND", message: "No active validation run with that ID on this server instance.", runId },
-      });
-      return;
-    }
-    res.status(200).json(exported);
-  });
+  );
 
   // Deactivate a run and return its final ledger export in one step.
-  app.post("/api/validation/runs/:runId/deactivate", (req: Request, res: Response) => {
-    const runId = req.params.runId;
-    if (!isRunId(runId)) {
-      malformedRunId(res, runId);
-      return;
-    }
-    const entry = deactivateValidationRun(runId);
-    if (!entry) {
-      res.status(404).json({
-        error: { code: "NOT_FOUND", message: "No active validation run with that ID on this server instance.", runId },
+  app.post(
+    "/api/validation/runs/:runId/deactivate",
+    (req: Request, res: Response) => {
+      const runId = req.params.runId;
+      if (!isRunId(runId)) {
+        malformedRunId(res, runId);
+        return;
+      }
+      const entry = deactivateValidationRun(runId);
+      if (!entry) {
+        res.status(404).json({
+          error: {
+            code: "NOT_FOUND",
+            message:
+              "No active validation run with that ID on this server instance.",
+            runId,
+          },
+        });
+        return;
+      }
+      logger.info({
+        subsystem: "validation",
+        operation: "staff.deactivateRun",
+        requestId: req.requestId,
+        status: "ok",
+        message: `staff deactivated validation run ${runId}`,
+        details: {},
       });
-      return;
+      res
+        .status(200)
+        .json({
+          runId: entry.runId,
+          deactivated: true,
+          ledger: entry.ledger.toJSON(),
+        });
     }
-    logger.info({
-      subsystem: "validation",
-      operation: "staff.deactivateRun",
-      requestId: req.requestId,
-      status: "ok",
-      message: `staff deactivated validation run ${runId}`,
-      details: {},
-    });
-    res.status(200).json({ runId: entry.runId, deactivated: true, ledger: entry.ledger.toJSON() });
-  });
+  );
 }
