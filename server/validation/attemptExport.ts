@@ -21,6 +21,8 @@ export const ATTEMPT_EXPORT_SCHEMA = "quran.validation.attempts.v1" as const;
 
 export type AttemptVerdict =
   | "findings_reported"
+  /** Evaluator ran and reported zero findings — a clean run, not a non-run. */
+  | "no_findings"
   | "abstained"
   | "unavailable"
   | "not_run"
@@ -132,7 +134,9 @@ function verdictOf(
 ): AttemptVerdict {
   if (outcome === "failed") return "request_failed";
   if (!evaluatorCalled) return "not_run";
-  if (evaluatorStatus === "available" && (findingsCount ?? 0) > 0) return "findings_reported";
+  // A clean review is still a run: labeling it "not_run" corrupts the
+  // benchmark's control takes, which are expected to have zero findings.
+  if (evaluatorStatus === "available") return (findingsCount ?? 0) > 0 ? "findings_reported" : "no_findings";
   if (evaluatorStatus === "abstained") return "abstained";
   if (evaluatorStatus === "unavailable") return "unavailable";
   return "not_run";

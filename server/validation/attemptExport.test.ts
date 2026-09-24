@@ -168,6 +168,32 @@ describe("buildAttemptExport", () => {
     expect(rows[0]).toMatchObject({ errorCode: "TIMEOUT", ayahRef: null, muaalemStatus: "not_run" });
   });
 
+  it("labels a clean evaluator run 'no_findings' instead of 'not_run' (Codex P1)", () => {
+    const runId = createRunId();
+    const run = activateValidationRun(runId);
+    observeLiveRouterResult(
+      run,
+      "recitation.ingestLiveAudio",
+      {
+        acknowledgement: { status: "applied", turnId: "turn-9", chunkId: "turn-9:1", sequence: 3 },
+        stream: { streamId: "s-1", tracker: { surah: 1, ayah: 3, expectedWordIndex: 1 } },
+        recognitionStatus: "transcribed",
+        recitation: {
+          attemptScope: "ayah",
+          verseFollowing: { reason: "ayah_complete", shouldAdvance: true, currentSurah: 1, currentAyah: 3, expectedWordIndex: 1 },
+        },
+        outcome: "accepted",
+      },
+      {
+        correlationId: "req_clean12345",
+        attemptId: "turn-clean-1",
+        acoustic: { ...muaalem, evaluatorStatus: "available", findingsCount: 0, abstentionReason: null },
+      },
+    );
+    const [row] = buildAttemptExport(exportValidationRun(runId))!.attempts;
+    expect(row).toMatchObject({ evaluatorStatus: "available", findingsCount: 0, verdict: "no_findings" });
+  });
+
   it("scopes rows to one run: no cross-run leakage", () => {
     const runA = activateValidationRun(createRunId());
     const runB = activateValidationRun(createRunId());
