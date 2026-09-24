@@ -458,7 +458,9 @@ export function createClientValidationLog(opts: {
 }) {
   const runId = opts.runId;
   const defaultCorrelationId = opts.correlationId ?? null;
-  const persist = opts.persist === true;
+  // Mutable: finalizing a run must be able to switch persistence off, so a
+  // still-mounted log cannot write evidence back under a cleared run key.
+  let persist = opts.persist === true;
   let seq = 1;
   const events: ClientValidationEvent[] = [];
   if (opts.initialEvents) {
@@ -569,6 +571,18 @@ export function createClientValidationLog(opts: {
     },
     get events(): ClientValidationEvent[] {
       return [...events];
+    },
+    /**
+     * Disables sessionStorage persistence for the rest of this log's life.
+     * Called when the run is finalized: the finalized run's stored evidence
+     * has been cleared, and the still-mounted log must not write the whole
+     * in-memory log back under the same key if instrumentation fires
+     * afterwards (e.g. a playback-ended event) — a reload would otherwise
+     * resurrect evidence for a server-deactivated run. The log keeps
+     * recording in memory; only the storage write stops.
+     */
+    stopPersisting(): void {
+      persist = false;
     },
     toJSON() {
       return {

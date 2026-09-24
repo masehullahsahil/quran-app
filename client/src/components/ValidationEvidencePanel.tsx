@@ -105,8 +105,13 @@ export default function ValidationEvidencePanel() {
         server,
       });
       // Run finalized and its bundle exported: clear this run's persisted
-      // client evidence so the next run starts clean.
+      // client evidence so the next run starts clean. The log stays mounted,
+      // so its persistence must stop too: any instrumentation that fires
+      // after Finish (e.g. a playback-ended event) would otherwise write the
+      // whole in-memory log back under the same key, and a reload would
+      // resurrect a finalized run.
       clearValidationEvidence(activeRunId);
+      log.stopPersisting();
     } catch (cause) {
       setError(
         cause instanceof Error
