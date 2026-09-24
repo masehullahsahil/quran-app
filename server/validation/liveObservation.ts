@@ -161,6 +161,10 @@ export type ValidationAttemptScope = {
   attemptId: string;
   correlationId: string | null;
   acoustic: QuranEvaluatorDiagnostics | null;
+  /** When the observed request entered the procedure (ISO). */
+  startedAt: string;
+  /** When the evaluator's aggregate diagnostics arrived (ISO), or null. */
+  evidenceReadyAt: string | null;
 };
 
 /** Client turn/chunk IDs are accepted as attempt IDs only if token-shaped. */
@@ -189,7 +193,18 @@ export function createValidationAttemptScope(
     attemptId: validationAttemptIdFor(path, rawInput),
     correlationId: correlationIdFromCtx(ctx),
     acoustic: null,
+    startedAt: new Date().toISOString(),
+    evidenceReadyAt: null,
   };
+}
+
+/** Stores the evaluator's aggregate diagnostics on the scope, stamped with arrival time. */
+export function recordAttemptAcoustic(
+  scope: ValidationAttemptScope,
+  diagnostics: QuranEvaluatorDiagnostics,
+): void {
+  scope.acoustic = diagnostics;
+  scope.evidenceReadyAt = new Date().toISOString();
 }
 
 /** Recorded when a finalized attempt never reached the acoustic evaluator. */
@@ -206,6 +221,11 @@ export const ACOUSTIC_NOT_RUN: Readonly<QuranEvaluatorDiagnostics> = Object.free
   shadowPhonemeTokens: 0,
   shadowAveragePosterior: null,
   shadowLatencyMs: null,
+  evaluatedSurah: null,
+  evaluatedAyah: null,
+  alignmentConfidence: null,
+  findingsCount: 0,
+  abstentionReason: null,
 });
 
 /**
@@ -229,6 +249,11 @@ export function acousticAttemptDetails(
     shadowPhonemeTokens: asNumber(d.shadowPhonemeTokens) ?? 0,
     shadowAveragePosterior: asNumber(d.shadowAveragePosterior),
     shadowLatencyMs: asNumber(d.shadowLatencyMs),
+    evaluatedSurah: asNumber(d.evaluatedSurah),
+    evaluatedAyah: asNumber(d.evaluatedAyah),
+    alignmentConfidence: asNumber(d.alignmentConfidence),
+    findingsCount: asNumber(d.findingsCount) ?? 0,
+    abstentionReason: d.abstentionReason === "insufficient_reliable_evidence" ? d.abstentionReason : null,
   };
 }
 
@@ -244,6 +269,8 @@ export type AttemptDecisionDetails = {
   tutorOutcome: string | null;
   tutorActionKind: string | null;
   tutorActionReason: string | null;
+  /** Server-held position after this attempt (verse following output), numbers only. */
+  positionAfter: { surah: number; ayah: number; wordIndex: number } | null;
 };
 
 /** Identifier-shaped strings only: an enum value or model ID, never prose. */
@@ -260,6 +287,9 @@ export function attemptDecisionDetails(
   const verseFollowing = asRecord(recitation?.verseFollowing);
   const action = asRecord(asRecord(outer?.tutor)?.action);
   const shouldAdvance = verseFollowing?.shouldAdvance;
+  const surah = asNumber(verseFollowing?.currentSurah);
+  const ayah = asNumber(verseFollowing?.currentAyah);
+  const wordIndex = asNumber(verseFollowing?.expectedWordIndex);
   return {
     verseFollowingReason: safeToken(verseFollowing?.reason),
     verseFollowingState: safeToken(verseFollowing?.state),
@@ -271,6 +301,7 @@ export function attemptDecisionDetails(
     tutorOutcome: safeToken(outer?.outcome),
     tutorActionKind: safeToken(action?.kind),
     tutorActionReason: safeToken(action?.reason),
+    positionAfter: surah !== null && ayah !== null && wordIndex !== null ? { surah, ayah, wordIndex } : null,
   };
 }
 
@@ -345,7 +376,16 @@ export type ObserveOptions = {
   attemptId?: string | null;
   /** Aggregate acoustic diagnostics collected during the request. */
   acoustic?: QuranEvaluatorDiagnostics | null;
+  /** When the request entered the procedure (ISO). */
+  startedAt?: string | null;
+  /** When the evaluator diagnostics arrived (ISO). */
+  evidenceReadyAt?: string | null;
 };
+
+/** Attempt timestamps recorded on terminal events; ISO strings or null. */
+function attemptTiming(opts: ObserveOptions): { startedAt: string | null; evidenceReadyAt: string | null } {
+  return { startedAt: opts.startedAt ?? null, evidenceReadyAt: opts.evidenceReadyAt ?? null };
+}
 
 function recordOptions(opts: ObserveOptions) {
   return { correlationId: opts.correlationId ?? null, attemptId: opts.attemptId ?? null };
@@ -460,6 +500,7 @@ function observeIngestLiveAudio(run: ActiveValidationRun, result: unknown, opts:
         acousticStatus: asString(asRecord(recitation.quranAwareReview)?.status),
         decision: attemptDecisionDetails(recitation, response),
         acoustic: acousticAttemptDetails(opts.acoustic),
+        timing: attemptTiming(opts),
         ...ackContext,
       },
       recordOptions(opts),
@@ -544,6 +585,7 @@ export function observeFinalRecitationResult(
         tutorStatus: asString(tutor?.status),
         decision: attemptDecisionDetails(recitation, outer),
         acoustic: acousticAttemptDetails(opts.acoustic),
+        timing: attemptTiming(opts),
       },
       recordOptions(opts),
     );
@@ -569,6 +611,7 @@ export function observeFinalRecitationFailure(
         outcome: "failed",
         errorCode: safeToken(code) ?? "UNKNOWN",
         acoustic: acousticAttemptDetails(opts.acoustic),
+        timing: attemptTiming(opts),
       },
       recordOptions(opts),
     );

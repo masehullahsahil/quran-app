@@ -60,7 +60,22 @@ export type QuranEvaluatorDiagnostics = {
   shadowPhonemeTokens: number;
   shadowAveragePosterior: number | null;
   shadowLatencyMs: number | null;
+  /** The ayah sent to the evaluator (numbers only), or null when not called. */
+  evaluatedSurah: number | null;
+  evaluatedAyah: number | null;
+  /** The service's `measurements.alignmentConfidence` (0..1), when reported. */
+  alignmentConfidence: number | null;
+  /** Findings the app accepted after its own confidence gate (a count). */
+  findingsCount: number;
+  /**
+   * Why the evaluator declined to diagnose. Mirrors the RunPod
+   * `quran_acoustic_evaluation` log: an abstained review is
+   * `insufficient_reliable_evidence`; every other status is null.
+   */
+  abstentionReason: EvaluatorAbstentionReason | null;
 };
+
+export type EvaluatorAbstentionReason = "insufficient_reliable_evidence";
 
 export type QuranEvaluatorCallOptions = {
   /** The app request's correlation ID, forwarded as `x-correlation-id`. */
@@ -136,6 +151,13 @@ export function parseShadowDiagnostics(value: unknown): Pick<
     shadowAveragePosterior: boundedConfidence(shadow.averagePosterior),
     shadowLatencyMs: boundedLatency(shadow.latencyMs),
   };
+}
+
+/** Reads only the scalar `measurements.alignmentConfidence`; never word timings. */
+export function parseAlignmentConfidence(value: unknown): number | null {
+  return isRecord(value) && isRecord(value.measurements)
+    ? boundedConfidence(value.measurements.alignmentConfidence)
+    : null;
 }
 
 function parseFinding(value: unknown): QuranEvaluationFinding | null {
@@ -231,6 +253,11 @@ export async function evaluateQuranAwareAudio(
           primaryCorrectionsEnabled: ENV.quranEvaluatorPrimaryCorrections,
           ...parseShadowDiagnostics(call.body),
           ...(call.called ? {} : { shadowStatus: "not_run" as const }),
+          evaluatedSurah: call.called ? input.surah : null,
+          evaluatedAyah: call.called ? input.ayah : null,
+          alignmentConfidence: parseAlignmentConfidence(call.body),
+          findingsCount: review.findings.length,
+          abstentionReason: review.status === "abstained" ? "insufficient_reliable_evidence" : null,
         });
       } catch {
         // Diagnostics are observation only; never affect the review.

@@ -252,8 +252,10 @@ describe("final recitation observation", () => {
         tutorOutcome: null,
         tutorActionKind: null,
         tutorActionReason: null,
+        positionAfter: null,
       },
       acoustic: ACOUSTIC_NOT_RUN,
+      timing: { startedAt: null, evidenceReadyAt: null },
     });
     expect(JSON.stringify(events[0])).not.toContain("must not enter");
   });
@@ -284,6 +286,7 @@ describe("final recitation observation", () => {
       outcome: "failed",
       errorCode: "TOO_MANY_REQUESTS",
       acoustic: ACOUSTIC_NOT_RUN,
+      timing: { startedAt: null, evidenceReadyAt: null },
     });
     expect(JSON.stringify(events)).not.toContain("private details");
   });
@@ -325,6 +328,11 @@ describe("per-attempt Muaalem diagnostics", () => {
     shadowPhonemeTokens: 37,
     shadowAveragePosterior: 0.91,
     shadowLatencyMs: 812,
+    evaluatedSurah: 1,
+    evaluatedAyah: 2,
+    alignmentConfidence: 0.62,
+    findingsCount: 0,
+    abstentionReason: "insufficient_reliable_evidence" as const,
   };
 
   it("gives every finalized request a server attempt ID and live turns their turn ID", () => {
@@ -375,6 +383,7 @@ describe("per-attempt Muaalem diagnostics", () => {
       tutorOutcome: "correction_required",
       tutorActionKind: "ask-target-word",
       tutorActionReason: "missed-word",
+      positionAfter: null,
     });
 
     const exported = exportValidationRun(runId)!;
