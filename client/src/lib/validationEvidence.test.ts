@@ -214,6 +214,25 @@ describe("validation evidence persistence", () => {
       "submission.started",
     ]);
   });
+
+  it("does not resurrect a finalized run when instrumentation fires after finalize", () => {
+    installStorage(new MemoryStorage());
+    const log = createClientValidationLog({ runId: RUN_A, persist: true });
+    log.record("session.start", { resumed: false });
+    expect(loadValidationEvidence(RUN_A)).not.toBeNull();
+
+    // Finalize: the stored evidence is cleared and the still-mounted log
+    // stops persisting. Codex P2: without the stop, a playback-ended event
+    // firing after Finish writes the whole in-memory log back under the
+    // same key and a reload resurrects the finalized run.
+    clearValidationEvidence(RUN_A);
+    log.stopPersisting();
+
+    log.recordPlaybackEnded("qari");
+    expect(loadValidationEvidence(RUN_A)).toBeNull();
+    // The log itself keeps working in memory — only the storage write stops.
+    expect(log.events.map((event) => event.type)).toContain("playback.ended");
+  });
 });
 
 describe("parseBrowser", () => {
