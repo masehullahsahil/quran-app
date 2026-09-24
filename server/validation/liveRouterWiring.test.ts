@@ -545,6 +545,54 @@ describe("live router validation wiring", () => {
     }
   });
 
+  it("exports the finalized attempt as one benchmark row with evaluator evidence and timestamps", async () => {
+    vi.stubEnv("QURAN_EVALUATOR_URL", "https://evaluator.example.test");
+    vi.stubEnv("QURAN_EVALUATOR_PRIMARY_CORRECTIONS", "0");
+    stubServicesWithEvaluator([FATIHA[1]]);
+    const { appRouter, liveObservation, createRunId } = await setup();
+    const { buildAttemptExport } = await import("./attemptExport");
+    const runId = createRunId();
+    liveObservation.activateValidationRun(runId);
+    const result = await appRouter.createCaller(context({ runId, requestId: "req_export_row_1" })).recitation.evaluate({
+      expectedArabic: FATIHA[1],
+      audioBase64: audio(34),
+      mimeType: "audio/webm",
+      surah: 1,
+      ayah: 2,
+      totalAyahs: 7,
+      learningLevel: "qaida",
+      uiLanguage: "en",
+      attemptScope: "ayah",
+    });
+
+    const exported = buildAttemptExport(liveObservation.exportValidationRun(runId))!;
+    expect(exported.attempts).toHaveLength(1);
+    const [row] = exported.attempts;
+    expect(row).toMatchObject({
+      attemptId: result.validationAttemptId,
+      correlationId: "req_export_row_1",
+      route: "study",
+      ayahRef: "1:2",
+      position: {
+        surah: result.verseFollowing.currentSurah,
+        ayah: result.verseFollowing.currentAyah,
+        wordIndex: result.verseFollowing.expectedWordIndex,
+      },
+      muaalemStatus: "available",
+      muaalemRawPosterior: 0.85,
+      alignmentConfidence: 0.4,
+      findingsCount: 0,
+      abstentionReason: "insufficient_reliable_evidence",
+      verdict: "abstained",
+      primaryCorrectionsEnabled: false,
+    });
+    expect(Date.parse(row.startedAt!)).toBeLessThanOrEqual(Date.parse(row.evidenceReadyAt!));
+    expect(Date.parse(row.evidenceReadyAt!)).toBeLessThanOrEqual(Date.parse(row.completedAt!));
+    const serialized = JSON.stringify(exported);
+    expect(serialized).not.toMatch(/[\u0600-\u06FF]/);
+    expect(serialized).not.toContain(audio(34));
+  });
+
   it("keeps learner decisions identical whether or not the Muaalem shadow is running", async () => {
     const request = {
       expectedArabic: FATIHA[1],

@@ -208,6 +208,11 @@ describe("Quran-aware evaluator adapter", () => {
         shadowPhonemeTokens: 37,
         shadowAveragePosterior: 0.9,
         shadowLatencyMs: 700,
+        evaluatedSurah: 1,
+        evaluatedAyah: 1,
+        alignmentConfidence: 0.4,
+        findingsCount: 0,
+        abstentionReason: "insufficient_reliable_evidence",
       });
       expect(typeof diagnostics.evaluatorLatencyMs).toBe("number");
       expect(JSON.stringify(diagnostics)).not.toMatch(/[\u0600-\u06FF]/);
@@ -218,7 +223,15 @@ describe("Quran-aware evaluator adapter", () => {
       let { evaluateQuranAwareAudio } = await import("./quranEvaluator");
       const notConfigured = vi.fn();
       await evaluateQuranAwareAudio(evaluatorInput, { onDiagnostics: notConfigured });
-      expect(notConfigured.mock.calls[0][0]).toMatchObject({ evaluatorCalled: false, shadowStatus: "not_run" });
+      expect(notConfigured.mock.calls[0][0]).toMatchObject({
+      evaluatorCalled: false,
+      shadowStatus: "not_run",
+      evaluatedSurah: null,
+      evaluatedAyah: null,
+      alignmentConfidence: null,
+      findingsCount: 0,
+      abstentionReason: null,
+    });
 
       vi.resetModules();
       vi.stubEnv("QURAN_EVALUATOR_URL", "https://quran-evaluator.example.test");

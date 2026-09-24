@@ -69,6 +69,7 @@ import {
   observeFinalRecitationFailure,
   observeFinalRecitationResult,
   observeLiveRouterResult,
+  recordAttemptAcoustic,
   type ValidationAttemptScope,
 } from "./validation/liveObservation";
 import type {
@@ -503,6 +504,8 @@ const observedLiveProcedure = publicProcedure.use(async ({ ctx, path, next, getR
       correlationId: validationAttempt.correlationId,
       attemptId: validationAttempt.attemptId,
       acoustic: validationAttempt.acoustic,
+      startedAt: validationAttempt.startedAt,
+      evidenceReadyAt: validationAttempt.evidenceReadyAt,
     });
   }
   return result;
@@ -522,6 +525,8 @@ const observedFinalRecitationProcedure = publicProcedure.use(async ({ ctx, path,
     correlationId: validationAttempt.correlationId,
     attemptId: validationAttempt.attemptId,
     acoustic: validationAttempt.acoustic,
+    startedAt: validationAttempt.startedAt,
+    evidenceReadyAt: validationAttempt.evidenceReadyAt,
   };
   if (result.ok) observeFinalRecitationResult(run, path, result.data, observeOptions);
   else observeFinalRecitationFailure(run, path, result.error, observeOptions);
@@ -750,7 +755,7 @@ export const appRouter = router({
             correlationId: ctx.requestId ?? null,
             onDiagnostics: ctx.validationAttempt
               ? (diagnostics) => {
-                  if (ctx.validationAttempt) ctx.validationAttempt.acoustic = diagnostics;
+                  if (ctx.validationAttempt) recordAttemptAcoustic(ctx.validationAttempt, diagnostics);
                 }
               : undefined,
           })

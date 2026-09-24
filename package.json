@@ -23,6 +23,7 @@
     "db:verify-learner-persistence": "tsx scripts/verify-learner-persistence-db.ts",
     "verify:production-readiness": "node scripts/verify-production-readiness.mjs",
     "validate:real-recitation": "tsx scripts/validate-real-recitation.ts",
+    "export:validation-attempts": "tsx scripts/export-validation-attempts.ts",
     "benchmark:acoustic": "tsx scripts/acoustic-benchmark.ts",
     "benchmark:muaalem-shadow": "node --import tsx scripts/muaalem-shadow-benchmark.ts",
     "acoustic:dev": "tsx watch services/quran-acoustic-evaluator/index.ts",

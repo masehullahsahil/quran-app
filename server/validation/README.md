@@ -148,6 +148,34 @@ Each finalized attempt (`attempt.completed` for Study/Tutor, the new
 attempt), and the markdown report renders them as a table. The staff
 evidence panel's server-ledger download and final bundle include them.
 
+Each finalized attempt's `acoustic` block also records `evaluatedSurah` /
+`evaluatedAyah` (the ayah sent to the evaluator), `alignmentConfidence`
+(the service's scalar `measurements.alignmentConfidence`), `findingsCount`
+(findings the app accepted after its own confidence gate) and
+`abstentionReason` (`insufficient_reliable_evidence` when the review
+abstained, matching the RunPod log). `decision.positionAfter` is the
+server-held `{surah, ayah, wordIndex}` after the attempt, and `timing`
+records `startedAt` / `evidenceReadyAt` (when the evaluator diagnostics
+arrived).
+
+### Per-attempt benchmark export
+
+`attemptExport.ts` projects one run's ledger into flat rows (schema
+`quran.validation.attempts.v1`), one per finalized attempt, with a strict
+allowlist: numbers, enums, token-shaped IDs and ISO timestamps only. Only
+events stamped with the ledger's own run ID are exported.
+
+- Live run (staff API on): `GET /api/validation/runs/:runId/attempts`.
+- Finished run ("Finish & download bundle" deactivates the run, so the
+  endpoint then returns 404):
+  `pnpm export:validation-attempts quran-validation-bundle-run_….json`
+  (also accepts the `-final` server file or a raw `/ledger` export).
+
+`verdict` is the acoustic evaluator's own verdict (`findings_reported`,
+`abstained`, `unavailable`, `not_run`, `request_failed`), never a
+pronunciation claim: the evaluator abstains rather than confirm a correct
+recitation.
+
 These diagnostics are collected only during an active staff validation run,
 travel from the evaluator adapter to the ledger through the tRPC context
 (never the response), and are copied field-by-field: decoded phoneme tokens,

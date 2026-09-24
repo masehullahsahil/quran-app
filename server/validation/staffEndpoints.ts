@@ -31,6 +31,7 @@ import {
   isStaffValidationApiEnabled,
 } from "./liveObservation";
 import { createRunId, isRunId, sanitizeDetails } from "./validationRun";
+import { buildAttemptExport } from "./attemptExport";
 import { logger } from "../_core/logger";
 
 export { isStaffValidationApiEnabled };
@@ -279,6 +280,34 @@ export function registerStaffValidationEndpoints(
         return;
       }
       res.status(200).json(exported);
+    }
+  );
+
+  // Per-attempt Muaalem shadow export for the correctness benchmark: one flat
+  // row per finalized attempt of this run only. Numbers, enums, IDs and
+  // timestamps only (see attemptExport.ts). Read-only.
+  app.get(
+    "/api/validation/runs/:runId/attempts",
+    (req: Request, res: Response) => {
+      const runId = req.params.runId;
+      if (!isRunId(runId)) {
+        malformedRunId(res, runId);
+        return;
+      }
+      const exported = exportValidationRun(runId);
+      const attempts = exported ? buildAttemptExport(exported) : null;
+      if (!attempts) {
+        res.status(404).json({
+          error: {
+            code: "NOT_FOUND",
+            message:
+              "No active validation run with that ID on this server instance.",
+            runId,
+          },
+        });
+        return;
+      }
+      res.status(200).json(attempts);
     }
   );
 
