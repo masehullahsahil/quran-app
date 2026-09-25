@@ -198,13 +198,17 @@ export function createValidationAttemptScope(
   };
 }
 
-/** Stores the evaluator's aggregate diagnostics on the scope, stamped with arrival time. */
+/** Stores the evaluator's aggregate diagnostics on the scope. */
 export function recordAttemptAcoustic(
   scope: ValidationAttemptScope,
   diagnostics: QuranEvaluatorDiagnostics,
 ): void {
   scope.acoustic = diagnostics;
-  scope.evidenceReadyAt = new Date().toISOString();
+  // Null-when-not-called semantics: when the evaluator never ran (e.g.
+  // QURAN_EVALUATOR_URL unset), the attempt must not report an
+  // evidence-arrival time — a timestamp here would imply acoustic evidence
+  // was produced.
+  scope.evidenceReadyAt = diagnostics.evaluatorCalled ? new Date().toISOString() : null;
 }
 
 /** Recorded when a finalized attempt never reached the acoustic evaluator. */

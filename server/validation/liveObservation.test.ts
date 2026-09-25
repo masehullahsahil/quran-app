@@ -4,6 +4,7 @@ import {
   activateValidationRun,
   activeValidationRunFromCtx,
   correlationIdFromCtx,
+  createValidationAttemptScope,
   deactivateValidationRun,
   exportValidationRun,
   getActiveValidationRun,
@@ -11,6 +12,7 @@ import {
   observeFinalRecitationResult,
   observeLiveRouterResult,
   playbackDirectiveOf,
+  recordAttemptAcoustic,
   resetValidationRunsForTests,
   VALIDATION_RUN_HEADER,
   validationAttemptIdFor,
@@ -467,5 +469,21 @@ describe("per-attempt Muaalem diagnostics", () => {
       decision: { verseFollowingReason: "ayah_complete", shouldAdvance: true, tutorOutcome: "accepted" },
       acoustic: { shadowStatus: "available", shadowPhonemeTokens: 37 },
     });
+  });
+});
+
+describe("recordAttemptAcoustic", () => {
+  it("stamps evidenceReadyAt only when the evaluator actually ran (Codex P2)", () => {
+    const notRunScope = createValidationAttemptScope(ctxWith({}), "recitation.evaluateWithTutor", {});
+    recordAttemptAcoustic(notRunScope, ACOUSTIC_NOT_RUN);
+    // QURAN_EVALUATOR_URL unset: the attempt must not report an
+    // evidence-arrival time, or timing data would imply acoustic evidence
+    // was produced.
+    expect(notRunScope.evidenceReadyAt).toBeNull();
+    expect(notRunScope.acoustic).toBe(ACOUSTIC_NOT_RUN);
+
+    const ranScope = createValidationAttemptScope(ctxWith({}), "recitation.evaluateWithTutor", {});
+    recordAttemptAcoustic(ranScope, { ...ACOUSTIC_NOT_RUN, evaluatorCalled: true });
+    expect(ranScope.evidenceReadyAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
   });
 });
