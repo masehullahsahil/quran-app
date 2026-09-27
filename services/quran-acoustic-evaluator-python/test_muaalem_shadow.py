@@ -27,6 +27,23 @@ class MuaalemShadowDecodingTest(unittest.TestCase):
         self.assertEqual(decoded["tokens"], ["ق", "ك"])
         self.assertAlmostEqual(decoded["meanPosterior"], 0.7)
 
+    def test_decoding_reports_token_posteriors_parallel_to_tokens(self) -> None:
+        decoded = decode_level(
+            [0, 1, 1, 0, 2, 2, 0],
+            [0.9, 0.6, 0.8, 0.7, 0.4, 0.95, 0.8],
+            {1: "ك", 2: "ل"},
+        )
+        self.assertEqual(decoded["tokens"], ["ك", "ل"])
+        self.assertEqual(decoded["tokenPosteriors"], [0.8, 0.95])
+        self.assertEqual(len(decoded["tokenPosteriors"]), len(decoded["tokens"]))
+        self.assertAlmostEqual(decoded["meanPosterior"], 0.875)
+
+    def test_empty_decoding_has_empty_token_posteriors(self) -> None:
+        decoded = decode_level([0, 0], [0.9, 0.9], {})
+        self.assertEqual(decoded["tokens"], [])
+        self.assertEqual(decoded["tokenPosteriors"], [])
+        self.assertEqual(decoded["meanPosterior"], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()
