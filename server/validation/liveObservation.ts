@@ -20,6 +20,7 @@
  */
 import type { TrpcContext } from "../_core/context";
 import type { QuranEvaluatorDiagnostics } from "../quranEvaluator";
+import { parsePhonemeRetention, type ResearchConsent } from "./researchPhonemes";
 import {
   ValidationLedger,
   captureBuildInfo,
@@ -50,6 +51,7 @@ export type ActiveValidationRun = {
   runId: string;
   ledger: ValidationLedger;
   activatedAt: string;
+  researchConsent?: ResearchConsent;
 };
 
 const activeRuns = new Map<string, ActiveValidationRun>();
@@ -63,21 +65,25 @@ const activeRuns = new Map<string, ActiveValidationRun>();
  */
 export function activateValidationRun(
   runId: string,
-  opts: { deviceMetadata?: DeviceMetadata } = {},
+  opts: { deviceMetadata?: DeviceMetadata; phonemeRetention?: unknown } = {},
 ): ActiveValidationRun {
   if (!isRunId(runId)) {
     throw new Error(`activateValidationRun: refusing malformed run ID "${runId}"`);
   }
   const existing = activeRuns.get(runId);
   if (existing) return existing;
+  const researchConsent = opts.phonemeRetention === undefined
+    ? undefined : parsePhonemeRetention(opts.phonemeRetention);
   const entry: ActiveValidationRun = {
     runId,
     ledger: new ValidationLedger({
       runId,
       build: captureBuildInfo(),
       deviceMetadata: opts.deviceMetadata,
+      ...(researchConsent ? { researchConsent } : {}),
     }),
     activatedAt: new Date().toISOString(),
+    ...(researchConsent ? { researchConsent } : {}),
   };
   activeRuns.set(runId, entry);
   entry.ledger.record("session.start", { source: "server", origin: "run-activated" });
@@ -158,6 +164,8 @@ export function correlationIdFromCtx(ctx: TrpcContext): string | null {
  * run, so ordinary requests never collect anything.
  */
 export type ValidationAttemptScope = {
+  /** Captured from the staff-activated run; never accepted from learner input. */
+  researchConsent?: ResearchConsent;
   attemptId: string;
   correlationId: string | null;
   acoustic: QuranEvaluatorDiagnostics | null;
@@ -189,7 +197,9 @@ export function createValidationAttemptScope(
   path: string,
   rawInput: unknown,
 ): ValidationAttemptScope {
+  const researchConsent = activeValidationRunFromCtx(ctx)?.researchConsent;
   return {
+    ...(researchConsent ? { researchConsent } : {}),
     attemptId: validationAttemptIdFor(path, rawInput),
     correlationId: correlationIdFromCtx(ctx),
     acoustic: null,

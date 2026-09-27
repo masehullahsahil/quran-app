@@ -753,6 +753,9 @@ export const appRouter = router({
             // request. Diagnostics are collected only inside an active staff
             // validation run and never enter the response.
             correlationId: ctx.requestId ?? null,
+            ...(ctx.validationAttempt?.researchConsent
+              ? { researchConsent: ctx.validationAttempt.researchConsent }
+              : {}),
             onDiagnostics: ctx.validationAttempt
               ? (diagnostics) => {
                   if (ctx.validationAttempt) recordAttemptAcoustic(ctx.validationAttempt, diagnostics);

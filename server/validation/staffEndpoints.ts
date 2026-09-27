@@ -20,7 +20,9 @@
  * Vercel serverless deployments for plan-grade evidence.
  *
  * Safety: request/response payloads carry no audio, no transcripts, no Quran
- * text, no secrets, and no PII. Device metadata is passed through the
+ * text, no secrets, and no PII. The explicitly consented research export is
+ * the sole exception for decoded phoneme tokens, for offline scoring only.
+ * Device metadata is passed through the
  * ledger's sanitizer before storage.
  */
 import type { Express, Request, Response } from "express";
@@ -32,6 +34,7 @@ import {
 } from "./liveObservation";
 import { createRunId, isRunId, sanitizeDetails } from "./validationRun";
 import { buildAttemptExport } from "./attemptExport";
+import { joinResearchPhonemes, parsePhonemeRetention } from "./researchPhonemes";
 import { logger } from "../_core/logger";
 
 export { isStaffValidationApiEnabled };
@@ -221,12 +224,30 @@ export function registerStaffValidationEndpoints(
   // Activate (create) a validation run. The client then sends this runId back
   // on every live-tutor request via the x-validation-run-id header.
   app.post("/api/validation/runs", (req: Request, res: Response) => {
+    const optIn = (req.body as { phonemeRetention?: unknown } | undefined)
+      ?.phonemeRetention;
+    if (optIn !== undefined) {
+      try {
+        parsePhonemeRetention(optIn);
+      } catch {
+        res.status(400).json({
+          error: {
+            code: "BAD_REQUEST",
+            message: "phonemeRetention requires a non-empty purpose and an ISO retainUntil in the next 90 days.",
+          },
+        });
+        return;
+      }
+    }
     try {
       const runId = createRunId();
       const deviceMetadata = asDeviceMetadata(
         (req.body as { deviceMetadata?: unknown } | undefined)?.deviceMetadata
       );
-      const entry = activateValidationRun(runId, { deviceMetadata });
+      const entry = activateValidationRun(runId, {
+        deviceMetadata,
+        ...(optIn !== undefined ? { phonemeRetention: optIn } : {}),
+      });
       logger.info({
         subsystem: "validation",
         operation: "staff.activateRun",
@@ -237,7 +258,11 @@ export function registerStaffValidationEndpoints(
       });
       res
         .status(201)
-        .json({ runId: entry.runId, activatedAt: entry.activatedAt });
+        .json({
+          runId: entry.runId,
+          activatedAt: entry.activatedAt,
+          ...(entry.researchConsent ? { researchConsent: entry.researchConsent } : {}),
+        });
     } catch (error) {
       logger.error({
         subsystem: "validation",
@@ -285,10 +310,11 @@ export function registerStaffValidationEndpoints(
 
   // Per-attempt Muaalem shadow export for the correctness benchmark: one flat
   // row per finalized attempt of this run only. Numbers, enums, IDs and
-  // timestamps only (see attemptExport.ts). Read-only.
+  // timestamps by default (see attemptExport.ts). Retained research phonemes
+  // join over HTTP only here, never in learner responses. Read-only.
   app.get(
     "/api/validation/runs/:runId/attempts",
-    (req: Request, res: Response) => {
+    async (req: Request, res: Response) => {
       const runId = req.params.runId;
       if (!isRunId(runId)) {
         malformedRunId(res, runId);
@@ -307,7 +333,7 @@ export function registerStaffValidationEndpoints(
         });
         return;
       }
-      res.status(200).json(attempts);
+      res.status(200).json(await joinResearchPhonemes(attempts, env, deps));
     }
   );
 

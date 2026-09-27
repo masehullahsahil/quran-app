@@ -8,6 +8,7 @@ import type { LearningLevel } from "@shared/learningPath";
 import type { SupportedLanguageCode } from "@shared/languages";
 import { ENV } from "./_core/env";
 import { isSafeRequestId } from "./_core/requestId";
+import type { ResearchConsent } from "./validation/researchPhonemes";
 
 const MINIMUM_CONFIDENCE = 0.75;
 const MAX_FINDINGS = 3;
@@ -78,6 +79,8 @@ export type QuranEvaluatorDiagnostics = {
 export type EvaluatorAbstentionReason = "insufficient_reliable_evidence";
 
 export type QuranEvaluatorCallOptions = {
+  /** Staff-run opt-in only; never returned to the Tutor. */
+  researchConsent?: ResearchConsent;
   /** The app request's correlation ID, forwarded as `x-correlation-id`. */
   correlationId?: string | null;
   /** Receives aggregate diagnostics for the validation ledger. */
@@ -281,7 +284,9 @@ export async function evaluateQuranAwareAudio(
       method: "POST",
       headers,
       signal: AbortSignal.timeout(Math.min(Math.max(ENV.quranEvaluatorTimeoutMs, 1000), 20_000)),
-      body: JSON.stringify(input),
+      body: JSON.stringify(options.researchConsent
+        ? { ...input, researchConsent: options.researchConsent }
+        : input),
     });
 
     if (!response.ok) {

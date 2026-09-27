@@ -8,10 +8,16 @@
  *
  *   pnpm export:validation-attempts quran-validation-bundle-run_….json > attempts.json
  *
- * Output is JSON on stdout: numbers, enums, IDs and timestamps only.
+ * Output is JSON on stdout. With the staff gate and evaluator credentials,
+ * joins research-only retained phonemes over HTTP; misses omit the key.
  */
 import { readFile } from "node:fs/promises";
+import { config } from "dotenv";
 import { buildAttemptExport, ledgerFromSavedFile } from "../server/validation/attemptExport";
+import { joinResearchPhonemes } from "../server/validation/researchPhonemes";
+
+// Keep stdout exclusively JSON, including when a local .env file is loaded.
+config({ quiet: true, path: process.env.DOTENV_CONFIG_PATH });
 
 const file = process.argv[2];
 if (!file) {
@@ -23,4 +29,4 @@ if (!exported) {
   console.error("No validation ledger with a well-formed run ID found in that file.");
   process.exit(1);
 }
-process.stdout.write(`${JSON.stringify(exported, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify(await joinResearchPhonemes(exported), null, 2)}\n`);

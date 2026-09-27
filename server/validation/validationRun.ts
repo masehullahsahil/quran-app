@@ -18,6 +18,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ResearchConsent } from "./researchPhonemes";
 
 // ---------------------------------------------------------------------------
 // Run / attempt IDs
@@ -294,6 +295,7 @@ export class ValidationLedger {
   readonly runId: string;
   readonly build: BuildInfo;
   readonly deviceMetadata: DeviceMetadata;
+  readonly researchConsent?: ResearchConsent;
   readonly startedAt: string;
 
   private eventsList: ValidationEvent[] = [];
@@ -303,11 +305,13 @@ export class ValidationLedger {
     runId: string;
     build: BuildInfo;
     deviceMetadata?: DeviceMetadata;
+    researchConsent?: ResearchConsent;
     startedAt?: string;
   }) {
     this.runId = opts.runId;
     this.build = opts.build;
     this.deviceMetadata = sanitizeDetails(opts.deviceMetadata ?? {});
+    this.researchConsent = opts.researchConsent;
     this.startedAt = opts.startedAt ?? new Date().toISOString();
   }
 
@@ -454,6 +458,7 @@ export class ValidationLedger {
       runId: this.runId,
       build: this.build,
       deviceMetadata: this.deviceMetadata,
+      ...(this.researchConsent ? { researchConsent: this.researchConsent } : {}),
       startedAt: this.startedAt,
       exportedAt: new Date().toISOString(),
       eventCount: this.eventsList.length,
@@ -639,6 +644,7 @@ export type ValidationVerdict = {
 };
 
 export type ValidationLedgerExport = {
+  researchConsent?: ResearchConsent;
   runId: string;
   build: BuildInfo;
   deviceMetadata: DeviceMetadata;
