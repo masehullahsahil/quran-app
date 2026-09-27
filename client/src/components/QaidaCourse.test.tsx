@@ -19,7 +19,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { QaidaCourse } from "./QaidaCourse";
 import { LocaleProvider, useLocale } from "@/contexts/LocaleContext";
 import { emptyQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
-import { QAIDA_LESSONS } from "@shared/qaidaCurriculum";
+import { QAIDA_LESSONS, QAIDA_LEVELS } from "@shared/qaidaCurriculum";
 import { localizedExercise, localizedLesson } from "@shared/qaidaText";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
 import { letterAudioPath } from "@/lib/arabicLetters";
@@ -198,5 +198,24 @@ describe("a lesson step whose recording has not been made yet", () => {
     expect(firstLesson.stages).toContain("listen");
     expect(stages.join(" ")).toContain(en.strings["course.stageListen"]);
     expect(stages.join(" ")).toContain(en.strings["course.stageCheck"]);
+  });
+});
+
+describe("level titles carry their Arabic names", () => {
+  it("shows the Arabic level title in the topline and the current level chip", async () => {
+    await mount("en");
+    const arabicTitle = QAIDA_LEVELS[0].arabicTitle; // "الحروف" — data, not translation
+    expect(arabicTitle).toBeTruthy();
+    const topline = container.querySelector(".course-topline h3");
+    expect(topline?.textContent).toContain(arabicTitle);
+    const chip = container.querySelector(".course-level.is-current strong");
+    expect(chip?.textContent).toContain(arabicTitle);
+    // Marked as Arabic so assistive tech pronounces it correctly.
+    expect(container.querySelector('.course-level-arabic[lang="ar"]')).not.toBeNull();
+  });
+
+  it("shows the Arabic title even when the UI language is not Arabic", async () => {
+    await mount("ps");
+    expect(text()).toContain(QAIDA_LEVELS[0].arabicTitle);
   });
 });

@@ -93,7 +93,7 @@ export function QaidaCourse({
       <div className="course-topline">
         <div>
           <span className="eyebrow">{t("course.eyebrow")}</span>
-          <h3>{t("course.levelLabel", { order: level?.order ?? 1, title: level?.title ?? "" })}</h3>
+          <h3>{t("course.levelLabel", { order: level?.order ?? 1, title: level?.title ?? "" })}{level?.arabicTitle ? <span className="course-level-arabic" lang="ar" dir="rtl">{level.arabicTitle}</span> : null}</h3>
           <p className="course-level-objective">{level?.objective}</p>
         </div>
         <span className="course-progress">
@@ -113,12 +113,12 @@ export function QaidaCourse({
             className={`course-level ${chip.isCurrent ? "is-current" : ""} ${chip.isDone ? "is-done" : ""} ${chip.target ? "" : "is-locked"}`}
             aria-selected={chip.isCurrent}
             disabled={!chip.target}
-            aria-label={`${t("course.levelLabel", { order: chip.level.order, title: chip.level.title })} — ${chip.target ? t("course.levelProgress", { done: chip.completed, total: chip.total }) : t("course.locked")}`}
+            aria-label={`${t("course.levelLabel", { order: chip.level.order, title: chip.level.title })} (${chip.level.arabicTitle}) — ${chip.target ? t("course.levelProgress", { done: chip.completed, total: chip.total }) : t("course.locked")}`}
             title={chip.target ? chip.level.objective : t("course.locked")}
             onClick={() => chip.target && goToLesson(chip.target)}
           >
             <span aria-hidden="true">{chip.isDone ? <Check size={12} /> : !chip.target ? <Lock size={12} /> : String(chip.level.order).padStart(2, "0")}</span>
-            {chip.isCurrent && <strong>{chip.level.title}</strong>}
+            {chip.isCurrent && <strong>{chip.level.title} <span className="course-level-arabic" lang="ar" dir="rtl">{chip.level.arabicTitle}</span></strong>}
           </button>
         ))}
       </div>
