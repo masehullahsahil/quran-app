@@ -125,20 +125,21 @@ function isRetryableNetworkError(error: unknown): boolean {
 
 export type TranscriptionError = {
   error: string;
-  code: "FILE_TOO_LARGE" | "INVALID_FORMAT" | "TRANSCRIPTION_FAILED" | "UPLOAD_FAILED" | "SERVICE_ERROR";
+  code: "FILE_TOO_LARGE" | "INVALID_FORMAT" | "TRANSCRIPTION_FAILED" | "UPLOAD_FAILED" | "SERVICE_ERROR" | "EMPTY_TRANSCRIPT";
   details?: string;
 };
 
 /**
  * Numeric-only summary of a failed transcription call.
  *
- * Several distinct failures (missing key, provider auth, rate limit, timeout,
- * bad audio, malformed provider answer) all collapse into the same
- * learner-facing "the speech service did not respond" message. This summary
- * carries the failure *class* — the error code and, when the provider
- * answered, its HTTP status — so server logs and the diagnostic
- * `reviewMessage` can name the class without ever carrying secrets, audio,
- * or transcripts.
+ * Provider-side failures (missing key, provider auth, rate limit, timeout,
+ * bad audio, malformed provider answer) collapse into the learner-facing
+ * "the speech service did not respond" message. An empty transcript is the
+ * deliberate exception: the provider answered, so the review names the
+ * "nothing usable came back" class instead. This summary carries the failure
+ * *class* — the error code and, when the provider answered, its HTTP status
+ * — so server logs and the diagnostic `reviewMessage` can name the class
+ * without ever carrying secrets, audio, or transcripts.
  */
 export type TranscriptionFailureSummary = {
   code: TranscriptionError["code"];
@@ -259,13 +260,31 @@ export async function transcribeAudio(
 
     // Step 5: Parse and return the transcription result
     const transcriptionResponse = await response.json() as TranscriptionResponse;
-    
-    // Validate response structure
-    if (!transcriptionResponse.text || typeof transcriptionResponse.text !== 'string') {
+
+    // Validate response structure. A missing or non-string `text` is a
+    // malformed provider answer. A string that is empty or whitespace-only is
+    // a different, honest failure class: the provider answered 200 but had
+    // nothing to say — silence captured, or speech it could not turn into
+    // text. Collapsing that into SERVICE_ERROR is what used to render "the
+    // speech service did not respond" for a service that responded fine.
+    if (typeof transcriptionResponse.text !== 'string') {
       return {
         error: "Invalid transcription response",
         code: "SERVICE_ERROR",
         details: "Transcription service returned an invalid response format"
+      };
+    }
+    if (!transcriptionResponse.text.trim()) {
+      const segmentCount = Array.isArray(transcriptionResponse.segments)
+        ? transcriptionResponse.segments.length
+        : 0;
+      const duration = typeof transcriptionResponse.duration === "number" && Number.isFinite(transcriptionResponse.duration)
+        ? transcriptionResponse.duration
+        : 0;
+      return {
+        error: "Transcription returned no text",
+        code: "EMPTY_TRANSCRIPT",
+        details: `segments=${segmentCount} durationSec=${duration}`
       };
     }
 

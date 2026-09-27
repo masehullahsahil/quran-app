@@ -11,6 +11,7 @@ import { describe, expect, it } from "vitest";
 import {
   attemptFailureLocaleKeys,
   classifyAttemptFailure,
+  classifyReviewRequestError,
   selectPlaceReasonKey,
   type AttemptFailureEvidence,
 } from "./attemptFailureMessage";
@@ -165,5 +166,31 @@ describe("selectPlaceReasonKey", () => {
     expect(selectPlaceReasonKey("mistake_to_correct", 50622, "follow.reasonMistakeToCorrect")).toBe(
       "follow.reasonMistakeToCorrect"
     );
+  });
+});
+
+describe("classifyReviewRequestError", () => {
+  it("names a throttled request", () => {
+    expect(classifyReviewRequestError({ data: { code: "TOO_MANY_REQUESTS" } })).toBe("rate-limited");
+  });
+
+  it("names a request that died in transit as a connection failure", () => {
+    // The tRPC client surfaces fetch failures without a data.code.
+    expect(classifyReviewRequestError(new TypeError("Failed to fetch"))).toBe("connection-failed");
+    expect(classifyReviewRequestError(new Error("NetworkError when attempting to fetch resource."))).toBe(
+      "connection-failed"
+    );
+    expect(classifyReviewRequestError(new Error("Load failed"))).toBe("connection-failed");
+  });
+
+  it("keeps server-side rejections on the generic path", () => {
+    expect(classifyReviewRequestError({ data: { code: "BAD_REQUEST" } })).toBe("unknown");
+    expect(classifyReviewRequestError({ data: { code: "INTERNAL_SERVER_ERROR" } })).toBe("unknown");
+  });
+
+  it("treats unrecognised throws as unknown, never as a connection failure", () => {
+    expect(classifyReviewRequestError(new Error("something unexpected"))).toBe("unknown");
+    expect(classifyReviewRequestError(null)).toBe("unknown");
+    expect(classifyReviewRequestError(undefined)).toBe("unknown");
   });
 });

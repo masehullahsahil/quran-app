@@ -62,6 +62,13 @@ export type SpeechLike = {
    */
   speaking?: boolean;
   pending?: boolean;
+  /**
+   * Voice-list change signal. iOS Safari loads voices asynchronously and only
+   * announces them here; a synthesiser that never signals still works — the
+   * wait below simply times out.
+   */
+  addEventListener?: (type: "voiceschanged", listener: () => void, options?: { once?: boolean }) => void;
+  removeEventListener?: (type: "voiceschanged", listener: () => void) => void;
 };
 
 /**
@@ -86,6 +93,51 @@ export function findCoachVoice(
 
 /** Whether a message key is one the teacher is allowed to say aloud. */
 export { isSpeakableCoachKey };
+
+/**
+ * The platform's voices, waiting briefly for them to load when the first
+ * read is empty.
+ *
+ * iOS Safari's synthesiser reports no voices until its `voiceschanged` event
+ * fires — sometimes seconds after page load, sometimes only after a later
+ * interaction. Reading the list once at speak time and giving up is why the
+ * teacher "sometimes" speaks on a real device: the first attempt races voice
+ * loading and loses. This waits, bounded, for the event before concluding
+ * there is no voice. The never-substitute rule is unchanged: waiting longer
+ * never conjures a Pashto voice on a platform that has none.
+ */
+export async function waitForCoachVoices(
+  synthesis: SpeechLike | null | undefined,
+  timeoutMs = 1500,
+): Promise<readonly SpeechSynthesisVoice[]> {
+  const immediate = synthesis?.getVoices?.() ?? [];
+  if (immediate.length > 0 || !synthesis) return immediate;
+  return new Promise((resolve) => {
+    let settled = false;
+    let detach = (): void => {};
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      detach();
+      resolve(synthesis.getVoices?.() ?? []);
+    };
+    const timer = setTimeout(finish, Math.max(0, timeoutMs));
+    if (typeof synthesis.addEventListener === "function") {
+      const listener = (): void => finish();
+      synthesis.addEventListener("voiceschanged", listener, { once: true });
+      detach = () => {
+        try {
+          synthesis.removeEventListener?.("voiceschanged", listener);
+        } catch {
+          // The synthesiser is already torn down; nothing to detach.
+        }
+      };
+    }
+    // A synthesiser with no subscription surface still resolves: the timeout
+    // finishes the wait with whatever `getVoices()` reports then.
+  });
+}
 
 /**
  * The voice to speak with, chosen by the caller.

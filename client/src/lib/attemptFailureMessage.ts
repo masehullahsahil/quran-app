@@ -122,6 +122,39 @@ export function classifyAttemptFailure(
 }
 
 /**
+ * The distinct ways the review *request* itself can fail, before any review
+ * exists to classify. Pure: error in, kind out.
+ */
+export type ReviewRequestFailureKind =
+  /** The server throttled the client. */
+  | "rate-limited"
+  /** The request never reached the server: device network, not the service. */
+  | "connection-failed"
+  /** Anything else, including server-side rejections with their own copy. */
+  | "unknown";
+
+/**
+ * Name the failure class of a thrown review request.
+ *
+ * A tRPC error with a data.code is the server answering (rate limit,
+ * validation, …) — only TOO_MANY_REQUESTS gets its own sentence here. A
+ * throw with no code is the request dying in transit: fetch TypeErrors and
+ * the usual network-failure message shapes. This is the client-side half of
+ * the "network/server failure" class: the speech service is never blamed
+ * for a request it never received.
+ */
+export function classifyReviewRequestError(error: unknown): ReviewRequestFailureKind {
+  const code = (error as { data?: { code?: unknown } } | null)?.data?.code;
+  if (code === "TOO_MANY_REQUESTS") return "rate-limited";
+  if (typeof code === "string" && code.length > 0) return "unknown";
+  if (error instanceof TypeError) return "connection-failed";
+  const message = error instanceof Error ? error.message : "";
+  return /failed to fetch|network\s?error|load failed|timed?\s?out|offline|econn|enotfound/i.test(message)
+    ? "connection-failed"
+    : "unknown";
+}
+
+/**
  * The "your place" reason copy, corrected by client capture evidence.
  *
  * `fallback` is the existing per-reason key for this reason. Only

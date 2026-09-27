@@ -71,10 +71,12 @@ import { useRecordingAudio } from "@/hooks/useRecordingAudio";
 import { HandsFreeTutor, type HandsFreeOption } from "@/components/HandsFreeTutor";
 import { useContinuousTutorAudio, continuousAudioSupported, type FinalisedTurn, type InterimTurnAudio } from "@/hooks/useContinuousTutorAudio";
 import { useTutorPlaybackOrchestrator } from "@/hooks/useTutorPlaybackOrchestrator";
+import { normalizeRecordingMimeType } from "@/lib/recordingMimeType";
 import { useClientValidationWiring } from "@/hooks/useClientValidationWiring";
 import {
   attemptFailureLocaleKeys,
   classifyAttemptFailure,
+  classifyReviewRequestError,
   selectPlaceReasonKey,
 } from "@/lib/attemptFailureMessage";
 import { createFinalAttemptTrace } from "@/lib/validationCapture";
@@ -378,6 +380,10 @@ export default function Home() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  // The recorder's own MIME type, captured at creation. The blob is built
+  // from it, so the recorder — not the blob — is the authority on the
+  // container the bytes are actually in.
+  const recorderMimeTypeRef = useRef<string | null>(null);
   const recorderStreamRef = useRef<MediaStream | null>(null);
   const recognitionRef = useRef<BrowserRecognition | null>(null);
   const liveSessionRef = useRef<LiveRecitationSession>(newLiveSession(1, 1));
@@ -929,6 +935,16 @@ export default function Home() {
       return;
     }
     setLessonStage("review");
+    // A zero-byte capture is a capture failure, not a review failure: sending
+    // it would die in the server's base64 minimum with a generic error. Say
+    // what actually happened while the evidence is in hand.
+    if (!blob.size) {
+      trace.skipped("no-audio", { bytes: 0 });
+      const emptyMessage = t("recorder.empty");
+      setReviewError(emptyMessage);
+      setRecorderMessage(emptyMessage);
+      return;
+    }
     // Checked before encoding: base64 inflates the payload by a third, and a
     // serverless host rejects an oversized body before our code can explain
     // why. Failing here means the learner gets a recovery path instead of a dead
@@ -954,10 +970,13 @@ export default function Home() {
       const attemptId = typeof crypto.randomUUID === "function"
         ? crypto.randomUUID()
         : `${liveSessionRef.current.sessionId}-${Date.now()}-${liveChunkSequenceRef.current}`;
-      const mimeType = blob.type === "audio/ogg" ? "audio/ogg" as const
-        : blob.type === "audio/wav" ? "audio/wav" as const
-        : blob.type === "audio/mp4" ? "audio/mp4" as const
-        : "audio/webm" as const;
+      // Label the bytes with the recorder's own MIME type, normalised to the
+      // server's accepted labels. An exact string match on the blob type
+      // misses parameterised recorder types ("audio/mp4;codecs=mp4a.40.2")
+      // and mislabels the container — the server then hands Whisper the
+      // wrong filename extension for the bytes, which reads as a
+      // transcription failure on a real device.
+      const mimeType = normalizeRecordingMimeType(recorderMimeTypeRef.current);
       // The coach's encouragement follows the interface language. It is wording
       // only — the instruction and the advancement decision are already made,
       // deterministically, before this call returns.
@@ -1111,14 +1130,19 @@ export default function Home() {
       if (review.wordReviewAvailable && coachAudioOn && !handsFreeRef.current) speakGuidance(review.spokenGuidanceKey, locale as SupportedLanguageCode);
     } catch (error) {
       // Never surface a raw exception message: it is English, internal, and
-      // sometimes a network stack trace. The learner gets the locale's
-      // review-failed sentence; the error itself is already in the console.
+      // sometimes a network stack trace. The failure class decides the
+      // sentence: a throttled client is told to wait, a request that never
+      // reached the server is told to check the connection, and anything
+      // else keeps the generic review-failed sentence. The error itself is
+      // already in the console.
       console.warn("[recitation] review request failed", error);
       trace.failed(error);
-      const trpcCode = (error as { data?: { code?: unknown } } | null)?.data?.code;
-      const message = trpcCode === "TOO_MANY_REQUESTS"
+      const requestFailure = classifyReviewRequestError(error);
+      const message = requestFailure === "rate-limited"
         ? t("recorder.rateLimited")
-        : t("recorder.reviewFailed");
+        : requestFailure === "connection-failed"
+          ? t("recorder.connectionFailed")
+          : t("recorder.reviewFailed");
       setReviewError(message);
       setRecorderMessage(message);
     }
@@ -1164,6 +1188,11 @@ export default function Home() {
       recorderStreamRef.current = stream;
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
+      // Capture the recorder's own type now: it is the authority on the
+      // container the bytes will be in. Read it here, not off the blob
+      // later — some platforms report parameterised types
+      // ("audio/webm;codecs=opus") that exact string matches miss.
+      recorderMimeTypeRef.current = recorder.mimeType || null;
       chunksRef.current = [];
       recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => {

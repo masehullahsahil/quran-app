@@ -201,6 +201,40 @@ describe("transcribeAudio", () => {
     const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Empty text is its own failure class: the provider answered, so it is
+    // never reported as a service outage.
+    expect(result).toMatchObject({ code: "EMPTY_TRANSCRIPT" });
+  });
+
+  it("treats whitespace-only text as an empty transcription", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ task: "transcribe", language: "ar", duration: 1.2, text: "  \n ", segments: [] }), {
+        status: 200,
+      }),
+    );
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
+
+    expect(result).toMatchObject({ code: "EMPTY_TRANSCRIPT", details: "segments=0 durationSec=1.2" });
+  });
+
+  it("treats a missing text field as a malformed provider answer", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ task: "transcribe", language: "ar", duration: 1.2, segments: [] }), {
+        status: 200,
+      }),
+    );
+    global.fetch = fetchMock as typeof fetch;
+
+    const { transcribeAudio } = await import("./voiceTranscription");
+    const result = await transcribeAudio({ audio: audio(), mimeType: "audio/webm" });
+
     expect(result).toMatchObject({ code: "SERVICE_ERROR" });
   });
 });
@@ -208,7 +242,7 @@ describe("transcribeAudio", () => {
 describe("summarizeTranscriptionFailure", () => {
   it("passes non-provider codes through with no HTTP status", async () => {
     const { summarizeTranscriptionFailure } = await import("./voiceTranscription");
-    for (const code of ["SERVICE_ERROR", "INVALID_FORMAT", "FILE_TOO_LARGE", "UPLOAD_FAILED"] as const) {
+    for (const code of ["SERVICE_ERROR", "INVALID_FORMAT", "FILE_TOO_LARGE", "UPLOAD_FAILED", "EMPTY_TRANSCRIPT"] as const) {
       expect(summarizeTranscriptionFailure({ error: "x", code })).toEqual({ code, httpStatus: null });
     }
   });

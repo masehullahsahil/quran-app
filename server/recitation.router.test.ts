@@ -46,7 +46,7 @@ beforeEach(() => {
 
 // Routes each outbound call by URL so a test can assert exactly which services
 // the recitation flow touched.
-function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcriptionStatus?: number; transcript?: string | string[] } = {}) {
+function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean; failTranscription?: boolean; transcriptionStatus?: number; transcript?: string | string[]; whisperSegments?: Array<{ no_speech_prob: number }> } = {}) {
   const calls: string[] = [];
   const transcripts = Array.isArray(options.transcript) ? [...options.transcript] : null;
   const defaultTranscript = typeof options.transcript === "string" ? options.transcript : AYAH;
@@ -89,7 +89,10 @@ function stubServices(options: { failStorage?: boolean; quranEvaluator?: boolean
         language: "ar",
         duration: 2,
         text: transcripts?.shift() ?? defaultTranscript,
-        segments: [],
+        segments: (options.whisperSegments ?? []).map((segment, id) => ({
+          id, seek: 0, start: id, end: id + 1, text: "…", tokens: [], temperature: 0,
+          avg_logprob: -1, compression_ratio: 1, no_speech_prob: segment.no_speech_prob,
+        })),
       }), { status: 200 });
     }
 
@@ -253,6 +256,58 @@ describe("recitation.evaluate transcription failure classes", () => {
 
     expect(result.reviewMessageCode).toBe("transcription_failed");
     expect(result.reviewMessage).toBe("transcription:SERVICE_ERROR");
+  });
+
+  it("reports an empty transcript as no usable transcript, never as a service outage", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices({ transcript: "" });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    // The provider answered 200: the honest class is "nothing usable came
+    // back", so the learner is told to record again — not that the service
+    // is down.
+    expect(result.reviewStatus).toBe("unavailable");
+    expect(result.wordReviewAvailable).toBe(false);
+    expect(result.reviewMessageCode).toBe("no_arabic_returned");
+    expect(result.reviewMessage).toBe("transcription:EMPTY_TRANSCRIPT");
+  });
+
+  it("carries the numeric no-speech summary when no Arabic comes back", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    // Non-Arabic text with high no_speech_prob: the microphone captured no
+    // voice. The diagnostic names the capture class numerically.
+    stubServices({
+      transcript: "hello",
+      whisperSegments: [{ no_speech_prob: 0.9 }, { no_speech_prob: 0.7 }],
+    });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    expect(result.reviewMessageCode).toBe("no_arabic_returned");
+    expect(result.reviewMessage).toBe("no-arabic:no-speech-prob=0.80:duration=2.0s");
+  });
+
+  it("names the no-segments case when the provider returns no segment detail", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "");
+
+    stubServices({ transcript: "hello" });
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    expect(result.reviewMessageCode).toBe("no_arabic_returned");
+    expect(result.reviewMessage).toBe("no-arabic:no-segments");
   });
 
   it("never leaks the API key, audio, or transcript in the failure diagnostics", async () => {
