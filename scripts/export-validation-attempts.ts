@@ -12,9 +12,12 @@
  * joins research-only retained phonemes over HTTP; misses omit the key.
  */
 import { readFile } from "node:fs/promises";
-import "dotenv/config";
+import { config } from "dotenv";
 import { buildAttemptExport, ledgerFromSavedFile } from "../server/validation/attemptExport";
 import { joinResearchPhonemes } from "../server/validation/researchPhonemes";
+
+// Keep stdout exclusively JSON, including when a local .env file is loaded.
+config({ quiet: true, path: process.env.DOTENV_CONFIG_PATH });
 
 const file = process.argv[2];
 if (!file) {

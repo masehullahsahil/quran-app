@@ -264,6 +264,8 @@ describe("research export join", () => {
     const http = await listen(evaluator);
     const dir = await mkdtemp(path.join(tmpdir(), "phoneme-export-"));
     const file = path.join(dir, "ledger.json");
+    const envFile = path.join(dir, "settings.env");
+    await writeFile(envFile, "RESEARCH_EXPORT_TEST_FIXTURE=1\n");
     await writeFile(file, JSON.stringify({ server: { ledger: saved } }));
     try {
       for (const gate of ["1", "0"]) {
@@ -276,6 +278,8 @@ describe("research export join", () => {
               ...env,
               QURAN_EVALUATOR_URL: http.base,
               QURAN_VALIDATION_STAFF_API: gate,
+              DOTENV_CONFIG_PATH: envFile,
+              DOTENV_CONFIG_QUIET: "",
             },
           }
         );
