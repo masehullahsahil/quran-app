@@ -12,6 +12,12 @@ import {
   type AcousticShadowEvaluator,
 } from "./shadow";
 import type { AcousticFinding, EvaluationResult } from "./types";
+import {
+  parseResearchLevels,
+  resolveResearchRetention,
+  type ResearchConsent,
+  type ResearchPhonemeStore,
+} from "./researchRetention";
 
 export type EvaluateInput = {
   audioBase64: string;
@@ -20,6 +26,15 @@ export type EvaluateInput = {
   surah: number;
   ayah: number;
   learningLevel: LearningLevel;
+  /** Optional explicit research consent; inert unless the env gate is on. */
+  researchConsent?: ResearchConsent;
+};
+
+export type ResearchContext = {
+  /** QURAN_RESEARCH_PHONEME_RETENTION=1 */
+  envEnabled: boolean;
+  store: Pick<ResearchPhonemeStore, "write">;
+  now?: () => Date;
 };
 const MIN_FINDING_CONFIDENCE = 0.75;
 
@@ -27,7 +42,10 @@ export async function evaluate(
   input: EvaluateInput,
   phonemes: PhonemeEvaluator = new AbstainingPhonemeEvaluator(),
   shadow: AcousticShadowEvaluator = new AbstainingAcousticShadowEvaluator(),
-  context: { correlationId?: string | null } = {}
+  context: {
+    correlationId?: string | null;
+    research?: ResearchContext | null;
+  } = {}
 ): Promise<EvaluationResult> {
   let audio;
   try {
@@ -68,10 +86,29 @@ export async function evaluate(
   // Shadow analysis is research telemetry only. Its decoded output is reduced
   // to aggregate diagnostics and it has no route into findings, confidence,
   // correction focus, or advancement.
+  // The single, narrow exception: with the operator env gate AND valid
+  // explicit consent, decoded levels are captured for a separate research
+  // store. They never reach the response, logs, or findings.
+  const researchNow = context.research?.now?.() ?? new Date();
+  const retention = context.research
+    ? resolveResearchRetention(input.researchConsent, {
+        envEnabled: context.research.envEnabled,
+        correlationId: context.correlationId,
+        now: researchNow,
+      })
+    : null;
+  let researchPayload: unknown = null;
   const shadowAnalysisPromise = shadow.analyze({
     audio,
     evidenceOrigin: "learner_microphone",
     correlationId: context.correlationId ?? null,
+    ...(retention
+      ? {
+          captureResearch: (payload: unknown) => {
+            researchPayload = payload;
+          },
+        }
+      : {}),
   });
   const findings: AcousticFinding[] = [];
   // Only directly measured, unusually long internal silence is currently learner-facing.
@@ -169,6 +206,23 @@ export async function evaluate(
     phonemeTokenCount: 0,
     averagePosterior: null,
   }));
+  if (retention && context.research && researchPayload !== null) {
+    const decoded = parseResearchLevels(researchPayload);
+    if (decoded)
+      // A research-store failure must never affect the learner response, and
+      // its error (which could echo record contents) is deliberately dropped.
+      await context.research.store
+        .write({
+          correlationId: retention.correlationId,
+          timestamp: researchNow.toISOString(),
+          provider: decoded.provider,
+          modelId: decoded.modelId,
+          levels: decoded.levels,
+          purpose: retention.purpose,
+          retainUntil: retention.retainUntil,
+        })
+        .catch(() => undefined);
+  }
   const measurements = {
     audioDurationMs: audio.durationMs,
     alignmentConfidence: alignment.confidence,

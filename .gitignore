@@ -130,3 +130,8 @@ datasets/quran-pronunciation/audio/
 datasets/quran-pronunciation/labels/
 datasets/quran-acoustic/manifest.json
 datasets/quran-acoustic/audio/
+
+# Consent-gated research phoneme records (QURAN_RESEARCH_PHONEME_RETENTION).
+# Default store location is ./research relative to the evaluator's cwd.
+/research/
+services/quran-acoustic-evaluator/research/

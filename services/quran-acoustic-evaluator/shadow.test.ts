@@ -215,4 +215,40 @@ describe("quran_acoustic_evaluation log line", () => {
     });
     expect(JSON.stringify(line)).not.toMatch(/[\u0600-\u06FF]/);
   });
+  it("hands the raw payload to the research hook only when one is supplied", async () => {
+    const payload = {
+      status: "available",
+      provider: "muaalem-shadow",
+      modelId: "obadx/muaalem-model-v3_2",
+      levels: {
+        phonemes: { tokens: ["ك"], tokenPosteriors: [0.9], meanPosterior: 0.9 },
+      },
+    };
+    global.fetch = vi.fn(
+      async () => new Response(JSON.stringify(payload), { status: 200 })
+    ) as unknown as typeof fetch;
+    const audio = {
+      samples: new Float32Array(1_600),
+      sampleRate: 16_000,
+      durationMs: 100,
+    };
+    const shadow = new HttpAcousticShadowEvaluator("http://shadow.test/analyze");
+    const withoutHook = await shadow.analyze({
+      audio,
+      evidenceOrigin: "learner_microphone",
+    });
+    expect(JSON.stringify(withoutHook)).not.toContain("ك");
+    expect(JSON.stringify(withoutHook)).not.toContain("tokenPosteriors");
+
+    const captured: unknown[] = [];
+    const withHook = await shadow.analyze({
+      audio,
+      evidenceOrigin: "learner_microphone",
+      captureResearch: value => captured.push(value),
+    });
+    expect(captured).toEqual([payload]);
+    // The analysis returned to the evaluator stays aggregate-only either way.
+    expect(JSON.stringify(withHook)).not.toContain("ك");
+    expect(withHook.phonemeTokenCount).toBe(1);
+  });
 });

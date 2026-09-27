@@ -57,6 +57,10 @@ def decode_level(
     return {
         "tokens": tokens,
         # These are raw greedy CTC posteriors, not calibrated correctness scores.
+        # tokenPosteriors is parallel to tokens (one collapsed posterior per
+        # emitted token). The Node service discards it unless the
+        # consent-gated research retention path is active.
+        "tokenPosteriors": collapsed_posteriors,
         "meanPosterior": (
             sum(collapsed_posteriors) / len(collapsed_posteriors)
             if collapsed_posteriors

@@ -242,4 +242,60 @@ describe("acoustic evaluator prototype", () => {
       modelId: "unvalidated-model",
     });
   });
+  it("never lets a research-store failure affect the learner response", async () => {
+    const shadow: AcousticShadowEvaluator = {
+      analyze: async ({ captureResearch }) => {
+        captureResearch?.({
+          status: "available",
+          provider: "muaalem-shadow",
+          modelId: "model",
+          levels: {
+            phonemes: { tokens: ["ك"], tokenPosteriors: [0.9], meanPosterior: 0.9 },
+          },
+        });
+        return {
+          status: "available",
+          provider: "muaalem-shadow",
+          modelId: "model",
+          decodedLevelCount: 1,
+          phonemeTokenCount: 1,
+          averagePosterior: 0.9,
+        };
+      },
+    };
+    let attempted = false;
+    const result = await evaluate(
+      {
+        ...request(
+          wav([
+            { durationMs: 300, amplitude: 0 },
+            { durationMs: 1000, amplitude: 0.3 },
+            { durationMs: 300, amplitude: 0 },
+          ])
+        ),
+        researchConsent: {
+          granted: true,
+          purpose: "benchmark",
+          retainUntil: "",
+        },
+      },
+      undefined,
+      shadow,
+      {
+        correlationId: "attempt_failure01",
+        research: {
+          envEnabled: true,
+          store: {
+            write: async () => {
+              attempted = true;
+              throw new Error("disk full: ك 0.9");
+            },
+          },
+        },
+      }
+    );
+    expect(attempted).toBe(true);
+    expect(result.measurements?.shadow?.status).toBe("available");
+    expect(JSON.stringify(result)).not.toContain("ك");
+  });
 });

@@ -22,6 +22,12 @@ export type ShadowAnalysisInput = {
   evidenceOrigin: "learner_microphone";
   /** Opaque app request ID, forwarded so worker logs can be joined. */
   correlationId?: string | null;
+  /**
+   * Consent-gated research capture (see researchRetention.ts). Only supplied
+   * when the env gate AND valid consent both pass; receives the raw worker
+   * payload of an available analysis. Absent on the default redacted path.
+   */
+  captureResearch?: (payload: unknown) => void;
 };
 
 export interface AcousticShadowEvaluator {
@@ -162,6 +168,7 @@ export class HttpAcousticShadowEvaluator implements AcousticShadowEvaluator {
     audio,
     evidenceOrigin,
     correlationId,
+    captureResearch,
   }: ShadowAnalysisInput): Promise<ShadowAnalysis> {
     const started = Date.now();
     const timed = (analysis: ShadowAnalysis): ShadowAnalysis => ({
@@ -192,7 +199,11 @@ export class HttpAcousticShadowEvaluator implements AcousticShadowEvaluator {
       });
       if (!response.ok)
         return timed({ ...EMPTY_SHADOW_ANALYSIS, status: "unavailable" });
-      return timed(parseShadowAnalysis(await response.json()));
+      const payload: unknown = await response.json();
+      const analysis = parseShadowAnalysis(payload);
+      if (captureResearch && analysis.status === "available")
+        captureResearch(payload);
+      return timed(analysis);
     } catch {
       return timed({ ...EMPTY_SHADOW_ANALYSIS, status: "unavailable" });
     }
