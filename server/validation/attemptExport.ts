@@ -10,12 +10,15 @@
  * enum, a token-shaped identifier, or an ISO timestamp. Anything else becomes
  * null, so audio, transcripts, Quran text, secrets and learner identity cannot
  * appear in a row even if a ledger file on disk was edited by hand.
+ * Staff exports may subsequently attach `researchPhonemes` using the separate
+ * HTTP join in researchPhonemes.ts; the ledger projection never reads tokens.
  *
  * `verdict` is the acoustic evaluator's own verdict for the attempt, never a
  * pronunciation claim: the evaluator abstains rather than confirm a correct
  * recitation, and the Muaalem shadow never drives learner corrections.
  */
 import { isRunId } from "./validationRun";
+import type { ResearchPhonemes } from "./researchPhonemes";
 
 export const ATTEMPT_EXPORT_SCHEMA = "quran.validation.attempts.v1" as const;
 
@@ -31,6 +34,8 @@ export type AttemptVerdict =
 export type AttemptPosition = { surah: number; ayah: number; wordIndex: number };
 
 export type ValidationAttemptExportRow = {
+  /** Optional staff-only runtime join for OFFLINE scoring; absent on misses. */
+  researchPhonemes?: ResearchPhonemes;
   runId: string;
   attemptId: string | null;
   correlationId: string | null;

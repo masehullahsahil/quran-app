@@ -232,6 +232,45 @@ async function start(caller: Caller) {
 }
 
 describe("live router validation wiring", () => {
+  it.each(["consented", "plain", "ordinary", "inactive"] as const)(
+    "threads researchConsent into the real HTTP evaluator call only for consented runs: %s",
+    async (mode) => {
+      vi.stubEnv("QURAN_EVALUATOR_URL", "https://evaluator.example.test");
+      const calls = stubServicesWithEvaluator([FATIHA[1]]);
+      const { appRouter, liveObservation, createRunId } = await setup();
+      const runId = createRunId();
+      const optIn = { purpose: "owner self-consented planted-error benchmark", retainUntil: new Date(Date.now() + 86_400_000).toISOString() };
+      if (mode === "consented" || mode === "plain") {
+        liveObservation.activateValidationRun(runId, mode === "consented" ? { phonemeRetention: optIn } : {});
+      }
+      const result = await appRouter.createCaller(context({
+        ...(mode !== "ordinary" ? { runId } : {}), requestId: "req_research_1",
+      })).recitation.evaluate({
+        expectedArabic: FATIHA[1], audioBase64: audio(31), mimeType: "audio/webm",
+        surah: 1, ayah: 2, totalAyahs: 7, learningLevel: "qaida", uiLanguage: "en", attemptScope: "ayah",
+      });
+      expect(calls).toHaveLength(1);
+      if (mode === "consented") {
+        expect(calls[0].body.researchConsent).toEqual({ granted: true, ...optIn });
+      } else {
+        expect(calls[0].body).not.toHaveProperty("researchConsent");
+        expect(calls[0].body).toEqual({
+          audioBase64: audio(31), mimeType: "audio/webm", expectedArabic: FATIHA[1],
+          surah: 1, ayah: 2, learningLevel: "qaida", uiLanguage: "en",
+        });
+      }
+      expect(JSON.stringify(result)).not.toContain("researchConsent");
+      expect(JSON.stringify(result)).not.toContain("researchPhonemes");
+      if (mode === "consented" || mode === "plain") {
+        // recordAttemptAcoustic still records aggregate evidence only.
+        const events = liveObservation.getActiveValidationRun(runId)!.ledger.eventsOfType("attempt.completed");
+        expect(events[0].details.acoustic).toMatchObject({ evaluatorCalled: true, shadowStatus: "available" });
+        expect(JSON.stringify(events)).not.toContain("\"tokens\"");
+      }
+    },
+    20_000,
+  );
+
   it("emits no server ledger events when no validation run is active", async () => {
     stubServices(["الحمد"]);
     const { appRouter } = await setup();
