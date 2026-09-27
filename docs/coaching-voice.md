@@ -111,6 +111,52 @@ itself unavailable and the browser fallback carries the lesson. If the
 endpoint errors, the composite falls through to the browser voice — the
 lesson continues on screen.
 
+## The neural provider: Azure AI Speech (selected)
+
+**Vendor decision: Azure AI Speech**, neural voices — selected 2026-09-27
+for the five-language coverage (including Pashto) and the free tier that
+fits the free-service goal.
+
+**Synthesize-once, cache-forever.** The teacher's spoken corpus is a closed
+list — 22 allowlisted keys × 5 languages, ~36K characters total including
+bounded param variants — so the whole corpus synthesizes for about **$0.54
+once** (well inside the free tier's 500K neural chars/month). Each unique
+(voice, sentence) pair hits Azure exactly once, ever:
+
+- `server/azureCoachVoice.ts`: `createAzureCoachSynthesizer()` reads
+  `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION` and returns null when either
+  is missing (the endpoint keeps its 501 → client-fallback behavior);
+  `createCachedCoachSynthesizer()` wraps it with a disk cache at
+  `server/coach-audio/` (gitignored), keyed by
+  `sha256(voiceId + "\n" + text)`. Cache write-through is best-effort — a
+  cache failure serves the bytes anyway, never breaks the lesson.
+- `scripts/generate-coach-audio.mjs`: pre-generates the whole corpus into
+  the cache. `--dry-run` needs no key and prints the utterance count,
+  total characters, and estimated one-time cost. A real run first lists the
+  region's voices and **fails loudly if any mapped voice is missing** —
+  voice catalogs change, remembered docs don't.
+- `POST /api/coach-speech` (`server/coachSpeechEndpoint.ts`) is unchanged:
+  key-only, strict zod schema, allowlist-enforced. Only resolved coaching
+  sentences ever reach the synthesizer.
+
+Voice map (`AZURE_COACH_VOICES`): en → `en-US-AvaNeural`,
+ur → `ur-PK-GulNeural`, ps → `ps-AF-LatifaNeural`,
+fa-AF → `fa-IR-DilaraNeural`, ar → `ar-SA-ZariyahNeural`. SSML uses
+**default prosody** — no slowed speech; the voices' natural pace is the
+warm teacher cadence the product wants. Output is
+`audio-16khz-32kbitrate-mono-mp3` (small files).
+
+**Dari caveat:** Azure publishes no `fa-AF` voice. `fa-IR-DilaraNeural` is
+the closest Dari-family locale (Persian, same script, mutually
+intelligible with Dari in short coaching sentences) — and it must be
+**reviewed by a Dari speaker before it teaches**, same bar as the locale
+packs. Never substitute a non-Persian voice for Dari: a missing voice
+means on-screen text, not a substitute.
+
+**Credential:** `AZURE_SPEECH_KEY` and `AZURE_SPEECH_REGION` live in
+server environment only — never in the repo, never in logs, never in
+tests, never in the client bundle.
+
 ## Plugging in a neural provider
 
 Any vendor works; the client does not care which. Whoever it is:
@@ -132,32 +178,31 @@ Any vendor works; the client does not care which. Whoever it is:
 
 ### Integration steps
 
-1. Choose a vendor and implement the `CoachSpeechSynthesizer` behind
-   `POST /api/coach-speech` (see `server/coachSpeechEndpoint.ts`): it
-   receives the already-resolved coaching sentence and the language, calls
-   the vendor with the server-side credential, returns `audio/mpeg`.
-   The endpoint already validates the key allowlist, the language, and
-   rejects any `text` field — keep those checks. Keep the vendor
-   credential in server environment, never in the client bundle, never in
-   the repository.
-2. Set the client config: `createCoachSpeechProvider({ neural: {
-   enabled: true, endpoint: "/api/coach-speech",
-   languages: [...] } })` — list only the languages the vendor voices
-   actually cover.
-3. Have a speaker of each covered language review the voice before it
-   teaches.
+1. Create an Azure AI Speech resource (free tier F0 is enough: 500K
+   neural chars/month) and set `AZURE_SPEECH_KEY` and
+   `AZURE_SPEECH_REGION` in the server's environment.
+2. Pre-generate the corpus once: `node scripts/generate-coach-audio.mjs
+   --dry-run` first (no key needed — prints cost), then run it with the
+   env vars set. It fails loudly if any mapped voice is missing from the
+   region. Commit nothing: `server/coach-audio/` is gitignored.
+3. The client is already wired: both `createCoachSpeechProvider` call
+   sites pass `neural: { enabled: true, endpoint: "/api/coach-speech",
+   languages: [...] }`. With no credential the endpoint 501s and the
+   composite falls back to the browser voice — no rebuild needed.
+4. Have a speaker of each covered language review the voice before it
+   teaches (Dari especially — see the caveat above).
 
 ## What still requires a decision
 
-- **Which vendor** (or whether to ship without neural TTS — the browser
-  fallback plus on-screen text is a complete lesson already).
-- **Pashto coverage**: verify each vendor's Pashto voice coverage at
-  selection time — do not rely on remembered vendor docs. Pashto coaching
-  may stay on-screen text until a reviewed voice exists.
 - **Voice review**: any neural voice must be reviewed by a speaker of the
-  language before it teaches — the same bar as the locale packs.
-- **Cost/latency budget**: neural audio is fetched per sentence; short
-  coaching sentences keep this small, but it is a per-lesson API cost.
+  language before it teaches — the same bar as the locale packs. This is
+  now the gating human step, not a vendor choice.
+- **Pashto coverage**: verified at selection time against Azure's catalog
+  (`ps-AF-LatifaNeural`); the pre-gen script re-verifies per region at
+  every run.
 - **Translations**: the Pashto, Dari, Urdu, and Arabic locale packs were
   written for this change and have **not** been reviewed by native
   speakers yet. That review is required before these strings teach.
+- **Long-term transcription cost** (separate from voice): every recited
+  minute goes to the speech-to-text provider and cannot be cached — that,
+  not the voice, is the cost to design around for a free service.

@@ -20,6 +20,10 @@ import { registerStorageProxy } from "./storageProxy";
 import { registerHealthEndpoint } from "./health";
 import { registerStaffValidationEndpoints } from "../validation/staffEndpoints";
 import { registerCoachSpeechEndpoint } from "../coachSpeechEndpoint";
+import {
+  createAzureCoachSynthesizer,
+  createCachedCoachSynthesizer,
+} from "../azureCoachVoice";
 import { requestIdMiddleware } from "./requestId";
 import { logger } from "./logger";
 import { REQUEST_BODY_LIMIT_BYTES } from "@shared/recording";
@@ -88,11 +92,17 @@ export function createApp(): Express {
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);
-  // Coaching voice (key-only neural TTS seam): valid keys resolve to a
-  // configured vendor voice; unconfigured deployments answer 501 and the
-  // client falls back to the browser voice. Registered before the tRPC
-  // middleware so the path is never shadowed.
-  registerCoachSpeechEndpoint(app);
+  // Coaching voice (key-only neural TTS seam): Azure AI Speech when
+  // AZURE_SPEECH_KEY/AZURE_SPEECH_REGION are set, with a
+  // synthesize-once/cache-forever disk cache (server/coach-audio/). With no
+  // credential the cached factory gets undefined and valid keys answer 501,
+  // so the client falls back to the browser voice — the lesson never waits
+  // on a voice that isn't there. Registered before the tRPC middleware so
+  // the path is never shadowed.
+  registerCoachSpeechEndpoint(
+    app,
+    createCachedCoachSynthesizer(createAzureCoachSynthesizer() ?? undefined),
+  );
 
   app.use(
     "/api/trpc",

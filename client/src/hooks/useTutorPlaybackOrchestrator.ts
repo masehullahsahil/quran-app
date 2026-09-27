@@ -109,6 +109,14 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
   const providerRef = useRef<CoachSpeechProvider | null>(null);
   const provider = providerRef.current ?? (providerRef.current = createCoachSpeechProvider({
     resolveText: (key, params) => latest.current.translate(key, params),
+    // Neural teacher voice: unconditional by design. When the server has no
+    // Azure credential it answers 501 and the composite falls back to the
+    // browser voice — no rebuild needed to switch deployments.
+    neural: {
+      enabled: true,
+      endpoint: "/api/coach-speech",
+      languages: ["en", "ps", "fa-AF", "ur", "ar"],
+    },
   }));
 
   const stopAudio = useCallback(() => {

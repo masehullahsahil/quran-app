@@ -425,6 +425,14 @@ export default function Home() {
   if (!guidanceSpeechRef.current) {
     guidanceSpeechRef.current = createCoachSpeechProvider({
       resolveText: (key, params, language) => resolveTextRef.current(key, params, language),
+      // Neural teacher voice: unconditional by design. When the server has
+      // no Azure credential it answers 501 and the composite falls back to
+      // the browser voice — no rebuild needed to switch deployments.
+      neural: {
+        enabled: true,
+        endpoint: "/api/coach-speech",
+        languages: ["en", "ps", "fa-AF", "ur", "ar"],
+      },
     });
   }
   const speakGuidance = useCallback((ref: CoachSpeechKeyRef | null, language: SupportedLanguageCode) => {
