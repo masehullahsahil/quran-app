@@ -49,8 +49,14 @@
  * counts, and numeric aggregates.
  *
  * Usage:
- *   node scripts/score-muaalem-benchmark.mjs <bundle.json> [--labels labels.json]
+ *   node scripts/score-muaalem-benchmark.mjs <bundle.json> [--labels labels.json] [--attempts attempts.json]
  *   node scripts/score-muaalem-benchmark.mjs --self-test
+ *   node scripts/score-muaalem-benchmark.mjs --self-test-detection
+ *
+ * `--attempts` takes a `quran.validation.attempts.v1` export (staff HTTP or
+ * `pnpm export:validation-attempts`). When given, or when bundle rows carry
+ * `researchPhonemes`, an additive "Phoneme-sequence detection" section is
+ * appended after the unchanged scorecard. See that section's code comment.
  *
  * Exit codes: 0 scored (even when data is thin — the report says so);
  * 2 unusable input (missing file, bad JSON, wrong schema, zero labels).
@@ -588,6 +594,427 @@ export function renderMarkdown(metrics, { runId, exportedAt }) {
 }
 
 // ---------------------------------------------------------------------------
+// Phoneme-sequence detection (research, opt-in, ADDITIVE)
+// ---------------------------------------------------------------------------
+//
+// For attempt rows carrying a consent-gated `researchPhonemes` record (PR #99
+// service store, joined into the attempts export by PR #100), inspect the
+// decoded Muaalem phoneme sequence and report whether the planted deviation
+// for that benchmark card is present in the tokens.
+//
+// Scope and caveats — read before quoting a number:
+// - Offline scoring of the repository owner's own self-consented planted-error
+//   takes. A detection here is a statement about decoded model tokens for a
+//   scripted take, NEVER a pronunciation verdict about a learner.
+// - `tokenPosteriors` are raw greedy CTC posteriors, not calibrated correctness
+//   scores. They are printed only as a confidence hint beside token presence /
+//   absence and never decide an outcome on their own.
+// - Rows without `researchPhonemes` are reported as "no research data" in this
+//   section only. They add no failures and change nothing in the scorecard
+//   above, whose output and verdicts are untouched.
+// - Output stays ASCII: enums, counts, and numbers. Decoded tokens and the
+//   reference strings below are never printed.
+//
+// Token vocabulary assumptions (verify against the real model output):
+// - The phoneme level uses the Quran phonetic script alphabet of
+//   `quran-transcript` 0.6.4 (`alphabet.phonetics`), which Muaalem v3.2 was
+//   trained on. Checks run on the concatenation of the level's tokens, so they
+//   hold whether tokens are single characters or multi-character groups.
+// - Shaddah is a doubled consonant (e.g. raa raa), madd length is a run of
+//   madd letters (alif / yaa-madd / waw-madd, 2 per 2 counts), a stop on a
+//   qalqala letter emits the qalqala marker U+0687.
+// - Exported levels carry no level name (the PR #100 read contract copies only
+//   tokens / tokenPosteriors / meanPosterior), so the phoneme level is the
+//   level whose tokens are all phonetic-alphabet characters. Sifat levels use
+//   Latin class names ("hams", "jahr", ...) and never qualify.
+
+const PH = {
+  hamza: "ء",
+  alif: "ا",
+  raa: "ر",
+  sheen: "ش",
+  qaf: "ق",
+  kaf: "ك",
+  lam: "ل",
+  meem: "م",
+  noon: "ن",
+  yaaMadd: "ۦ",
+  qalqala: "ڇ",
+};
+
+/** quran-transcript 0.6.4 phonetic groups `core` + `residuals`. */
+const PHONETIC_CORE =
+  "ءبتثجحخدذرزسشصضطظعغفقكلمنهوياۥۦ۾ںـٲ";
+const PHONETIC_RESIDUALS = "َُِڇؙ۪ۜ";
+const PHONETIC_ALPHABET = new Set([...PHONETIC_CORE, ...PHONETIC_RESIDUALS]);
+const HARAKAT = new Set(["َ", "ُ", "ِ"]);
+
+/**
+ * Canonical phoneme sequences (spaces removed) from quran-transcript 0.6.4
+ * `quran_phonetizer`, rewaya Hafs, murattal, madd 4/4/4/4 (monfasel,
+ * mottasel, mottasel-waqf, aared), full-ayah recitation stopping at the ayah
+ * end. Used only for the edit-distance diagnostic and to anchor checks.
+ */
+export const REFERENCE_PHONEMES = {
+  "112:1": "قُلهُوَللَااهُءَحَدڇ",
+  "1:4": "مَاالِكِيَومِددِۦۦۦۦن",
+  "1:7": "صِرَااطَللَذِۦۦنَءَنعَمتَعَلَيهِمغَيرِلمَغضُۥۥبِعَلَيهِموَلَضضَااااااللِۦۦۦۦن",
+  "113:2": "مِںںںشَررِمَااخَلَقڇ",
+  "1:2": "ءَلحَمدُلِللَااهِرَببِلعَاالَمِۦۦۦۦن",
+};
+
+/** Minimum raw posterior below which the hint is marked "low". Display only. */
+export const LOW_POSTERIOR_HINT = 0.5;
+
+function countChar(chars, ch) {
+  let n = 0;
+  for (const c of chars) if (c === ch) n += 1;
+  return n;
+}
+
+/** Length of the run of `ch` starting at `from`. */
+function runLength(chars, from, ch) {
+  let i = from;
+  while (i < chars.length && chars[i] === ch) i += 1;
+  return i - from;
+}
+
+function skipHarakat(chars, from) {
+  let i = from;
+  while (i < chars.length && HARAKAT.has(chars[i])) i += 1;
+  return i;
+}
+
+function minPosterior(posteriors, from, to) {
+  let min = null;
+  for (let i = from; i < to; i += 1) {
+    const p = posteriors[i];
+    if (typeof p === "number" && (min === null || p < min)) min = p;
+  }
+  return min;
+}
+
+/** Plain Levenshtein distance over code points. */
+export function editDistance(a, b) {
+  const x = [...a];
+  const y = [...b];
+  let prev = Array.from({ length: y.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= x.length; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= y.length; j += 1) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return prev[y.length];
+}
+
+/**
+ * Validate a `researchPhonemes` record. Returns the levels or null when the
+ * record is absent or malformed (tokens and posteriors must be parallel).
+ */
+export function researchLevels(research) {
+  if (!isRecord(research) || !Array.isArray(research.levels)) return null;
+  const levels = [];
+  for (const level of research.levels) {
+    if (
+      !isRecord(level) ||
+      !Array.isArray(level.tokens) ||
+      !level.tokens.every((t) => typeof t === "string") ||
+      !Array.isArray(level.tokenPosteriors) ||
+      level.tokenPosteriors.length !== level.tokens.length ||
+      !level.tokenPosteriors.every((p) => typeof p === "number" && Number.isFinite(p))
+    ) {
+      return null;
+    }
+    levels.push(level);
+  }
+  return levels;
+}
+
+/**
+ * Pick the phoneme level and flatten it to characters, each carrying the raw
+ * posterior of the token it came from. Prefers an explicit `level:
+ * "phonemes"` name when present (service-side records); otherwise the level
+ * with the most tokens whose characters are all in the phonetic alphabet.
+ */
+export function phonemeSequence(levels) {
+  const qualifies = (level) =>
+    level.tokens.length > 0 &&
+    level.tokens.every((t) => {
+      const chars = [...t.replace(/\s+/g, "")];
+      return chars.length > 0 && chars.every((c) => PHONETIC_ALPHABET.has(c));
+    });
+  let chosen = levels.find((l) => l.level === "phonemes" && qualifies(l)) ?? null;
+  if (!chosen) {
+    for (const level of levels) {
+      if (qualifies(level) && (!chosen || level.tokens.length > chosen.tokens.length)) chosen = level;
+    }
+  }
+  if (!chosen) return null;
+  const chars = [];
+  const posteriors = [];
+  chosen.tokens.forEach((token, i) => {
+    for (const c of token.replace(/\s+/g, "")) {
+      chars.push(c);
+      posteriors.push(chosen.tokenPosteriors[i]);
+    }
+  });
+  return { chars, posteriors };
+}
+
+const inconclusive = (evidence) => ({ outcome: "inconclusive", evidence, hintPosterior: null });
+
+/**
+ * Card-level planted-deviation checks, keyed "surah:ayah". Each returns
+ * { outcome: "deviation_present" | "deviation_absent" | "inconclusive",
+ *   evidence: ASCII string, hintPosterior: number | null }.
+ */
+export const CARD_CHECKS = {
+  "112:1": {
+    id: "qaf-to-kaf",
+    description: "qul recited as kul: kaf instead of qaf in the opening phonemes",
+    run({ chars, posteriors }) {
+      // Reference opens qaf, damma, lam and contains no kaf anywhere.
+      const head = chars.slice(0, 4);
+      const k = head.indexOf(PH.kaf);
+      const q = head.indexOf(PH.qaf);
+      const kafElsewhere = countChar(chars, PH.kaf) - (k >= 0 ? 1 : 0);
+      const extra = `; kaf elsewhere: ${kafElsewhere}`;
+      if (k >= 0 && q < 0) {
+        return { outcome: "deviation_present", evidence: `kaf in opening, no qaf${extra}`, hintPosterior: posteriors[k] };
+      }
+      if (q >= 0 && k < 0) {
+        return { outcome: "deviation_absent", evidence: `qaf in opening, no kaf${extra}`, hintPosterior: posteriors[q] };
+      }
+      return inconclusive(k >= 0 ? `both qaf and kaf in opening${extra}` : `neither qaf nor kaf in opening${extra}`);
+    },
+  },
+  "113:2": {
+    id: "dropped-shaddah-raa",
+    description: "sharri with the shaddah dropped: single raa where a doubled raa is expected",
+    run({ chars, posteriors }) {
+      // Reference: ...sheen fatha raa raa kasra... (shaddah = doubled consonant).
+      const s = chars.indexOf(PH.sheen);
+      if (s < 0) return inconclusive("anchor sheen not decoded");
+      const r = skipHarakat(chars, s + 1);
+      const run = runLength(chars, r, PH.raa);
+      if (run === 0) return inconclusive("no raa after anchor sheen");
+      const hint = minPosterior(posteriors, r, r + run);
+      return run === 1
+        ? { outcome: "deviation_present", evidence: "raa run after sheen = 1 (expected 2)", hintPosterior: hint }
+        : { outcome: "deviation_absent", evidence: `raa run after sheen = ${run} (expected 2)`, hintPosterior: hint };
+    },
+  },
+  "1:4": {
+    id: "shortened-madd",
+    description:
+      "maaliki natural madd (2 alifs after meem) shortened, or the final aared madd run below its 2-count minimum",
+    run({ chars, posteriors }) {
+      // Reference: meem fatha alif alif lam ... and ends yaa-madd run + noon.
+      const m = chars.slice(0, 3).indexOf(PH.meem);
+      if (m < 0) return inconclusive("anchor meem not decoded in opening");
+      const a = skipHarakat(chars, m + 1);
+      const alifRun = runLength(chars, a, PH.alif);
+      if (chars[a + alifRun] !== PH.lam) return inconclusive(`no lam after opening alif run (${alifRun})`);
+      let tailRun = 0;
+      let tailStart = chars.length;
+      if (chars[chars.length - 1] === PH.noon) {
+        let i = chars.length - 2;
+        while (i >= 0 && chars[i] === PH.yaaMadd) i -= 1;
+        tailStart = i + 1;
+        tailRun = chars.length - 1 - tailStart;
+      }
+      const evidence = `maaliki alif run = ${alifRun} (expected 2); final yaa-madd run = ${tailRun} (valid 2/4/6)`;
+      if (alifRun < 2) {
+        return { outcome: "deviation_present", evidence, hintPosterior: alifRun ? minPosterior(posteriors, a, a + alifRun) : posteriors[a] ?? null };
+      }
+      if (tailRun < 2) {
+        return { outcome: "deviation_present", evidence, hintPosterior: minPosterior(posteriors, tailStart, chars.length) };
+      }
+      return { outcome: "deviation_absent", evidence, hintPosterior: minPosterior(posteriors, a, a + alifRun) };
+    },
+  },
+  "1:7": {
+    id: "misplaced-waqf",
+    description:
+      "mid-ayah stop: qalqala stop marker (reference has none) or an extra hamza from restarting with hamzat al-wasl",
+    run({ chars, posteriors }) {
+      // Reference 1:7 has 0 qalqala markers and exactly 1 hamza. A stop on
+      // taa-mofakhama or baa emits the qalqala marker; resuming at alladhina /
+      // almaghdubi begins with an extra hamza. A stop on a non-qalqala letter
+      // followed by plain continuation leaves no signature here.
+      const qalqala = countChar(chars, PH.qalqala);
+      const extraHamza = countChar(chars, PH.hamza) - 1;
+      const evidence = `qalqala stop markers = ${qalqala} (reference 0); extra hamza = ${Math.max(0, extraHamza)} (reference 0)`;
+      if (qalqala === 0 && extraHamza <= 0) {
+        return { outcome: "deviation_absent", evidence, hintPosterior: null };
+      }
+      const signature = new Set([PH.qalqala, ...(extraHamza > 0 ? [PH.hamza] : [])]);
+      let hint = null;
+      chars.forEach((c, i) => {
+        if (signature.has(c) && (hint === null || posteriors[i] < hint)) hint = posteriors[i];
+      });
+      return { outcome: "deviation_present", evidence, hintPosterior: hint };
+    },
+  },
+  "1:2": {
+    id: "noisy-abstention",
+    description: "report only: noisy take, shadow abstention is the expected outcome",
+    reportOnly: true,
+  },
+};
+
+/** Parse a `quran.validation.attempts.v1` export (or a bare row array). */
+export function parseAttemptExport(data) {
+  if (Array.isArray(data)) return data.filter(isRecord);
+  if (isRecord(data) && Array.isArray(data.attempts)) return data.attempts.filter(isRecord);
+  throw new Error("attempts export has no `attempts` array");
+}
+
+function cardKey(label) {
+  return typeof label.surah === "number" && typeof label.ayah === "number"
+    ? `${label.surah}:${label.ayah}`
+    : null;
+}
+
+/**
+ * Additive detection pass over labeled attempts. `attemptRows` are rows of an
+ * attempts export; bundle `serverRows` carrying `researchPhonemes` are used as
+ * a fallback. Does not read or alter the scorecard metrics.
+ */
+export function scoreDetection({ labels, idMap, serverRows, attemptRows = [] }) {
+  const attempts = [];
+  for (const label of labels.values()) {
+    const key = cardKey(label);
+    const check = key ? CARD_CHECKS[key] ?? null : null;
+    const exportRow = resolveRow(label, idMap, attemptRows);
+    const bundleRow = resolveRow(label, idMap, serverRows);
+    const research = exportRow?.researchPhonemes ?? bundleRow?.researchPhonemes;
+    const base = {
+      label,
+      card: key ?? "n/a",
+      checkId: check?.id ?? null,
+      retained: research !== undefined,
+      editDistance: null,
+      referenceLength: key && REFERENCE_PHONEMES[key] ? [...REFERENCE_PHONEMES[key]].length : null,
+      decodedLength: null,
+      hintPosterior: null,
+      evidence: "",
+    };
+    if (check?.reportOnly) {
+      const sequence = research !== undefined ? phonemeSequence(researchLevels(research) ?? []) : null;
+      attempts.push({
+        ...base,
+        outcome: "report_only",
+        decodedLength: sequence ? sequence.chars.length : null,
+        evidence: research === undefined ? "no research record (expected when the shadow abstains)" : "research record present",
+      });
+      continue;
+    }
+    if (research === undefined) {
+      attempts.push({ ...base, outcome: "no_research_data", evidence: "no researchPhonemes on this row" });
+      continue;
+    }
+    const levels = researchLevels(research);
+    const sequence = levels ? phonemeSequence(levels) : null;
+    if (!sequence) {
+      attempts.push({ ...base, outcome: "inconclusive", evidence: levels ? "no phoneme-alphabet level" : "malformed research record" });
+      continue;
+    }
+    const decoded = sequence.chars.join("");
+    const withSeq = {
+      ...base,
+      decodedLength: sequence.chars.length,
+      editDistance: key && REFERENCE_PHONEMES[key] ? editDistance(decoded, REFERENCE_PHONEMES[key]) : null,
+    };
+    if (!check) {
+      attempts.push({ ...withSeq, outcome: "no_check", evidence: "no planted-deviation check for this card" });
+      continue;
+    }
+    const result = check.run(sequence);
+    attempts.push({ ...withSeq, ...result });
+  }
+
+  const cards = new Map();
+  for (const a of attempts) {
+    if (!cards.has(a.card)) {
+      const check = CARD_CHECKS[a.card];
+      cards.set(a.card, {
+        checkId: check?.id ?? null,
+        description: check?.description ?? "no check defined",
+        deviation: { n: 0, retained: 0, present: 0, absent: 0, inconclusive: 0, reportOnly: 0 },
+        control: { n: 0, retained: 0, present: 0, absent: 0, inconclusive: 0, reportOnly: 0 },
+      });
+    }
+    const group = cards.get(a.card)[a.label.variant === "incorrect" ? "deviation" : "control"];
+    group.n += 1;
+    if (a.retained) group.retained += 1;
+    if (a.outcome === "deviation_present") group.present += 1;
+    else if (a.outcome === "deviation_absent") group.absent += 1;
+    else if (a.outcome === "inconclusive") group.inconclusive += 1;
+    else if (a.outcome === "report_only") group.reportOnly += 1;
+  }
+  return { attempts, cards };
+}
+
+export function renderDetectionMarkdown(detection) {
+  const L = [];
+  L.push("## Phoneme-sequence detection (research, opt-in)");
+  L.push("");
+  L.push(
+    "> Offline check of decoded Muaalem phoneme tokens against each card's planted deviation, for the " +
+      "owner's self-consented scripted takes only. A detection is a statement about decoded model tokens, " +
+      "not a pronunciation verdict about any learner. Posteriors are raw greedy CTC posteriors shown as a " +
+      "confidence hint only; they never decide an outcome. Rows without retained research phonemes are " +
+      "listed as `no_research_data` and do not affect the scorecard above.",
+  );
+  L.push("");
+  L.push("| Card | Check | Deviation takes | Retained | Present | Absent | Inconclusive | Controls | Retained | Present on control | Absent | Inconclusive |");
+  L.push("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+  if (detection.cards.size === 0) {
+    L.push("| _none_ | — | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |");
+  }
+  for (const [card, c] of detection.cards) {
+    const d = c.deviation;
+    const k = c.control;
+    const check = c.checkId ?? "none";
+    if (CARD_CHECKS[card]?.reportOnly) {
+      L.push(`| ${card} | ${check} (report only) | ${d.n} | ${d.retained} | — | — | — | ${k.n} | ${k.retained} | — | — | — |`);
+      continue;
+    }
+    L.push(
+      `| ${card} | ${check} | ${d.n} | ${d.retained} | ${countPct(d.present, d.retained)} | ${d.absent} | ${d.inconclusive} | ${k.n} | ${k.retained} | ${countPct(k.present, k.retained)} | ${k.absent} | ${k.inconclusive} |`,
+    );
+  }
+  L.push("");
+  L.push("Present = planted deviation found in the decoded tokens ÷ takes with retained research phonemes.");
+  L.push("");
+  L.push("| # | Card | Variant | Check | Outcome | Evidence | Posterior hint | Edit distance to reference |");
+  L.push("| --- | --- | --- | --- | --- | --- | --- | --- |");
+  if (detection.attempts.length === 0) {
+    L.push("| _none_ | — | — | — | — | — | — | — |");
+  }
+  detection.attempts.forEach((a, i) => {
+    const hint =
+      a.hintPosterior === null
+        ? "n/a"
+        : `${fmtNum(a.hintPosterior)}${a.hintPosterior < LOW_POSTERIOR_HINT ? " (low)" : ""}`;
+    const distance =
+      a.editDistance === null ? "n/a" : `${a.editDistance} (decoded ${a.decodedLength} / reference ${a.referenceLength})`;
+    L.push(
+      `| ${i + 1} | ${a.card} | ${a.label.variant} | ${a.checkId ?? "—"} | ${a.outcome} | ${a.evidence} | ${hint} | ${distance} |`,
+    );
+  });
+  L.push("");
+  return L.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Synthetic fixture (for --self-test and unit tests)
 // ---------------------------------------------------------------------------
 
@@ -760,20 +1187,119 @@ export function buildSyntheticBundle() {
   };
 }
 
+/**
+ * SYNTHETIC detection fixture: a bundle plus an attempts export whose
+ * `researchPhonemes` are hand-built from REFERENCE_PHONEMES with the planted
+ * deviations applied. It exercises the detection code path only; its numbers
+ * are NOT benchmark results and must never be quoted as such.
+ */
+export function buildSyntheticDetectionFixture() {
+  const base = Date.UTC(2026, 8, 27, 12, 0, 0);
+  const runId = "run_detection0123456789abcd";
+  const ref = REFERENCE_PHONEMES;
+  const fatha = "َ";
+  const taaMofakhama = "ط";
+  const planted = {
+    "112:1": PH.kaf + ref["112:1"].slice(1),
+    "113:2": ref["113:2"].replace(PH.raa + PH.raa, PH.raa),
+    "1:4": ref["1:4"].replace(PH.alif + PH.alif, ""),
+    // Stop after the first word (qalqala on taa-mofakhama), restart with hamzat al-wasl.
+    "1:7": ref["1:7"].slice(0, 4) + PH.alif.repeat(4) + taaMofakhama + PH.qalqala + PH.hamza + fatha + ref["1:7"].slice(8),
+  };
+  const plantedChar = { "112:1": PH.kaf, "1:7": PH.qalqala };
+  const research = (correlationId, card, sequence) => {
+    const chars = [...sequence];
+    return {
+      correlationId,
+      timestamp: new Date(base).toISOString(),
+      provider: "muaalem-shadow",
+      modelId: "obadx/muaalem-model-v3_2",
+      levels: [
+        // A sifat-style level first: never mistaken for the phoneme level.
+        { tokens: ["hams", "jahr", "jahr"], tokenPosteriors: [0.8, 0.9, 0.7], meanPosterior: 0.8 },
+        {
+          tokens: chars,
+          tokenPosteriors: chars.map((c) => (c === plantedChar[card] ? 0.41 : 0.93)),
+          meanPosterior: 0.9,
+        },
+      ],
+      purpose: "synthetic fixture",
+      retainUntil: new Date(base + 30 * 86_400_000).toISOString(),
+    };
+  };
+  // [clientId, card, variant, sequence | null (no retained research), shadowStatus]
+  const takes = [
+    ["d-112-dev", "112:1", "incorrect", planted["112:1"], "available"],
+    ["d-112-ctl", "112:1", "correct", ref["112:1"], "available"],
+    ["d-112-miss", "112:1", "incorrect", null, "available"],
+    ["d-113-dev", "113:2", "incorrect", planted["113:2"], "available"],
+    ["d-113-ctl", "113:2", "correct", ref["113:2"], "available"],
+    ["d-104-dev", "1:4", "incorrect", planted["1:4"], "available"],
+    ["d-104-ctl", "1:4", "correct", ref["1:4"], "available"],
+    ["d-107-dev", "1:7", "incorrect", planted["1:7"], "available"],
+    ["d-107-ctl", "1:7", "correct", ref["1:7"], "available"],
+    ["d-102-noisy", "1:2", "correct", null, "abstained"],
+  ];
+  const events = [];
+  const serverRows = [];
+  const attemptRows = [];
+  takes.forEach(([clientId, card, variant, sequence, shadowStatus], i) => {
+    const [surah, ayah] = card.split(":").map(Number);
+    const serverId = `srv-${clientId}`;
+    const correlationId = `req_${clientId.replace(/-/g, "_")}`;
+    const t = new Date(base + i * 5000).toISOString();
+    events.push({ seq: events.length + 1, t, runId, attemptId: clientId, correlationId: null, type: "note", details: { benchmarkLabel: { variant, errorType: null, surah, ayah } } });
+    events.push({ seq: events.length + 1, t, runId, attemptId: clientId, correlationId, type: "attempt.lifecycle", details: { stage: "submission.responded", elapsedMs: 2000, serverAttemptId: serverId } });
+    serverRows.push({ attemptId: serverId, correlationId, acoustic: { shadowStatus, shadowAveragePosterior: shadowStatus === "available" ? 0.9 : null }, decision: { score: 0.9 } });
+    attemptRows.push({
+      runId,
+      attemptId: serverId,
+      correlationId,
+      ayahRef: card,
+      muaalemStatus: shadowStatus,
+      ...(sequence ? { researchPhonemes: research(correlationId, card, sequence) } : {}),
+    });
+  });
+  return {
+    bundle: {
+      schemaVersion: EXPECTED_SCHEMA_VERSION,
+      runId,
+      exportedAt: new Date(base + 100_000).toISOString(),
+      client: { runId, eventCount: events.length, events },
+      server: { runId, attemptDiagnostics: serverRows },
+    },
+    attemptsExport: { schema: "quran.validation.attempts.v1", runId, attempts: attemptRows },
+  };
+}
+
 // ---------------------------------------------------------------------------
 // CLI
 // ---------------------------------------------------------------------------
 
 function printUsageAndExit(code) {
   process.stderr.write(
-    "Usage: node scripts/score-muaalem-benchmark.mjs <bundle.json> [--labels labels.json]\n" +
-      "       node scripts/score-muaalem-benchmark.mjs --self-test\n",
+    "Usage: node scripts/score-muaalem-benchmark.mjs <bundle.json> [--labels labels.json] [--attempts attempts-export.json]\n" +
+      "       node scripts/score-muaalem-benchmark.mjs --self-test\n" +
+      "       node scripts/score-muaalem-benchmark.mjs --self-test-detection\n",
   );
   process.exit(code);
 }
 
 function main(argv) {
   const args = argv.slice(2);
+  if (args.includes("--self-test-detection")) {
+    const { bundle, attemptsExport } = buildSyntheticDetectionFixture();
+    const { runId, exportedAt, clientEvents, serverRows } = parseBundle(bundle);
+    const { labels } = collectLabels(clientEvents, null);
+    const idMap = buildClientToServerMap(clientEvents);
+    const metrics = scoreBenchmark({ labels, idMap, serverRows, clientEvents });
+    const detection = scoreDetection({ labels, idMap, serverRows, attemptRows: parseAttemptExport(attemptsExport) });
+    process.stdout.write(
+      `> SYNTHETIC FIXTURE: code-path self-test only. These are NOT benchmark results.\n\n` +
+        `${renderMarkdown(metrics, { runId, exportedAt })}\n${renderDetectionMarkdown(detection)}\n`,
+    );
+    return;
+  }
   if (args.includes("--self-test")) {
     const bundle = buildSyntheticBundle();
     const { runId, exportedAt, clientEvents, serverRows } = parseBundle(bundle);
@@ -783,14 +1309,21 @@ function main(argv) {
     process.stdout.write(`${renderMarkdown(metrics, { runId, exportedAt })}\n`);
     return;
   }
-  const bundlePath = args.find((a) => !a.startsWith("--"));
-  if (!bundlePath) printUsageAndExit(2);
   const labelsIdx = args.indexOf("--labels");
   const labelsPath = labelsIdx >= 0 ? args[labelsIdx + 1] : null;
   if (labelsIdx >= 0 && !labelsPath) {
     process.stderr.write("error: --labels needs a file path\n");
     process.exit(2);
   }
+  const attemptsIdx = args.indexOf("--attempts");
+  const attemptsPath = attemptsIdx >= 0 ? args[attemptsIdx + 1] : null;
+  if (attemptsIdx >= 0 && !attemptsPath) {
+    process.stderr.write("error: --attempts needs a file path\n");
+    process.exit(2);
+  }
+  const flagValues = new Set([labelsIdx + 1, attemptsIdx + 1].filter((i) => i > 0));
+  const bundlePath = args.find((a, i) => !a.startsWith("--") && !flagValues.has(i));
+  if (!bundlePath) printUsageAndExit(2);
 
   let bundleRaw;
   try {
@@ -837,6 +1370,21 @@ function main(argv) {
     );
   }
   process.stdout.write(`${renderMarkdown(metrics, { runId: parsed.runId, exportedAt: parsed.exportedAt })}\n`);
+
+  // Additive, opt-in detection section: only when research data can exist.
+  let attemptRows = [];
+  if (attemptsPath) {
+    try {
+      attemptRows = parseAttemptExport(JSON.parse(readFileSync(attemptsPath, "utf8")));
+    } catch (cause) {
+      process.stderr.write(`error: cannot read attempts export: ${cause.message}\n`);
+      process.exit(2);
+    }
+  }
+  if (attemptsPath || parsed.serverRows.some((r) => r.researchPhonemes !== undefined)) {
+    const detection = scoreDetection({ labels, idMap, serverRows: parsed.serverRows, attemptRows });
+    process.stdout.write(`\n${renderDetectionMarkdown(detection)}\n`);
+  }
 }
 
 const invokedAsScript =
