@@ -6,7 +6,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import type { TrpcContext } from "./_core/context";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { transcribeAudio, summarizeTranscriptionFailure } from "./_core/voiceTranscription";
+import { transcribeAudio, summarizeTranscriptionFailure, summarizeWhisperResponse } from "./_core/voiceTranscription";
 import { ENV } from "./_core/env";
 import { MAX_AUDIO_BASE64_LENGTH, MAX_AUDIO_BYTES, formatMegabytes } from "@shared/recording";
 import { LEARNING_LEVELS, getLearningCoachPlan, type LearningLevel } from "@shared/learningPath";
@@ -702,7 +702,25 @@ export const appRouter = router({
       // The recorder enforces the size before upload. This shared decoder is
       // also used by incremental live chunks, so both trusted paths reject the
       // same malformed or oversized payloads.
-      const { rawBase64, audioBuffer } = decodeRecitationAudio(input.audioBase64);
+      let rawBase64: string;
+      let audioBuffer: Buffer;
+      try {
+        ({ rawBase64, audioBuffer } = decodeRecitationAudio(input.audioBase64));
+      } catch (error) {
+        // Upload/payload failure class, named in the logs: the bytes never
+        // reached transcription. The client already shows its own sentence
+        // for this; the log carries the stable tRPC code so a real-device
+        // run can tell "upload corrupt" from "service down".
+        console.error("[recitation] audio payload rejected", {
+          route: "recitation.evaluate",
+          requestId: ctx.requestId ?? null,
+          code: error instanceof TRPCError ? error.code : "UNKNOWN",
+          base64Chars: input.audioBase64.length,
+          mimeType: input.mimeType,
+          attemptScope: input.attemptScope,
+        });
+        throw error;
+      }
 
       await enforceRecitationRateLimit(ctx);
 
@@ -842,17 +860,37 @@ export const appRouter = router({
           mimeType: input.mimeType,
           attemptScope: input.attemptScope,
         });
+        // An empty transcript is not a service outage: the provider answered
+        // 200 and had nothing to say. The honest class is "nothing usable
+        // came back", which the client already renders truthfully — the
+        // learner is told to record again, not that the service is down.
+        const emptyTranscript = failure.code === "EMPTY_TRANSCRIPT";
         return unavailableReview(
           `transcription:${failure.code}${failure.httpStatus ? `:${failure.httpStatus}` : ""}`,
           "",
-          { key: "feedback.transcriptionFailedNextStep" },
-          "transcription_failed",
+          { key: emptyTranscript ? "feedback.noArabicNextStep" : "feedback.transcriptionFailedNextStep" },
+          emptyTranscript ? "no_arabic_returned" : "transcription_failed",
         );
       }
 
+      // The whisper no-speech summary is the capture diagnostic: a high mean
+      // no_speech_prob on a short clip means the microphone captured no
+      // voice — a capture failure, not a transcription failure. Numeric only.
+      const whisperSummary = summarizeWhisperResponse(transcription);
       if (!hasArabicScript(transcription.text)) {
+        console.warn("[recitation] transcription returned no Arabic", {
+          route: "recitation.evaluate",
+          requestId: ctx.requestId ?? null,
+          noSpeechProbMean: whisperSummary.noSpeechProbMean,
+          durationSec: whisperSummary.durationSec,
+          transcriptChars: transcription.text.length,
+          audioBytes: audioBuffer.byteLength,
+          mimeType: input.mimeType,
+        });
         return unavailableReview(
-          null,
+          whisperSummary.noSpeechProbMean === null
+            ? "no-arabic:no-segments"
+            : `no-arabic:no-speech-prob=${whisperSummary.noSpeechProbMean.toFixed(2)}:duration=${whisperSummary.durationSec.toFixed(1)}s`,
           transcription.text,
           { key: "feedback.noArabicNextStep" },
           "no_arabic_returned",

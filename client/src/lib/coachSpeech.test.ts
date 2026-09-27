@@ -20,6 +20,7 @@ import {
   findCoachVoice,
   isSpeakableCoachKey,
   speakResolvedCoachingText,
+  waitForCoachVoices,
   type SpeechLike,
 } from "./coachSpeech";
 import { SPEAKABLE_COACH_KEYS } from "@shared/coachSpeech";
@@ -234,5 +235,57 @@ describe("choosing a voice", () => {
     expect(COACH_VOICE_TAGS["fa-AF"][0]).toBe("fa-AF");
     const persian = [{ lang: "fa-IR", name: "Persian" }] as unknown as SpeechSynthesisVoice[];
     expect(findCoachVoice(persian, "fa-AF")?.lang).toBe("fa-IR");
+  });
+});
+
+describe("waitForCoachVoices", () => {
+  it("returns the voices immediately when the list is already populated", async () => {
+    const loaded = [{ lang: "en-US", name: "English" }] as unknown as SpeechSynthesisVoice[];
+    const result = await waitForCoachVoices({
+      speak: () => {},
+      cancel: () => {},
+      getVoices: () => loaded,
+    });
+    expect(result).toBe(loaded);
+  });
+
+  it("waits for voiceschanged on iOS-style late voice loading", async () => {
+    let current: SpeechSynthesisVoice[] = [];
+    const listeners = new Set<() => void>();
+    const late: SpeechLike = {
+      speak: () => {},
+      cancel: () => {},
+      getVoices: () => current,
+      addEventListener: (_type, listener) => { listeners.add(listener); },
+      removeEventListener: (_type, listener) => { listeners.delete(listener); },
+    };
+
+    const pending = waitForCoachVoices(late, 1000);
+    // Voices arrive after the first read, the way iOS Safari delivers them.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    current = [{ lang: "en-US", name: "Samantha" }] as unknown as SpeechSynthesisVoice[];
+    listeners.forEach((listener) => listener());
+
+    const result = await pending;
+    expect(result).toHaveLength(1);
+    expect(result[0]?.lang).toBe("en-US");
+    expect(listeners.size).toBe(0);
+  });
+
+  it("times out with an empty list when the platform never signals", async () => {
+    const result = await waitForCoachVoices(
+      {
+        speak: () => {},
+        cancel: () => {},
+        getVoices: () => [],
+      },
+      20,
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("returns an empty list for a missing synthesiser", async () => {
+    expect(await waitForCoachVoices(null)).toEqual([]);
+    expect(await waitForCoachVoices(undefined)).toEqual([]);
   });
 });

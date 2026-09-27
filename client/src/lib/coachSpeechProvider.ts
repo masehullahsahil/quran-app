@@ -45,6 +45,7 @@ import {
 import {
   findCoachVoice,
   speakResolvedCoachingText,
+  waitForCoachVoices,
   type CoachProsody,
   type CoachSpeechOutcome,
   type CoachVoicePicker,
@@ -199,10 +200,14 @@ export class BrowserCoachSpeechProvider implements CoachSpeechProvider {
     }
   }
 
-  canSpeak(language: SupportedLanguageCode): boolean {
+  async canSpeak(language: SupportedLanguageCode): Promise<boolean> {
     const synthesis = this.resolveSynthesis();
     if (!synthesis || typeof SpeechSynthesisUtterance !== "function") return false;
-    return findCoachVoice(synthesis.getVoices() ?? [], language) !== null;
+    // Warm the voice list: on platforms that load voices asynchronously (iOS
+    // Safari) the first read is empty and the teacher would stay silent.
+    // Bounded, and a no-op once the platform has reported its voices.
+    const voices = await waitForCoachVoices(synthesis);
+    return findCoachVoice(voices, language) !== null;
   }
 
   /**
@@ -256,6 +261,9 @@ export class BrowserCoachSpeechProvider implements CoachSpeechProvider {
     const text = normalizeForSpeech(this.resolveText(request.messageKey, params, request.language));
     if (!text) return { spoken: false, reason: "not-speakable" };
     const synthesis = this.resolveSynthesis();
+    // Same warm-up as canSpeak: the composite calls canSpeak first, but a
+    // direct speak must not race voice loading either.
+    if (synthesis) await waitForCoachVoices(synthesis);
     return new Promise<CoachSpeechOutcome>((resolve) => {
       this.pending.add(resolve);
       const settle = (outcome: CoachSpeechOutcome) => {
