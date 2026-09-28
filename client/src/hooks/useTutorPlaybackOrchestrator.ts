@@ -89,7 +89,9 @@ export type TutorPlaybackState = {
  */
 export const SILENT_TTS_CHECK_MS = 400;
 
-export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPlaybackState {
+export function useTutorPlaybackOrchestrator(
+  input: TutorPlaybackInput,
+): TutorPlaybackState & { unlockAudio: () => void } {
   const [state, setState] = useState<TutorPlaybackState>({ line: null, lineSpoken: false, step: null, performing: false });
   const performedRef = useRef<string | null>(null);
   /** Bumped by every new plan and by disabling, so an old run stops cleanly. */
@@ -118,6 +120,22 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       languages: ["en", "ps", "fa-AF", "ur", "ar"],
     },
   }));
+
+  /**
+   * Unlock the neural provider's audio on a user gesture. Call this from
+   * the press that starts hands-free mode: the browser's autoplay policy
+   * rejects `<audio>.play()` without user activation, and in hands-free
+   * mode no click precedes the teacher's speech. Unlocking resumes the
+   * provider's AudioContext, through which decoded speech plays without
+   * per-play gestures.
+   */
+  const unlockAudio = useCallback(() => {
+    try {
+      providerRef.current?.unlockAudio?.();
+    } catch {
+      /* unlocking is best-effort; the <audio> fallback remains */
+    }
+  }, []);
 
   const stopAudio = useCallback(() => {
     const audio = audioRef.current;
@@ -409,7 +427,7 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
     stopAudio();
   }, [stopAudio]);
 
-  return state;
+  return { ...state, unlockAudio };
 }
 
 function wait(ms: number): Promise<void> {

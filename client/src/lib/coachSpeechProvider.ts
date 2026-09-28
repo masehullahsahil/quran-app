@@ -165,6 +165,16 @@ export interface CoachSpeechProvider {
   speak(request: CoachSpeechRequest, events?: CoachSpeechEvents): Promise<CoachSpeechOutcome>;
   /** Stop whatever this provider is saying, if anything. Idempotent. */
   cancel(): void;
+  /**
+   * Unlock audio playback on a user gesture. Browsers block `audio.play()`
+   * without user activation (autoplay policy); in hands-free mode there is
+   * no click before the teacher speaks, so the element-based playback is
+   * rejected and the provider falls back to silence. A provider that plays
+   * through Web Audio uses this to create/resume its AudioContext on the
+   * gesture — a running context plays decoded buffers without per-play
+   * gestures. Optional; providers that don't need it omit it.
+   */
+  unlockAudio?: () => void;
 }
 
 export type BrowserCoachSpeechOptions = {
@@ -365,6 +375,15 @@ export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
   private current: AudioLike | null = null;
   /** Pending speaks, settled as not-spoken when `cancel()` runs. */
   private pending = new Set<(outcome: CoachSpeechOutcome) => void>();
+  /**
+   * Web Audio context, created and resumed on a user gesture via
+   * `unlockAudio()`. A running context plays decoded audio buffers without
+   * per-play user activation — the `<audio>` element path is rejected by the
+   * browser's autoplay policy in hands-free mode, where no click precedes
+   * the teacher's speech.
+   */
+  private audioCtx: AudioContext | null = null;
+  private webSource: AudioBufferSourceNode | null = null;
 
   constructor(
     private config: NeuralCoachSpeechConfig,
@@ -379,6 +398,31 @@ export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
       this.config.endpoint.length > 0 &&
       (this.config.languages ?? []).includes(language)
     );
+  }
+
+  /**
+   * Unlock Web Audio playback. Must be called on a user gesture (for
+   * example, the press that starts hands-free mode). Creates the
+   * AudioContext and resumes it; once running, `speak()` decodes the
+   * fetched MP3 and plays it through the context, which the autoplay
+   * policy permits without a per-play gesture. Safe to call repeatedly.
+   */
+  unlockAudio(): void {
+    try {
+      if (!this.audioCtx) {
+        const Ctor =
+          window.AudioContext ??
+          (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctor) return;
+        this.audioCtx = new Ctor();
+      }
+      if (this.audioCtx.state === "suspended") {
+        void this.audioCtx.resume();
+      }
+    } catch {
+      // Web Audio unavailable here; speak() keeps the <audio> element path.
+      this.audioCtx = null;
+    }
   }
 
   async speak(request: CoachSpeechRequest, events?: CoachSpeechEvents): Promise<CoachSpeechOutcome> {
@@ -405,39 +449,105 @@ export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
       });
       if (!response.ok) return { spoken: false, reason: "provider-unavailable" };
       const blob = await response.blob();
-      const audio = this.createAudio();
-      const url = URL.createObjectURL(blob);
-      this.current = audio;
-      return await new Promise<CoachSpeechOutcome>((resolve) => {
-        this.pending.add(resolve);
-        const settle = (outcome: CoachSpeechOutcome) => {
-          if (!this.pending.delete(resolve)) return;
-          URL.revokeObjectURL(url);
-          if (this.current === audio) this.current = null;
-          resolve(outcome);
-        };
-        audio.onended = () => {
-          events?.onUtteranceEnd?.("end");
-          settle({ spoken: true, voiceLang: request.language });
-        };
-        audio.onerror = () => {
-          events?.onUtteranceEnd?.("error");
-          settle({ spoken: false, reason: "provider-unavailable" });
-        };
-        audio.src = url;
-        void Promise.resolve(audio.play()).catch(() => {
-          events?.onUtteranceEnd?.("error");
-          settle({ spoken: false, reason: "provider-unavailable" });
-        });
-      });
+      // Web Audio when unlocked: no per-play gesture needed. Otherwise the
+      // <audio> element path, which the autoplay policy may reject outside
+      // a user gesture (hands-free mode) — the composite then falls through
+      // to the browser voice.
+      if (this.audioCtx && this.audioCtx.state === "running") {
+        return await this.speakViaWebAudio(blob, request, events);
+      }
+      return await this.speakViaElement(blob, request, events);
     } catch {
       return { spoken: false, reason: "provider-unavailable" };
     }
   }
 
+  private speakViaWebAudio(
+    blob: Blob,
+    request: CoachSpeechRequest,
+    events?: CoachSpeechEvents,
+  ): Promise<CoachSpeechOutcome> {
+    const ctx = this.audioCtx;
+    if (!ctx) return Promise.resolve({ spoken: false, reason: "provider-unavailable" });
+    return new Promise<CoachSpeechOutcome>((resolve) => {
+      this.pending.add(resolve);
+      const settle = (outcome: CoachSpeechOutcome) => {
+        if (!this.pending.delete(resolve)) return;
+        this.pending.clear();
+        if (this.webSource) {
+          try {
+            this.webSource.onended = null;
+          } catch {
+            /* already torn down */
+          }
+          this.webSource = null;
+        }
+        resolve(outcome);
+      };
+      void (async () => {
+        try {
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+          if (!this.pending.has(resolve)) return;
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          this.webSource = source;
+          source.onended = () => {
+            events?.onUtteranceEnd?.("end");
+            settle({ spoken: true, voiceLang: request.language });
+          };
+          source.start();
+        } catch {
+          events?.onUtteranceEnd?.("error");
+          settle({ spoken: false, reason: "provider-unavailable" });
+        }
+      })();
+    });
+  }
+
+  private speakViaElement(
+    blob: Blob,
+    request: CoachSpeechRequest,
+    events?: CoachSpeechEvents,
+  ): Promise<CoachSpeechOutcome> {
+    const audio = this.createAudio();
+    const url = URL.createObjectURL(blob);
+    this.current = audio;
+    return new Promise<CoachSpeechOutcome>((resolve) => {
+      this.pending.add(resolve);
+      const settle = (outcome: CoachSpeechOutcome) => {
+        if (!this.pending.delete(resolve)) return;
+        this.pending.clear();
+        URL.revokeObjectURL(url);
+        if (this.current === audio) this.current = null;
+        resolve(outcome);
+      };
+      audio.onended = () => {
+        events?.onUtteranceEnd?.("end");
+        settle({ spoken: true, voiceLang: request.language });
+      };
+      audio.onerror = () => {
+        events?.onUtteranceEnd?.("error");
+        settle({ spoken: false, reason: "provider-unavailable" });
+      };
+      audio.src = url;
+      void Promise.resolve(audio.play()).catch(() => {
+        events?.onUtteranceEnd?.("error");
+        settle({ spoken: false, reason: "provider-unavailable" });
+      });
+    });
+  }
+
   cancel(): void {
     this.pending.forEach((resolve) => resolve({ spoken: false, reason: "provider-unavailable" }));
     this.pending.clear();
+    try {
+      this.webSource?.stop();
+    } catch {
+      /* already stopped */
+    }
+    this.webSource = null;
     try {
       this.current?.pause();
     } catch { /* already torn down */ }
@@ -520,6 +630,13 @@ export function createCoachSpeechProvider(options: CompositeCoachSpeechOptions =
         try {
           provider.cancel();
         } catch { /* one provider's teardown must not trap the others */ }
+      }
+    },
+    unlockAudio(): void {
+      for (const provider of providers) {
+        try {
+          provider.unlockAudio?.();
+        } catch { /* one provider's unlock must not trap the others */ }
       }
     },
   };
