@@ -439,6 +439,13 @@ export default function Home() {
     if (!ref) return;
     const provider = guidanceSpeechRef.current;
     if (!provider) return;
+    // The tap is a user gesture: unlock Web Audio so the neural voice isn't
+    // blocked by the autoplay policy while its MP3 is being fetched.
+    try {
+      provider.unlockAudio?.();
+    } catch {
+      /* unlocking is best-effort */
+    }
     provider.cancel();
     void provider.speak({ messageKey: ref.key, params: ref.params, language });
   }, []);
