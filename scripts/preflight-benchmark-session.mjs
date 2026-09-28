@@ -14,6 +14,15 @@ import { isDeepStrictEqual } from "node:util";
 const PURPOSE = "preflight smoke test — disposable";
 const DEFAULT_MODEL = "obadx/muaalem-model-v3_2";
 const DAY_MS = 86_400_000;
+/** Blanket timeout for probe requests. The step-3c app attempt goes through
+ * the app's transcription path, which allows one bounded retry of up to 30s
+ * per request (server/_core/voiceTranscription.ts) plus up to 20s for the
+ * app->evaluator call (server/quranEvaluator.ts). Aborting that request at
+ * the blanket 45s would report a false NO-GO while the server keeps
+ * processing, so it gets a route-specific timeout covering the bounded
+ * retry window.
+ */
+const EVALUATE_TIMEOUT_MS = 90_000;
 
 /** NON-QURAN, NON-SPEECH fixture: 2s PCM WAV, with one 1s 440Hz beep.
  * Silence before/after keeps the evaluator's energy-based noise estimate low;
@@ -142,13 +151,13 @@ export async function runPreflight({
   const fail = (step, message, fix) => {
     throw new CheckFailure(step, message, fix);
   };
-  async function request(base, path, init, step, fix) {
+  async function request(base, path, init, step, fix, timeoutMs = 45_000) {
     let response;
     try {
       response = await fetchImpl(`${base}${path}`, {
         ...init,
         redirect: "error",
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(timeoutMs),
         headers: { accept: "application/json", ...init?.headers },
       });
       const body = await response.json().catch(() => null);
@@ -373,7 +382,8 @@ export async function runPreflight({
           }),
         },
         "3c app attempt/evaluator forwarding",
-        "Check the app recitation endpoint, rate limit, transcription dependency, and evaluator timeout. Do not retry this attempt automatically."
+        "Check the app recitation endpoint, rate limit, transcription dependency, and evaluator timeout. Do not retry this attempt automatically.",
+        EVALUATE_TIMEOUT_MS
       );
       const data = evaluated.body?.result?.data?.json;
       if (evaluated.status !== 200 || !data || evaluated.body?.error)
@@ -381,6 +391,18 @@ export async function runPreflight({
           "3c app attempt/evaluator forwarding",
           `HTTP ${evaluated.status}: app attempt failed.`,
           "Check app logs using the printed correlation ID; fix its recitation/transcription/evaluator dependencies."
+        );
+      // The app intentionally returns HTTP 200 with reviewMessageCode
+      // "transcription_failed" when the transcription request itself failed
+      // (quota, rate limit, endpoint permissions). The non-speech beep
+      // fixture should yield "no_arabic_returned"; accept it but reject a
+      // real transcription failure, otherwise a broken transcription
+      // dependency reports GO.
+      if (data.reviewMessageCode === "transcription_failed")
+        fail(
+          "3c transcription dependency",
+          "App attempt returned transcription_failed despite HTTP 200.",
+          "Check the app server's OPENAI_API_KEY, transcription quota/rate limit and model permissions; a healthy pipeline returns no_arabic_returned for the non-speech beep."
         );
       if (
         data.validationCorrelationId !== correlationId ||
