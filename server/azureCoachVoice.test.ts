@@ -13,7 +13,9 @@ import {
   coachAudioCacheKey,
   createAzureCoachSynthesizer,
   createCachedCoachSynthesizer,
+  createLanguageGatedSynthesizer,
   listAzureVoices,
+  parseNeuralVoiceLanguages,
 } from "./azureCoachVoice";
 import type { SupportedLanguageCode } from "@shared/languages";
 
@@ -219,5 +221,46 @@ describe("listAzureVoices", () => {
       throw new Error("down");
     }).fetchImpl;
     await expect(listAzureVoices("k", "r", throwing)).resolves.toBeNull();
+  });
+});
+
+describe("parseNeuralVoiceLanguages", () => {
+  it("returns null when unset or blank — no restriction", () => {
+    expect(parseNeuralVoiceLanguages(undefined)).toBeNull();
+    expect(parseNeuralVoiceLanguages("")).toBeNull();
+    expect(parseNeuralVoiceLanguages("   ")).toBeNull();
+  });
+
+  it("parses a comma list, trimming whitespace", () => {
+    expect(parseNeuralVoiceLanguages("en,ps")).toEqual(new Set(["en", "ps"]));
+    expect(parseNeuralVoiceLanguages(" en , ps ")).toEqual(new Set(["en", "ps"]));
+  });
+
+  it("ignores unknown codes and dedupes", () => {
+    expect(parseNeuralVoiceLanguages("en,xx,en")).toEqual(new Set(["en"]));
+  });
+});
+
+describe("createLanguageGatedSynthesizer", () => {
+  const audio = Buffer.from([1, 2, 3]);
+  const base = vi.fn(async (_text: string, _language: SupportedLanguageCode) => audio);
+
+  beforeEach(() => base.mockClear());
+
+  it("passes everything through when the allowlist is null", async () => {
+    const gated = createLanguageGatedSynthesizer(base, null);
+    await expect(gated("hi", "ar")).resolves.toBe(audio);
+    await expect(gated("hi", "fa-AF")).resolves.toBe(audio);
+    expect(base).toHaveBeenCalledTimes(2);
+  });
+
+  it("only allowlisted languages reach the vendor", async () => {
+    const gated = createLanguageGatedSynthesizer(base, new Set(["en", "ps"]));
+    await expect(gated("hi", "en")).resolves.toBe(audio);
+    await expect(gated("hi", "ps")).resolves.toBe(audio);
+    await expect(gated("hi", "ar")).resolves.toBeNull();
+    await expect(gated("hi", "fa-AF")).resolves.toBeNull();
+    await expect(gated("hi", "ur")).resolves.toBeNull();
+    expect(base).toHaveBeenCalledTimes(2);
   });
 });
