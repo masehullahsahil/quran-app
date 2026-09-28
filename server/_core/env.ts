@@ -5,6 +5,13 @@ export const ENV = {
   oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
+  // Google OAuth (replaces Manus OAuth). Client ID is public; the secret
+  // stays server-side. PUBLIC_APP_URL is the canonical app origin used to
+  // build the OAuth redirect URI.
+  googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
+  googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+  publicAppUrl: process.env.PUBLIC_APP_URL ?? "",
+  ownerEmail: process.env.OWNER_EMAIL ?? "",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
   // Direct OpenAI access, used by _core/llm.ts and _core/voiceTranscription.ts.
