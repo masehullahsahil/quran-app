@@ -23,6 +23,8 @@ import { registerCoachSpeechEndpoint } from "../coachSpeechEndpoint";
 import {
   createAzureCoachSynthesizer,
   createCachedCoachSynthesizer,
+  createLanguageGatedSynthesizer,
+  parseNeuralVoiceLanguages,
 } from "../azureCoachVoice";
 import { requestIdMiddleware } from "./requestId";
 import { logger } from "./logger";
@@ -99,9 +101,20 @@ export function createApp(): Express {
   // so the client falls back to the browser voice — the lesson never waits
   // on a voice that isn't there. Registered before the tRPC middleware so
   // the path is never shadowed.
+  //
+  // AZURE_SPEECH_LANGS optionally restricts the neural voice to reviewed
+  // languages (e.g. "en,ps"): any other language answers 501 and falls back
+  // to the browser voice. Unset means every mapped language may use neural.
+  const azureSynthesizer = createAzureCoachSynthesizer();
+  const gatedSynthesizer = azureSynthesizer
+    ? createLanguageGatedSynthesizer(
+        azureSynthesizer,
+        parseNeuralVoiceLanguages(process.env.AZURE_SPEECH_LANGS),
+      )
+    : undefined;
   registerCoachSpeechEndpoint(
     app,
-    createCachedCoachSynthesizer(createAzureCoachSynthesizer() ?? undefined),
+    createCachedCoachSynthesizer(gatedSynthesizer),
   );
 
   app.use(

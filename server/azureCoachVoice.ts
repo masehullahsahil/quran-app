@@ -29,7 +29,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CoachSpeechSynthesizer } from "./coachSpeechEndpoint";
-import type { SupportedLanguageCode } from "@shared/languages";
+import { isSupportedLanguage, type SupportedLanguageCode } from "@shared/languages";
 
 /**
  * One neural voice per learner language. Chosen for a warm, natural
@@ -208,4 +208,38 @@ export function createCachedCoachSynthesizer(
     }
     return audio;
   };
+}
+
+/**
+ * Parse AZURE_SPEECH_LANGS ("en,ps") into the set of languages allowed a
+ * neural voice. Unknown codes are ignored. Null/empty means no restriction
+ * (every mapped language may use neural) — the pre-gate behaviour.
+ *
+ * This is the review gate made operational: a language's neural voice goes
+ * live only after its reviewer approves it, and opening the next language
+ * is a Vercel variable change, not a code change.
+ */
+export function parseNeuralVoiceLanguages(raw: string | undefined): Set<SupportedLanguageCode> | null {
+  if (!raw || !raw.trim()) return null;
+  const allowed = new Set<SupportedLanguageCode>();
+  for (const piece of raw.split(",")) {
+    const code = piece.trim();
+    if (isSupportedLanguage(code)) allowed.add(code);
+  }
+  return allowed;
+}
+
+/**
+ * Wrap a synthesizer so only allowlisted languages reach the vendor.
+ * A disallowed language resolves to null — the endpoint answers 501 and the
+ * client falls back to the browser voice, exactly as if no neural voice
+ * were configured for it. Never throws; never touches the key.
+ */
+export function createLanguageGatedSynthesizer(
+  base: CoachSpeechSynthesizer,
+  allowed: Set<SupportedLanguageCode> | null,
+): CoachSpeechSynthesizer {
+  if (!allowed) return base;
+  return (text, language) =>
+    allowed.has(language) ? base(text, language) : Promise.resolve(null);
 }
