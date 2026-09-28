@@ -255,7 +255,16 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
       // more", inviting recitation into a closed mic and clipping the beginning
       // of the turn. If the platform reports it is not speaking shortly after
       // the call, resolve the step at once instead.
-      if (!settled) {
+      //
+      // The probe only understands the browser's speechSynthesis, so it is
+      // armed per provider attempt (see onProviderAttempt below): the neural
+      // voice fetches its audio over the network — always slower than this
+      // probe — and probing it would cancel every neural utterance before it
+      // begins, falling through to the robotic browser voice (or to silence
+      // in a language the browser has no voice for).
+      const armSilentCheck = () => {
+        if (settled) return;
+        if (silentTimer !== undefined) clearTimeout(silentTimer);
         silentTimer = setTimeout(() => {
           if (settled) return;
           const synthesis = typeof window !== "undefined" && "speechSynthesis" in window
@@ -271,7 +280,7 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
           // Otherwise the voice is starting, still queueing, or the platform
           // does not report liveness at all: leave the backstop in place.
         }, SILENT_TTS_CHECK_MS);
-      }
+      };
       if (runRef.current !== run) settle();
       void provider.speak(
         {
@@ -282,6 +291,11 @@ export function useTutorPlaybackOrchestrator(input: TutorPlaybackInput): TutorPl
         {
           onUtteranceEnd: (reason) => {
             utteranceEnd = reason;
+          },
+          onProviderAttempt: (providerId) => {
+            // The silence probe is only meaningful for the speechSynthesis
+            // voice. "server-neural" fetches audio; "browser" speaks it.
+            if (providerId === "browser") armSilentCheck();
           },
         },
       ).then((outcome) => {
