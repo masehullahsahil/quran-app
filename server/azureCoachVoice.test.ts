@@ -67,7 +67,7 @@ describe("createAzureCoachSynthesizer", () => {
     const synth = createAzureCoachSynthesizer(ENV, fetchImpl)!;
     const cases: Array<[SupportedLanguageCode, string]> = [
       ["en", "en-US-AvaNeural"],
-      ["ur", "ur-PK-GulNeural"],
+      ["ur", "ur-PK-UzmaNeural"],
       ["ps", "ps-AF-LatifaNeural"],
       ["fa-AF", "fa-IR-DilaraNeural"],
       ["ar", "ar-SA-ZariyahNeural"],
@@ -127,7 +127,7 @@ describe("coachAudioCacheKey", () => {
   it("is deterministic and separates voice from text", () => {
     const a = coachAudioCacheKey("en-US-AvaNeural", "Hello.");
     expect(a).toBe(coachAudioCacheKey("en-US-AvaNeural", "Hello."));
-    expect(a).not.toBe(coachAudioCacheKey("ur-PK-GulNeural", "Hello."));
+    expect(a).not.toBe(coachAudioCacheKey("ur-PK-UzmaNeural", "Hello."));
     expect(a).not.toBe(coachAudioCacheKey("en-US-AvaNeural", "Hello!"));
     expect(a).toMatch(/^[0-9a-f]{64}$/);
   });

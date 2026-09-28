@@ -140,7 +140,9 @@ once** (well inside the free tier's 500K neural chars/month). Each unique
   sentences ever reach the synthesizer.
 
 Voice map (`AZURE_COACH_VOICES`): en → `en-US-AvaNeural`,
-ur → `ur-PK-GulNeural`, ps → `ps-AF-LatifaNeural`,
+ur → `ur-PK-UzmaNeural` (corrected 2026-09-27: `ur-PK-GulNeural` does not
+exist — "Gul" is the ur-IN voice; the pre-gen voice check caught it),
+ps → `ps-AF-LatifaNeural`,
 fa-AF → `fa-IR-DilaraNeural`, ar → `ar-SA-ZariyahNeural`. SSML uses
 **default prosody** — no slowed speech; the voices' natural pace is the
 warm teacher cadence the product wants. Output is
