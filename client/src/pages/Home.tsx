@@ -1752,6 +1752,10 @@ export default function Home() {
    * outcome, so a repaired `lost` never unmounts the tutor panel mid-press.
    */
   const startHandsFree = useCallback(async () => {
+    // User gesture: unlock the neural teacher's Web Audio playback. Without
+    // this, the browser's autoplay policy rejects the teacher's audio in
+    // hands-free mode, where no click precedes the speech.
+    playback.unlockAudio();
     const ready = await continuousRef.current.start();
     if (!ready) return;
     // `startLesson` awaits the trusted handoff — the barrier above — and
@@ -1766,7 +1770,7 @@ export default function Home() {
       return;
     }
     setHandsFreeOn(true);
-  }, []);
+  }, [playback]);
 
   const handsFreeOptions: HandsFreeOption[] = (() => {
     if (!handsFreeOn || !tutor.turn) return [];

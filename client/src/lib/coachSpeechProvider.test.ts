@@ -384,6 +384,138 @@ describe("the server neural provider", () => {
   });
 });
 
+describe("neural provider Web Audio unlock (autoplay policy)", () => {
+  /** Minimal AudioContext stand-in: resume() flips state to running. */
+  function audioContextHarness() {
+    const source = {
+      buffer: null as unknown,
+      connect: vi.fn(),
+      start: vi.fn(),
+      stop: vi.fn(),
+      onended: null as (() => void) | null,
+    };
+    const ctx = {
+      state: "suspended" as string,
+      resume: vi.fn().mockImplementation(function (this: { state: string }) {
+        this.state = "running";
+        return Promise.resolve();
+      }.bind({ state: "suspended" })),
+      decodeAudioData: vi.fn().mockResolvedValue({}),
+      createBufferSource: vi.fn().mockReturnValue(source),
+      destination: {},
+    };
+    // Bind resume to mutate ctx.state
+    ctx.resume = vi.fn().mockImplementation(() => {
+      ctx.state = "running";
+      return Promise.resolve();
+    });
+    return { ctx: ctx as unknown as AudioContext, source };
+  }
+
+  it("unlockAudio creates and resumes an AudioContext on the user gesture", () => {
+    const { ctx } = audioContextHarness();
+    const AudioContextStub = vi.fn().mockReturnValue(ctx);
+    vi.stubGlobal("AudioContext", AudioContextStub);
+    try {
+      const provider = new ServerNeuralCoachSpeechProvider(
+        { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+        vi.fn() as unknown as typeof fetch,
+        () => audioHarness() as never,
+      );
+      provider.unlockAudio();
+      expect(AudioContextStub).toHaveBeenCalled();
+      expect(ctx.resume).toHaveBeenCalled();
+      expect(ctx.state).toBe("running");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("speak() plays through Web Audio when unlocked — no per-play gesture needed", async () => {
+    const { ctx, source } = audioContextHarness();
+    const AudioContextStub = vi.fn().mockReturnValue(ctx);
+    vi.stubGlobal("AudioContext", AudioContextStub);
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(["audio"], { type: "audio/mpeg" })),
+      });
+      const createAudio = vi.fn(() => audioHarness() as never);
+      const provider = new ServerNeuralCoachSpeechProvider(
+        { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+        fetchImpl as unknown as typeof fetch,
+        createAudio,
+      );
+      provider.unlockAudio();
+      let ended: string | null = null;
+      const pending = provider.speak(
+        { messageKey: "tutor.wordMissed", language: "en" },
+        { onUtteranceEnd: (reason) => { ended = reason; } },
+      );
+      await flushSpeak();
+      await flushSpeak();
+      // Web Audio path: decode + buffer source, NOT the <audio> element.
+      expect(ctx.decodeAudioData).toHaveBeenCalled();
+      expect(ctx.createBufferSource).toHaveBeenCalled();
+      expect(source.start).toHaveBeenCalled();
+      expect(createAudio).not.toHaveBeenCalled();
+      source.onended?.();
+      const outcome = await pending;
+      expect(ended).toBe("end");
+      expect(outcome).toEqual({ spoken: true, voiceLang: "en" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("speak() falls back to the <audio> element when not unlocked", async () => {
+    const audio = audioHarness();
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(["audio"], { type: "audio/mpeg" })),
+    });
+    const provider = new ServerNeuralCoachSpeechProvider(
+      { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+      fetchImpl as unknown as typeof fetch,
+      () => audio as never,
+    );
+    // No unlockAudio() call: the AudioContext path is unavailable.
+    const pending = provider.speak({ messageKey: "tutor.wordMissed", language: "en" });
+    await flushSpeak();
+    expect(audio.play).toHaveBeenCalled();
+    audio.onended?.();
+    const outcome = await pending;
+    expect(outcome).toEqual({ spoken: true, voiceLang: "en" });
+  });
+
+  it("cancel() stops an in-flight Web Audio source", async () => {
+    const { ctx, source } = audioContextHarness();
+    const AudioContextStub = vi.fn().mockReturnValue(ctx);
+    vi.stubGlobal("AudioContext", AudioContextStub);
+    try {
+      const fetchImpl = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(["audio"], { type: "audio/mpeg" })),
+      });
+      const provider = new ServerNeuralCoachSpeechProvider(
+        { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+        fetchImpl as unknown as typeof fetch,
+        () => audioHarness() as never,
+      );
+      provider.unlockAudio();
+      const pending = provider.speak({ messageKey: "tutor.wordMissed", language: "en" });
+      await flushSpeak();
+      await flushSpeak();
+      provider.cancel();
+      expect(source.stop).toHaveBeenCalled();
+      const outcome = await pending;
+      expect(outcome.spoken).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe("the composite provider", () => {
   it("prefers the configured neural voice over the browser's", async () => {
     const audio = audioHarness();
@@ -406,6 +538,21 @@ describe("the composite provider", () => {
 
     expect(outcome).toEqual({ spoken: true, voiceLang: "en" });
     expect(spoken).toEqual([]); // the browser synthesiser was never touched
+  });
+  it("forwards unlockAudio() to providers that support it", () => {
+    const neural = new ServerNeuralCoachSpeechProvider(
+      { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+      vi.fn() as unknown as typeof fetch,
+      () => audioHarness() as never,
+    );
+    const unlockSpy = vi.spyOn(neural, "unlockAudio");
+    const composite = createCoachSpeechProvider({
+      synthesis,
+      resolveText,
+      providers: [neural, new BrowserCoachSpeechProvider(synthesis, resolveText)],
+    });
+    composite.unlockAudio?.();
+    expect(unlockSpy).toHaveBeenCalled();
   });
 
   it("cancels every provider without one trapping the others", () => {
