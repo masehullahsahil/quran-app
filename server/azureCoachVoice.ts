@@ -46,7 +46,11 @@ export const AZURE_COACH_VOICES: Record<SupportedLanguageCode, string> = {
   en: "en-US-AvaNeural",
   ps: "ps-AF-LatifaNeural",
   "fa-AF": "fa-IR-DilaraNeural",
-  ur: "ur-PK-GulNeural",
+  // NOTE: there is no ur-PK-GulNeural — "Gul" is the ur-IN (India) female
+  // voice. The Pakistani Urdu female voice is Uzma; verified against the
+  // live eastus catalog 2026-09-27 (the pre-gen script's voice check
+  // caught the bad mapping before anything taught).
+  ur: "ur-PK-UzmaNeural",
   ar: "ar-SA-ZariyahNeural",
 };
 
@@ -73,10 +77,15 @@ function escapeXml(text: string): string {
  * SSML with default prosody — deliberately no <prosody rate="...">.
  * Slowed speech was rejected; the default pace of these voices is the
  * warm conversational teacher cadence the product wants.
+ *
+ * NOTE: no xmlns on <speak>. Azure's TTS endpoint rejects the explicit
+ * SSML namespace declaration with a bare HTTP 400 (verified against the
+ * live eastus endpoint 2026-09-27: identical SSML 400s with xmlns,
+ * 200s without). Microsoft's own REST examples omit it.
  */
 export function buildCoachSsml(voiceId: string, text: string): string {
   return (
-    `<speak version="1.0" xmlns="http://www.w3.org/2001/SSML" xml:lang="${escapeXml(voiceId.slice(0, 5))}">` +
+    `<speak version="1.0" xml:lang="${escapeXml(voiceId.slice(0, 5))}">` +
     `<voice name="${escapeXml(voiceId)}">${escapeXml(text)}</voice></speak>`
   );
 }
