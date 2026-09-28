@@ -370,6 +370,42 @@ type AudioLike = {
  * composite falls through to the browser voice — the lesson continues on
  * screen.
  */
+/**
+ * TEMPORARY diagnostic for the neural voice issue. Records each step of the
+ * last speak() attempt so the UI can display what actually happened.
+ * Remove once the neural voice is confirmed working.
+ */
+export interface NeuralDiagnostic {
+  timestamp: string;
+  messageKey: string;
+  language: string;
+  canSpeak: boolean;
+  audioCtxState: string | null;
+  fetchStatus: number | null;
+  fetchOk: boolean | null;
+  blobSize: number | null;
+  playbackPath: "web-audio" | "element" | null;
+  outcome: string;
+  error: string | null;
+}
+
+let lastNeuralDiagnostic: NeuralDiagnostic | null = null;
+
+/** Returns the diagnostic from the last neural speak() attempt. */
+export function getLastNeuralDiagnostic(): NeuralDiagnostic | null {
+  return lastNeuralDiagnostic;
+}
+
+function recordDiagnostic(d: NeuralDiagnostic): void {
+  lastNeuralDiagnostic = d;
+  // Also expose globally for easy console inspection
+  try {
+    (window as unknown as { __neuralDiagnostic?: NeuralDiagnostic }).__neuralDiagnostic = d;
+  } catch {
+    /* ignore */
+  }
+}
+
 export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
   readonly id = "server-neural";
   private current: AudioLike | null = null;
@@ -426,10 +462,28 @@ export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
   }
 
   async speak(request: CoachSpeechRequest, events?: CoachSpeechEvents): Promise<CoachSpeechOutcome> {
+    const diag: NeuralDiagnostic = {
+      timestamp: new Date().toISOString(),
+      messageKey: String(request.messageKey),
+      language: String(request.language),
+      canSpeak: false,
+      audioCtxState: this.audioCtx ? this.audioCtx.state : null,
+      fetchStatus: null,
+      fetchOk: null,
+      blobSize: null,
+      playbackPath: null,
+      outcome: "pending",
+      error: null,
+    };
     if (!isSpeakableCoachKey(request.messageKey)) {
+      diag.outcome = "not-speakable-key";
+      recordDiagnostic(diag);
       return { spoken: false, reason: "not-speakable" };
     }
-    if (!this.canSpeak(request.language)) {
+    diag.canSpeak = this.canSpeak(request.language);
+    if (!diag.canSpeak) {
+      diag.outcome = "canSpeak-false";
+      recordDiagnostic(diag);
       return { spoken: false, reason: "provider-unavailable" };
     }
     // Key-only on the wire: the endpoint resolves the sentence itself. A key
@@ -447,17 +501,36 @@ export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       });
-      if (!response.ok) return { spoken: false, reason: "provider-unavailable" };
+      diag.fetchStatus = response.status;
+      diag.fetchOk = response.ok;
+      if (!response.ok) {
+        diag.outcome = `fetch-not-ok-${response.status}`;
+        recordDiagnostic(diag);
+        return { spoken: false, reason: "provider-unavailable" };
+      }
       const blob = await response.blob();
+      diag.blobSize = blob.size;
       // Web Audio when unlocked: no per-play gesture needed. Otherwise the
       // <audio> element path, which the autoplay policy may reject outside
       // a user gesture (hands-free mode) — the composite then falls through
       // to the browser voice.
       if (this.audioCtx && this.audioCtx.state === "running") {
-        return await this.speakViaWebAudio(blob, request, events);
+        diag.playbackPath = "web-audio";
+        diag.audioCtxState = this.audioCtx.state;
+        const outcome = await this.speakViaWebAudio(blob, request, events);
+        diag.outcome = outcome.spoken ? "web-audio-spoken" : `web-audio-failed-${outcome.reason ?? "unknown"}`;
+        recordDiagnostic(diag);
+        return outcome;
       }
-      return await this.speakViaElement(blob, request, events);
-    } catch {
+      diag.playbackPath = "element";
+      const outcome = await this.speakViaElement(blob, request, events);
+      diag.outcome = outcome.spoken ? "element-spoken" : `element-failed-${outcome.reason ?? "unknown"}`;
+      recordDiagnostic(diag);
+      return outcome;
+    } catch (e) {
+      diag.outcome = "exception";
+      diag.error = e instanceof Error ? e.message : String(e);
+      recordDiagnostic(diag);
       return { spoken: false, reason: "provider-unavailable" };
     }
   }

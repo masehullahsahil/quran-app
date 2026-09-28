@@ -82,7 +82,7 @@ import {
 } from "@/lib/attemptFailureMessage";
 import { createFinalAttemptTrace } from "@/lib/validationCapture";
 import { handsFreePlanFor, type HandsFreePlan } from "@/lib/handsFreePlan";
-import { createCoachSpeechProvider, type CoachSpeechProvider, type CoachSpeechTextResolver } from "@/lib/coachSpeechProvider";
+import { createCoachSpeechProvider, getLastNeuralDiagnostic, type CoachSpeechProvider, type CoachSpeechTextResolver, type NeuralDiagnostic } from "@/lib/coachSpeechProvider";
 import { interruptHandoff, interruptsCapture, type LiveTutorServerEvent } from "@/lib/tutorLiveTransport";
 import { useLiveRecitationStream } from "@/hooks/useLiveRecitationStream";
 import type { MasteryState } from "@shared/memorization";
@@ -308,6 +308,72 @@ function reviewFitsAyah(review: RecitationFeedback, arabic: string): boolean {
     review.correctionSession.targetWordIndex > words
   )) return false;
   return review.corrections.every((correction) => correction.wordIndex === null || (correction.wordIndex >= 1 && correction.wordIndex <= words));
+}
+
+/**
+ * TEMPORARY diagnostic badge for the neural voice issue.
+ * Shows what happened on the last neural speech attempt in plain language.
+ * Remove once the neural voice is confirmed working.
+ */
+function NeuralVoiceDiagnosticBadge() {
+  const [diag, setDiag] = React.useState<NeuralDiagnostic | null>(null);
+  const [visible, setVisible] = React.useState(true);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      const current = getLastNeuralDiagnostic();
+      setDiag((prev) => (current !== prev ? current : prev));
+    }, 500);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!diag || !visible) return null;
+
+  const statusColor =
+    diag.outcome.includes("spoken") ? "#16a34a" : diag.outcome === "pending" ? "#ca8a04" : "#dc2626";
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        bottom: 12,
+        left: 12,
+        zIndex: 9999,
+        maxWidth: 360,
+        background: "rgba(0,0,0,0.85)",
+        color: "#fff",
+        borderRadius: 8,
+        padding: "10px 12px",
+        fontSize: 12,
+        fontFamily: "monospace",
+        lineHeight: 1.5,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <strong>Neural Voice Diagnostic</strong>
+        <button
+          type="button"
+          onClick={() => setVisible(false)}
+          style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", fontSize: 14 }}
+          aria-label="Hide diagnostic"
+        >
+          ×
+        </button>
+      </div>
+      <div>Key: {diag.messageKey}</div>
+      <div>Language: {diag.language}</div>
+      <div>Can speak: {diag.canSpeak ? "yes" : "NO"}</div>
+      <div>AudioContext: {diag.audioCtxState ?? "not created"}</div>
+      <div>
+        Fetch: {diag.fetchStatus ?? "not attempted"}
+        {diag.fetchOk === false ? " (FAILED)" : diag.fetchOk === true ? " (OK)" : ""}
+      </div>
+      <div>Audio size: {diag.blobSize != null ? `${(diag.blobSize / 1024).toFixed(1)} KB` : "—"}</div>
+      <div>Playback: {diag.playbackPath ?? "—"}</div>
+      <div style={{ color: statusColor, fontWeight: "bold", marginTop: 4 }}>Result: {diag.outcome}</div>
+      {diag.error ? <div style={{ color: "#fca5a5" }}>Error: {diag.error}</div> : null}
+    </div>
+  );
 }
 
 export default function Home() {
@@ -1918,6 +1984,7 @@ export default function Home() {
 
   return (
     <div className="sanctuary-shell">
+      <NeuralVoiceDiagnosticBadge />
       <audio ref={audioRef} src={activeVerse?.audioUrl ?? undefined} preload="auto" onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={handleAudioEnded} onError={handleAudioError} />
       <aside className="app-rail" aria-label={t("nav.primaryLabel")}>
         <div className="rail-brand">
