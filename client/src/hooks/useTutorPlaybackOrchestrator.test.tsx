@@ -80,6 +80,8 @@ const silentSynthesis = {
 
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
+/** The real `fetch`, saved so the coach-speech stub below can be removed. */
+let realFetch: typeof fetch | undefined;
 
 function baseInput(overrides: Partial<TutorPlaybackInput> = {}): TutorPlaybackInput {
   return {
@@ -128,6 +130,28 @@ beforeEach(() => {
   (globalThis as { Audio?: unknown }).Audio = NeverEndingAudio;
   (globalThis as { speechSynthesis?: unknown }).speechSynthesis = silentSynthesis;
   (globalThis as { SpeechSynthesisUtterance?: unknown }).SpeechSynthesisUtterance = FakeUtterance;
+  // The hook under test now enables the neural coaching voice, so every coach
+  // step attempts a real `fetch()` to /api/coach-speech. In happy-dom that URL
+  // resolves against http://localhost:3000 and attempts a real TCP connect —
+  // real I/O that `vi.useFakeTimers()` cannot control, racing the
+  // backstop/silent-voice timers and making cancel counts non-deterministic
+  // (2 cancels normally, 1 or 3 when the refusal lands late). These tests pin
+  // the orchestrator's cancel/backstop behaviour, not the neural provider, so
+  // fail the endpoint fast and deterministically: a rejected promise settles
+  // in microtask time, always before any timer, which is exactly the
+  // "neural unreachable, fall back to the browser voice" path.
+  realFetch = globalThis.fetch;
+  const coachSpeechStub = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/api/coach-speech")) {
+      throw new Error("neural coach voice disabled in tests");
+    }
+    return realFetch!(input as RequestInfo, init);
+  }) as typeof fetch;
+  globalThis.fetch = coachSpeechStub;
+});
+
+afterEach(() => {
+  if (realFetch) globalThis.fetch = realFetch;
 });
 
 afterEach(async () => {

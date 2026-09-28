@@ -135,3 +135,8 @@ datasets/quran-acoustic/audio/
 # Default store location is ./research relative to the evaluator's cwd.
 /research/
 services/quran-acoustic-evaluator/research/
+
+# Pre-generated neural coaching-voice audio (Azure AI Speech). Synthesized
+# once via scripts/generate-coach-audio.mjs and served from disk; regenerate
+# locally, never commit the binaries.
+server/coach-audio/
