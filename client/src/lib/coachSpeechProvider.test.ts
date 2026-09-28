@@ -414,6 +414,28 @@ describe("the composite provider", () => {
     const composite = createCoachSpeechProvider({ providers: [bad, good] });
     expect(() => composite.cancel()).not.toThrow();
   });
+
+  it("reports each provider attempt in order, so callers can arm provider-appropriate liveness checks", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: false });
+    const neural = new ServerNeuralCoachSpeechProvider(
+      { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+      fetchImpl as unknown as typeof fetch,
+      () => audioHarness() as never,
+    );
+    const composite = createCoachSpeechProvider({
+      providers: [neural, new BrowserCoachSpeechProvider(synthesis, resolveText)],
+    });
+    const attempts: string[] = [];
+    const pending = composite.speak(
+      { messageKey: "tutor.wordMissed", language: "en" },
+      { onProviderAttempt: (providerId) => { attempts.push(providerId); } },
+    );
+    await flushSpeak();
+    await pending;
+
+    // Neural first; the browser attempt only starts after the neural one fails.
+    expect(attempts).toEqual(["server-neural", "browser"]);
+  });
 });
 
 describe("capability detection", () => {

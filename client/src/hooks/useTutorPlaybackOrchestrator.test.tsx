@@ -297,6 +297,81 @@ describe("a coaching voice that swallows the utterance silently", () => {
   });
 });
 
+describe("a neural voice that is still fetching at the silence probe", () => {
+  it("does not cancel the neural attempt or fall back to the browser voice", async () => {
+    // Production defect: the 400ms speechSynthesis silence probe fired while
+    // the neural voice was still fetching its audio, cancelling every neural
+    // utterance mid-flight. English fell back to the robotic browser voice;
+    // Pashto — with no browser voice — went silent.
+    (globalThis as { speechSynthesis?: unknown }).speechSynthesis = {
+      ...silentSynthesis,
+      speaking: false,
+      pending: false,
+    };
+    // A slow neural endpoint: the fetch stays pending past the silence
+    // probe, the way a real synthesis round-trip always does.
+    let resolveFetch!: (response: unknown) => void;
+    const fetchGate = new Promise((resolve) => { resolveFetch = resolve; });
+    const fetchStub = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("/api/coach-speech")) return fetchGate;
+      return realFetch!(input as RequestInfo, init);
+    }) as typeof fetch;
+    globalThis.fetch = fetchStub;
+    const origCreateObjectURL = globalThis.URL.createObjectURL;
+    const origRevokeObjectURL = globalThis.URL.revokeObjectURL;
+    (globalThis.URL as unknown as { createObjectURL: unknown }).createObjectURL = () => "blob:fake-neural";
+    (globalThis.URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = () => {};
+    try {
+      const instrumented: Array<{ kind: string; details: Record<string, unknown> }> = [];
+      const plan: HandsFreePlan = {
+        key: "s1#neural-slow",
+        steps: [{ kind: "coach", messageKey: "handsfree.nowYouSayIt", speak: true }],
+        resume: "word",
+        terminal: false,
+      };
+      await renderOrchestrator(plan, {
+        onInstrument: (kind, details) => { instrumented.push({ kind, details }); },
+      });
+      // Let the speak() call reach the fetch.
+      await act(async () => {});
+      // Past the silence probe: the neural attempt must still be in flight —
+      // no browser fallback speech, no early step resolution.
+      await act(async () => {
+        vi.advanceTimersByTime(SILENT_TTS_CHECK_MS + 100);
+      });
+      expect(events).not.toContain("synth-speak");
+      expect(events.filter((event) => event.startsWith("listen:"))).toEqual([]);
+
+      // The audio arrives late and plays; finishing it resolves the step.
+      await act(async () => {
+        resolveFetch({
+          ok: true,
+          blob: () => Promise.resolve(new Blob(["fake-audio"], { type: "audio/mpeg" })),
+        });
+      });
+      const neuralAudio = NeverEndingAudio.instances[NeverEndingAudio.instances.length - 1];
+      expect(neuralAudio, "the neural audio should have been created").toBeDefined();
+      expect(events).toContain("audio-play");
+      expect(events).not.toContain("synth-speak");
+
+      await act(async () => { neuralAudio.finish(); });
+      await act(async () => {
+        vi.advanceTimersByTime(HANDS_FREE_TIMING.resumeDelayMs + 50);
+      });
+      const tts = instrumented.find((event) => event.kind === "tts.step");
+      expect(tts?.details).toMatchObject({
+        key: "handsfree.nowYouSayIt",
+        spoken: true,
+        resolvedBy: "onend",
+      });
+      expect(events).toContain("listen:word");
+    } finally {
+      (globalThis.URL as unknown as { createObjectURL: unknown }).createObjectURL = origCreateObjectURL;
+      (globalThis.URL as unknown as { revokeObjectURL: unknown }).revokeObjectURL = origRevokeObjectURL;
+    }
+  });
+});
+
 describe("a coaching voice that never reports finishing", () => {
   it("cancels the utterance before the microphone re-opens", async () => {
     const plan: HandsFreePlan = {

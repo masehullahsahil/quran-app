@@ -135,6 +135,15 @@ export type CoachSpeechEvents = {
    * needs this for its backstop and mic-reopen timing.
    */
   onUtteranceEnd?: (reason: "end" | "error") => void;
+  /**
+   * Fires when the composite begins an attempt with one of its providers,
+   * before that provider's `speak()` runs. Lets the caller arm
+   * provider-appropriate liveness checks: the 400ms speechSynthesis silence
+   * probe is only meaningful for the browser voice — the neural voice is
+   * still fetching its audio at that point, and probing it would cancel
+   * every neural utterance before it begins.
+   */
+  onProviderAttempt?: (providerId: string) => void;
 };
 
 export interface CoachSpeechProvider {
@@ -497,6 +506,7 @@ export function createCoachSpeechProvider(options: CompositeCoachSpeechOptions =
     async speak(request: CoachSpeechRequest, events?: CoachSpeechEvents): Promise<CoachSpeechOutcome> {
       for (const provider of providers) {
         if (!(await provider.canSpeak(request.language))) continue;
+        events?.onProviderAttempt?.(provider.id);
         const outcome = await provider.speak(request, events);
         // A provider that claimed availability but failed at speak time
         // (network blip, voice vanished) yields to the next one — except a
