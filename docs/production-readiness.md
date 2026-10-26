@@ -71,7 +71,7 @@ Optional integrations:
 
 ## Recitation spend and abuse controls
 
-`recitation.evaluate` remains public so the current Vercel path does not depend on the unfinished Manus auth replacement. It is nevertheless guarded before storage, transcription, the optional Quran-aware evaluator, and the coach LLM call. The server validates the request shape, supported audio MIME type, base64 encoding, and the shared recording byte ceiling before invoking any expensive provider. OpenAI transcription and coach calls use bounded request timeouts; the optional Quran-aware evaluator already has its own bounded timeout.
+`recitation.evaluate` remains public so the current Vercel path does not depend on the Google OAuth sign-in flow. It is nevertheless guarded before storage, transcription, the optional Quran-aware evaluator, and the coach LLM call. The server validates the request shape, supported audio MIME type, base64 encoding, and the shared recording byte ceiling before invoking any expensive provider. OpenAI transcription and coach calls use bounded request timeouts; the optional Quran-aware evaluator already has its own bounded timeout.
 
 The limiter keys by authenticated `user.id` when authentication succeeds and by client IP for anonymous traffic. In Vercel, the app trusts `x-forwarded-for` only when the deployment exposes `VERCEL`; outside Vercel it uses the direct socket address so a caller cannot bypass the anonymous counter by sending a fake forwarded-for header. Rate-limit logs include only structured metadata such as identity type, window, retry delay, and store type; they must not include audio, base64 recording payloads, transcripts, cookies, tokens, API keys, or learner-private content.
 

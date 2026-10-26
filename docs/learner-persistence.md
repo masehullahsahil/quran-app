@@ -1,6 +1,6 @@
 # Durable learner persistence
 
-Authenticated learner records use the existing `users.id` established by Manus OAuth. Every query takes that id from the authenticated tRPC context; no learner id is accepted from a browser. Anonymous learners continue to use local storage.
+Authenticated learner records use the existing `users.id` established by Google OAuth. Every query takes that id from the authenticated tRPC context; no learner id is accepted from a browser. Anonymous learners continue to use local storage.
 
 ## Merge rules
 

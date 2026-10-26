@@ -4,7 +4,7 @@ import type { Express, Request, Response } from "express";
 import * as db from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { ENV } from "./env";
-import { sdk } from "./sdk";
+import { sessionService } from "./sdk";
 
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
@@ -133,7 +133,7 @@ export function registerOAuthRoutes(app: Express) {
         lastSignedIn: new Date(),
       });
 
-      const sessionToken = await sdk.createSessionToken(`google:${googleSub}`, {
+      const sessionToken = await sessionService.createSessionToken(`google:${googleSub}`, {
         name: name || "",
         expiresInMs: ONE_YEAR_MS,
       });
