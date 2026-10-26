@@ -1,8 +1,11 @@
 export const ENV = {
+  // Session token app claim. Formerly the Manus OAuth client ID; Manus is
+  // gone, but the session token still embeds this value and verifySession
+  // requires it non-empty, so keep it set in Vercel (any stable value
+  // works, e.g. "quran-app"). See server/_core/sdk.ts.
   appId: process.env.VITE_APP_ID ?? "",
   cookieSecret: process.env.JWT_SECRET ?? "",
   databaseUrl: process.env.DATABASE_URL ?? "",
-  oAuthServerUrl: process.env.OAUTH_SERVER_URL ?? "",
   ownerOpenId: process.env.OWNER_OPEN_ID ?? "",
   isProduction: process.env.NODE_ENV === "production",
   // Google OAuth (replaces Manus OAuth). Client ID is public; the secret
