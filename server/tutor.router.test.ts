@@ -91,6 +91,10 @@ describe("tutor.turn trust boundary", () => {
   it("does not expose a public recitation evidence event", async () => {
     const initial = await start();
 
+    // The property under test is rejection of the forged event, not the
+    // exact wording: zod 4.6 reports a failed discriminated union as
+    // "Invalid discriminator value" where zod 4.1 reported the generic
+    // "Invalid input" (see the audit fix for the bump).
     await expect(appRouter.createCaller(context).tutor.turn({
       session: reference(initial.session),
       event: {
@@ -102,7 +106,7 @@ describe("tutor.turn trust boundary", () => {
           focusedWordResult: { recognition: "recognised" },
         },
       },
-    } as never)).rejects.toThrow(/Invalid input/);
+    } as never)).rejects.toThrow(/Invalid discriminator value/);
   });
 
   it("does not accept a client-supplied tutor state snapshot", async () => {
