@@ -16,9 +16,10 @@ const BASE_ENV = {
   NODE_ENV: "test",
   DATABASE_URL: "mysql://db.example/app",
   JWT_SECRET: "secret",
-  OAUTH_SERVER_URL: "https://auth.example",
-  VITE_OAUTH_PORTAL_URL: "https://portal.example",
   VITE_APP_ID: "app-id",
+  GOOGLE_CLIENT_ID: "google-client-id",
+  GOOGLE_CLIENT_SECRET: "google-client-secret",
+  PUBLIC_APP_URL: "https://app.example",
   QURAN_API_BASE_URL: "https://quran.example/api",
   QURAN_EVALUATOR_URL: "https://evaluator.example",
   OPENAI_API_KEY: "key",
@@ -117,7 +118,9 @@ describe("health endpoint over HTTP", () => {
     delete process.env.QURAN_EVALUATOR_URL;
     delete process.env.OPENAI_API_KEY;
     delete process.env.JWT_SECRET;
-    delete process.env.OAUTH_SERVER_URL;
+    delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.PUBLIC_APP_URL;
     delete process.env.VITE_APP_ID;
     process.env.LOG_LEVEL = "error";
 

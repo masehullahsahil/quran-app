@@ -60,7 +60,8 @@ GitHub Actions runs the deterministic production gate on pull requests and pushe
 Required for the durable signed-in production flow:
 
 - `DATABASE_URL` — MySQL database with the verified migration.
-- `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, and `VITE_APP_ID` — existing sign-in configuration.
+- `JWT_SECRET` and `VITE_APP_ID` — session signing and the session token's appId claim.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `PUBLIC_APP_URL` — Google OAuth sign-in configuration (replaced the retired Manus `OAUTH_SERVER_URL` / `VITE_OAUTH_PORTAL_URL` in PR #114).
 
 Optional integrations:
 
@@ -161,8 +162,8 @@ raw environment-variable values, or user information.
 `server/_core/config.ts` exports `validateConfig(env)`, a pure,
 deterministic function (fully unit-tested, no live services):
 
-- required: `DATABASE_URL`, `JWT_SECRET`, `OAUTH_SERVER_URL`,
-  `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID`;
+- required: `DATABASE_URL`, `JWT_SECRET`, `VITE_APP_ID`,
+  `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_APP_URL`;
 - optional: `OPENAI_API_KEY` (+ base URL/timeouts), `QURAN_API_BASE_URL`,
   analytics pair, forge variables — safe to omit;
 - feature-specific: `QURAN_EVALUATOR_URL`/`QURAN_EVALUATOR_API_KEY`

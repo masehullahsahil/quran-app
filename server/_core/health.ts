@@ -148,9 +148,19 @@ export async function checkHealth(deps: HealthDeps = defaultHealthDeps()): Promi
     // Critical: the signed-in learner-persistence flow needs the database.
     { name: "database", status: database.status, critical: true, latencyMs: database.latencyMs },
     // Critical presence check: auth cannot work without these (not probed).
+    // Google OAuth (PR #114) replaced the Manus OAuth server: the old
+    // OAUTH_SERVER_URL / VITE_OAUTH_PORTAL_URL variables are gone by design
+    // and must not be required here anymore.
     {
       name: "authentication",
-      status: env.JWT_SECRET && env.OAUTH_SERVER_URL && env.VITE_APP_ID ? "configured" : "not_configured",
+      status:
+        env.JWT_SECRET &&
+        env.VITE_APP_ID &&
+        env.GOOGLE_CLIENT_ID &&
+        env.GOOGLE_CLIENT_SECRET &&
+        env.PUBLIC_APP_URL
+          ? "configured"
+          : "not_configured",
       critical: true,
     },
     // Optional: Quran text/audio served from cache when reachable; failures degrade, not outage.
