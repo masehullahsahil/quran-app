@@ -37,12 +37,25 @@ export type ConfigReport = {
 
 type Env = Record<string, string | undefined>;
 
+/**
+ * Required for the durable signed-in production flow.
+ *
+ * The Manus OAuth variables (OAUTH_SERVER_URL, VITE_OAUTH_PORTAL_URL) were
+ * retired by the Google OAuth migration (PR #114) and are deliberately NOT
+ * required here anymore: requiring them made /api/health report "degraded"
+ * on a healthy production deployment. Google login needs GOOGLE_CLIENT_ID,
+ * GOOGLE_CLIENT_SECRET and PUBLIC_APP_URL instead. VITE_APP_ID stays
+ * required: the session token embeds it as the appId claim and
+ * verifySession rejects sessions without it, so login cannot complete
+ * without it even though the Manus OAuth server itself is gone.
+ */
 const REQUIRED_VARIABLES = [
   "DATABASE_URL",
   "JWT_SECRET",
-  "OAUTH_SERVER_URL",
-  "VITE_OAUTH_PORTAL_URL",
   "VITE_APP_ID",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "PUBLIC_APP_URL",
 ] as const;
 
 /** Numeric knobs with their documented bounds; unparseable values warn. */
@@ -127,7 +140,14 @@ export function validateConfig(env: Env = process.env): ConfigReport {
   const features: Record<string, FeatureState> = {
     // Core production flows.
     persistence: isBlank(env.DATABASE_URL) ? "disabled" : "enabled",
-    authentication: isBlank(env.JWT_SECRET) || isBlank(env.OAUTH_SERVER_URL) ? "disabled" : "enabled",
+    authentication:
+      isBlank(env.JWT_SECRET) ||
+      isBlank(env.VITE_APP_ID) ||
+      isBlank(env.GOOGLE_CLIENT_ID) ||
+      isBlank(env.GOOGLE_CLIENT_SECRET) ||
+      isBlank(env.PUBLIC_APP_URL)
+        ? "disabled"
+        : "enabled",
     // Optional capabilities.
     transcription: isBlank(env.OPENAI_API_KEY) ? "disabled" : "enabled",
     acousticEvaluation: evaluatorUrl ? "enabled" : "disabled",

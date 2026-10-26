@@ -8,9 +8,10 @@ import { summarizeConfigReport, validateConfig } from "./config";
 const FULL_ENV = {
   DATABASE_URL: "mysql://example/db",
   JWT_SECRET: "secret",
-  OAUTH_SERVER_URL: "https://auth.example",
-  VITE_OAUTH_PORTAL_URL: "https://portal.example",
   VITE_APP_ID: "app-id",
+  GOOGLE_CLIENT_ID: "google-client-id",
+  GOOGLE_CLIENT_SECRET: "google-client-secret",
+  PUBLIC_APP_URL: "https://app.example",
   OPENAI_API_KEY: "key",
   QURAN_EVALUATOR_URL: "https://evaluator.example",
   RECITATION_RATE_LIMIT_REDIS_REST_URL: "https://redis.example",
@@ -38,7 +39,7 @@ describe("validateConfig", () => {
     expect(report.valid).toBe(false);
     const missing = report.errors.map((finding) => finding.variable).sort();
     expect(missing).toEqual(
-      ["DATABASE_URL", "JWT_SECRET", "OAUTH_SERVER_URL", "VITE_APP_ID", "VITE_OAUTH_PORTAL_URL"].sort()
+      ["DATABASE_URL", "JWT_SECRET", "VITE_APP_ID", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "PUBLIC_APP_URL"].sort()
     );
     for (const finding of report.errors) {
       expect(finding.severity).toBe("error");
