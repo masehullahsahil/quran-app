@@ -286,6 +286,8 @@ export const strings: TranslatableStrings = {
   "nav.practiceTitle": "آج کی مشق",
   "nav.practiceCopy": "سنیں، دہرائیں، لوٹیں۔",
   "nav.minutesShort": "منٹ",
+  "auth.signIn": "سائن ان",
+  "auth.signOut": "سائن آؤٹ",
   "language.partial": "صرف انٹرفیس",
   "language.short": "زبان",
   "language.aiDrafted": "اے آئی مسودہ، اہلِ زبان نے نہیں دیکھا",

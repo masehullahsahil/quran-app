@@ -286,6 +286,8 @@ export const strings: TranslatableStrings = {
   "nav.practiceTitle": "د نن تمرین",
   "nav.practiceCopy": "واورئ، تکرار کړئ، بیرته راشئ.",
   "nav.minutesShort": "دقیقې",
+  "auth.signIn": "ننوځئ",
+  "auth.signOut": "وځئ",
   "language.partial": "یوازې مخ",
   "language.short": "ژبه",
   "language.aiDrafted": "د مصنوعي ځیرکتیا مسوده، د ژبې خبرې کوونکي نه ده لوستلې",

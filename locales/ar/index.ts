@@ -288,6 +288,8 @@ export const strings: TranslatableStrings = {
   "nav.practiceTitle": "تدريب اليوم",
   "nav.practiceCopy": "استمع، أعد، ثم ارجع.",
   "nav.minutesShort": "دقيقة",
+  "auth.signIn": "تسجيل الدخول",
+  "auth.signOut": "تسجيل الخروج",
   "language.partial": "الواجهة فقط",
   "language.short": "اللغة",
   "language.aiDrafted": "مسودة بالذكاء الاصطناعي، لم يراجعها ناطق باللغة",
