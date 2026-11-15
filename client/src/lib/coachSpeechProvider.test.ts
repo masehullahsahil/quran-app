@@ -363,6 +363,42 @@ describe("the server neural provider", () => {
     expect(outcome).toEqual({ spoken: true, voiceLang: "ur" });
   });
 
+  it("calls the default fetch with the global object as `this` (Chrome rejects a detached fetch)", async () => {
+    const audio = audioHarness();
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    // Stands in for the native fetch: it throws unless called with the
+    // global object as `this`, exactly as Chrome does for a detached
+    // reference ("Illegal invocation", real-device badge 2026-11-14).
+    function nativeLikeFetch(this: unknown) {
+      if (this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      calls += 1;
+      return Promise.resolve({
+        ok: true,
+        blob: () => Promise.resolve(new Blob(["audio"], { type: "audio/mpeg" })),
+      });
+    }
+    (globalThis as { fetch: unknown }).fetch = nativeLikeFetch as unknown as typeof fetch;
+    try {
+      const provider = new ServerNeuralCoachSpeechProvider(
+        { enabled: true, endpoint: "/api/coach-speech", languages: ["en"] },
+        undefined,
+        () => audio as never,
+      );
+      const pending = provider.speak({ messageKey: "tutor.wordMissed", language: "en" });
+      await flushSpeak();
+      audio.onended?.();
+      const outcome = await pending;
+
+      expect(calls).toBe(1);
+      expect(outcome).toEqual({ spoken: true, voiceLang: "en" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("falls through to the browser voice when the endpoint fails", async () => {
     const fetchImpl = vi.fn().mockResolvedValue({ ok: false });
     const neural = new ServerNeuralCoachSpeechProvider(
