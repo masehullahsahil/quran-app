@@ -423,7 +423,18 @@ export class ServerNeuralCoachSpeechProvider implements CoachSpeechProvider {
 
   constructor(
     private config: NeuralCoachSpeechConfig,
-    private fetchImpl: typeof fetch = fetch,
+    /**
+     * The default fetch stays bound to the global object: the native
+     * `fetch` throws "Illegal invocation" when called with any other
+     * `this` (Chrome), and storing the bare reference then calling it as
+     * `this.fetchImpl(...)` does exactly that — the neural voice never
+     * reached the server (real-device badge, 2026-11-14). The wrapper
+     * resolves the global at call time, so construction never throws
+     * where no global fetch exists, and injected implementations are
+     * untouched.
+     */
+    private fetchImpl: typeof fetch = (...args: Parameters<typeof fetch>) =>
+      fetch.call(globalThis, ...args),
     private createAudio: () => AudioLike = () => new Audio(),
   ) {}
 
