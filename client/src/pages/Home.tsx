@@ -46,7 +46,7 @@ import { LanguagePicker } from "@/components/LanguagePicker";
 import { AuthEntry } from "@/components/AuthEntry";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
-import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
+import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge, recordingSizeCheckpoint } from "@shared/recording";
 import { learningPlanTextKeys, type LearningLevel } from "@shared/learningPath";
 import { buildReviewQueue, deriveAyahMemory, summarizeReview, type MemorizationAttempt } from "@shared/memorization";
 import { LocalMemorizationHistoryRepository } from "@/lib/memorizationHistory";
@@ -458,6 +458,12 @@ export default function Home() {
   const liveChunkSequenceRef = useRef(0);
   const liveRequestRef = useRef<Promise<void>>(Promise.resolve());
   const chunksRef = useRef<Blob[]>([]);
+  // The manual recorder's size guard: bytes produced by the take in progress,
+  // and whether the approaching-limit warning has been shown for it. Both are
+  // reset when a take starts. The guard only ever stops a take at the cap and
+  // warns before it — it never judges the recitation.
+  const recordedBytesRef = useRef(0);
+  const sizeWarningShownRef = useRef(false);
   const recordingUrlRef = useRef<string | null>(null);
   // Set when a verse change should start playing on its own — the Next control
   // and the end-of-ayah handover both use it, so continuous listening survives
@@ -1277,7 +1283,26 @@ export default function Home() {
       // ("audio/webm;codecs=opus") that exact string matches miss.
       recorderMimeTypeRef.current = recorder.mimeType || null;
       chunksRef.current = [];
-      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+      recordedBytesRef.current = 0;
+      sizeWarningShownRef.current = false;
+      // The size guard: count the bytes as they arrive, warn once before the
+      // cap, and stop the take at the cap — so a take is never rejected only
+      // at the end, after minutes of recording. Stopping here is exactly the
+      // learner pressing Stop: onstop assembles the take and the existing
+      // too-large check explains it, with the existing wording. Hands-free
+      // turns never pass through here; their capture is untouched.
+      recorder.ondataavailable = (event) => {
+        if (!event.data.size) return;
+        chunksRef.current.push(event.data);
+        recordedBytesRef.current += event.data.size;
+        const checkpoint = recordingSizeCheckpoint(recordedBytesRef.current);
+        if (checkpoint === "over") {
+          stopRecording();
+        } else if (checkpoint === "warn" && !sizeWarningShownRef.current) {
+          sizeWarningShownRef.current = true;
+          setRecorderMessage(t("recorder.approachingLimit"));
+        }
+      };
       recorder.onstop = () => {
         recorderStreamRef.current?.getTracks().forEach((track) => track.stop());
         recorderStreamRef.current = null;

@@ -539,6 +539,7 @@ export const strings = {
   "recorder.empty": "No audio was captured. Check microphone access, then record the ayah again.",
   "recorder.retryNow": "Try recording again",
   "recorder.tooLarge": "That recording is {size} MB, over the {limit} MB limit, so it was not sent for review. Record one ayah at a calm pace and try again.",
+  "recorder.approachingLimit": "This recording is getting long. Finish the ayah and stop soon — a recording that grows too large cannot be sent for review.",
   "recorder.listening": "Listening now. Recite the ayah at a calm pace, then press Stop & review.",
   "recorder.noRecorder": "This browser cannot record audio. Please use a current browser and allow microphone access.",
   "recorder.noMicrophone": "Microphone access was not granted. Allow it in your browser settings, then try again.",

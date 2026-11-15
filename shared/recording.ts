@@ -47,6 +47,34 @@ export function isRecordingTooLarge(byteLength: number): boolean {
   return byteLength > MAX_AUDIO_BYTES;
 }
 
+/**
+ * Bytes at which the manual recorder warns the learner the take is
+ * approaching the cap, while there is still time to finish the ayah.
+ *
+ * 80% of the cap leaves about a minute of Opus audio (3 MB is roughly five
+ * minutes, so a fifth is roughly a minute) — enough to finish the ayah at a
+ * calm pace after the warning, and short enough that the warning only ever
+ * appears on a take that is genuinely long. The warning is advisory only: it
+ * changes no limit and no review outcome.
+ */
+export const RECORDING_SIZE_WARNING_BYTES = Math.floor(MAX_AUDIO_BYTES * 0.8);
+
+/** Where a take in progress stands against the size cap. */
+export type RecordingSizeCheckpoint = "ok" | "warn" | "over";
+
+/**
+ * The guard decision for a take that has produced `byteLength` so far.
+ * "over" stops the take at the cap; "warn" is shown once, before the cap. A
+ * take that reaches the cap is stopped either way — whether the assembled
+ * take is then reviewed is still the existing check's decision (a take
+ * exactly at the cap is accepted, per isRecordingTooLarge).
+ */
+export function recordingSizeCheckpoint(byteLength: number): RecordingSizeCheckpoint {
+  if (byteLength >= MAX_AUDIO_BYTES) return "over";
+  if (byteLength >= RECORDING_SIZE_WARNING_BYTES) return "warn";
+  return "ok";
+}
+
 /** Rounded to one decimal place, for the message shown to the learner. */
 export function formatMegabytes(byteLength: number): string {
   return (byteLength / (1024 * 1024)).toFixed(1);
