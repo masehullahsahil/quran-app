@@ -94,8 +94,12 @@ vi.mock("@/lib/trpc", () => {
   const ready = (data: unknown) => () => ({ data, isSuccess: true, isLoading: false, isError: false, error: null, refetch: vi.fn() });
   return {
     trpc: {
+      // The header's sign-in entry point reads the query cache through this
+      // and signs out through auth.logout; neither is exercised here, but
+      // the page must still mount with them stubbed.
+      useUtils: () => ({ auth: { me: { setData: vi.fn(), invalidate: vi.fn() } } }),
       quran: { index: { useQuery: ready(FAKE_INDEX) }, surah: { useQuery: ready(FAKE_SURAH) } },
-      auth: { me: { useQuery: empty } },
+      auth: { me: { useQuery: empty }, logout: { useMutation: () => mutation() } },
       recitation: {
         evaluate: { useMutation: () => mutation(mutationMocks.recitationEvaluate) },
         // Present so the page can mount, and deliberately never answered: the
@@ -311,6 +315,24 @@ describe("the language control is on the learner's screen", () => {
       option.getAttribute("lang"),
     );
     expect(listed.sort()).toEqual([...SUPPORTED_LANGUAGE_CODES].sort());
+  });
+});
+
+describe("the sign-in entry point is on the learner's screen", () => {
+  it("renders a labelled Sign in button in the desk header while signed out", async () => {
+    await mount();
+
+    // The stubbed auth.me answers "no session", which is the state a
+    // first-time visitor is in. The button must be in the header — the only
+    // Sign in button before this change lived in DashboardLayout, which no
+    // page renders, so there was no way in at all. Click behaviour (startLogin
+    // exactly once, never on render) is covered in AuthEntry.test.tsx, where
+    // the navigation is mocked; clicking here would navigate away.
+    const header = container.querySelector(".desk-header")!;
+    const button = header.querySelector<HTMLButtonElement>(".auth-signin");
+    expect(button).toBeTruthy();
+    expect(button!.textContent).toContain(en.strings["auth.signIn"]);
+    expect(header.querySelector(".auth-signout")).toBeNull();
   });
 });
 

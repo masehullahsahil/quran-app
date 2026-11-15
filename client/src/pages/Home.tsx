@@ -43,6 +43,7 @@ import { isRecording as isSameRecording, useLetterAudio } from "@/hooks/useLette
 import { useLocale } from "@/contexts/LocaleContext";
 import { SurahPicker } from "@/components/SurahPicker";
 import { LanguagePicker } from "@/components/LanguagePicker";
+import { AuthEntry } from "@/components/AuthEntry";
 import type { StringKey } from "@locales/index";
 import type { Ayah, Translation } from "@shared/quran";
 import { MAX_AUDIO_BYTES, formatMegabytes, isRecordingTooLarge } from "@shared/recording";
@@ -2056,6 +2057,12 @@ export default function Home() {
             </label>
             <button type="button" className="icon-button" aria-label={t("reader.searchLabel")}><Search size={18} /></button>
             <button type="button" className="icon-button" aria-label={t("reader.settingsLabel")}><Settings2 size={18} /></button>
+            {/* The sign-in entry point. Login stays optional and never gates a
+                screen; signing in only saves progress to the learner's
+                account. Home already fetches auth.me above — this reuses that
+                result instead of issuing a second auth query. The header wraps
+                on a phone, so the button stays reachable there too. */}
+            <AuthEntry user={me.data ?? null} isLoading={me.isLoading} />
           </div>
         </header>
         <section className="chapter-intro" aria-labelledby="chapter-title"><div><p className="eyebrow">{chapterEyebrow}</p><h1 id="chapter-title">{chapterHeading}</h1><p className="intro-copy">{chapterCopy}</p></div><div className="chapter-arabic">{view === "learn" ? <span lang="ar" dir="rtl">{activeLevel.arabic}</span> : <span className="chapter-surah-name"><span lang="ar" dir="rtl">{activeSurah?.nameArabic ?? ""}</span><small>{activeSurah?.nameSimple ?? ""}</small></span>}</div></section>

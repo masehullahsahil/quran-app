@@ -161,8 +161,12 @@ vi.mock("@/lib/trpc", () => {
 
   return {
     trpc: {
+      // The header's sign-in entry point reads the query cache through this
+      // and signs out through auth.logout; neither is exercised here, but
+      // the page must still mount with them stubbed.
+      useUtils: () => ({ auth: { me: { setData: () => {}, invalidate: async () => undefined } } }),
       quran: { index: { useQuery: ready(FAKE_INDEX) }, surah: { useQuery: ready(FAKE_SURAH) } },
-      auth: { me: { useQuery: empty } },
+      auth: { me: { useQuery: empty }, logout: { useMutation: noop } },
       recitation: {
         evaluate: { useMutation: noop },
         evaluateWithTutor: { useMutation: live("recitation.evaluateWithTutor") },

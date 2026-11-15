@@ -35,6 +35,12 @@ export const strings = {
   "nav.practiceCopy": "Listen, repeat, return.",
   "nav.minutesShort": "min",
 
+  // -- Account -------------------------------------------------------------
+  // The header sign-in entry point. Login is optional and never gates a
+  // screen; signing in only saves progress to the learner's account.
+  "auth.signIn": "Sign in",
+  "auth.signOut": "Sign out",
+
   // -- Language picker -----------------------------------------------------
   "language.partial": "interface only",
   // The trigger label on the language control. Short on purpose: it sits beside
