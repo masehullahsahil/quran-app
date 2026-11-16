@@ -21,6 +21,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
+import { MAX_AUDIO_BYTES, RECORDING_SIZE_WARNING_BYTES } from "@shared/recording";
 import { loadLocale } from "@locales/index";
 import type { SurahContent } from "@shared/quran";
 import en from "@locales/en";
@@ -163,6 +164,9 @@ class FakeAudio {
   removeAttribute() {}
 }
 
+/** Every fake recorder created, so a test can hand one more audio. */
+const recorders: FakeMediaRecorder[] = [];
+
 class FakeMediaRecorder {
   static isTypeSupported() {
     return true;
@@ -173,7 +177,15 @@ class FakeMediaRecorder {
   ondataavailable: ((event: { data: Blob }) => void) | null = null;
   onstop: (() => void) | null = null;
 
-  constructor(readonly stream: MediaStream) {}
+  constructor(readonly stream: MediaStream) {
+    recorders.push(this);
+  }
+
+  /** Hands the recorder a chunk of `bytes` zero bytes, as the browser would. */
+  emit(bytes: number) {
+    if (this.state !== "recording") return;
+    this.ondataavailable?.({ data: new Blob([new Uint8Array(bytes)], { type: this.mimeType }) });
+  }
 
   start() {
     this.state = "recording";
@@ -267,6 +279,7 @@ async function chooseLanguage(code: string) {
 beforeEach(() => {
   for (const mock of Object.values(mutationMocks)) mock.mockReset();
   played.length = 0;
+  recorders.length = 0;
   failing.clear();
   window.localStorage.clear();
   document.documentElement.dir = "ltr";
@@ -862,6 +875,109 @@ describe("Study recitation correction", () => {
     expect(container.querySelector(".feedback-score")).toBeNull();
     expect(container.querySelector(".correction-row")).toBeNull();
     expect(container.querySelector(".all-matched")).toBeNull();
+  });
+});
+
+describe("the manual recorder's size guard", () => {
+  /**
+   * The owner recorded a take that was rejected only at the end, after
+   * minutes, for being 5.6 MB. The guard counts bytes as they arrive: it
+   * warns before the cap, and stops the take at the cap, so the learner is
+   * never left recording a take that cannot be reviewed.
+   */
+
+  /** Presses record and returns the recorder the page created. */
+  async function startManualRecording() {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".loop-record")!.click();
+    });
+    await settle();
+    const recorder = recorders[recorders.length - 1];
+    if (!recorder) throw new Error("No recorder was created");
+    return recorder;
+  }
+
+  async function pressRecordButton() {
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>(".loop-record")!.click();
+    });
+    await settle();
+  }
+
+  it("warns while the take is still under the cap, and keeps recording", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    const recorder = await startManualRecording();
+    expect(text()).not.toContain(en.strings["recorder.approachingLimit"]);
+
+    // Past the warning threshold (plus the 4 bytes the recorder hands over
+    // on start), still under the cap: warned, and still recording.
+    await act(async () => {
+      recorder.emit(RECORDING_SIZE_WARNING_BYTES);
+    });
+    await settle();
+    expect(text()).toContain(en.strings["recorder.approachingLimit"]);
+    expect(recorder.state).toBe("recording");
+    expect(mutationMocks.recitationEvaluate).not.toHaveBeenCalled();
+
+    // Stopping now reviews the take normally — the warning changed nothing
+    // about the take itself.
+    await pressRecordButton();
+    expect(mutationMocks.recitationEvaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops the take at the cap and explains with the existing wording", async () => {
+    await mount();
+    await openStudy();
+    const recorder = await startManualRecording();
+
+    await act(async () => {
+      recorder.emit(MAX_AUDIO_BYTES);
+    });
+    await settle();
+
+    // Stopped without the learner pressing anything, and the take was never
+    // sent: the existing too-large wording explains why, with the size the
+    // take reached.
+    expect(recorder.state).toBe("inactive");
+    expect(mutationMocks.recitationEvaluate).not.toHaveBeenCalled();
+    const expected = en.strings["recorder.tooLarge"].replace("{size}", "3.0").replace("{limit}", "3.0");
+    expect(text()).toContain(expected);
+  });
+
+  it("leaves a short take exactly as it was", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValueOnce(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    await recordOnce();
+
+    expect(text()).not.toContain(en.strings["recorder.approachingLimit"]);
+    expect(mutationMocks.recitationEvaluate).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts the next take with a clean guard", async () => {
+    mutationMocks.recitationEvaluate.mockResolvedValue(wordCorrectionReview());
+    await mount();
+    await openStudy();
+    const first = await startManualRecording();
+    await act(async () => {
+      first.emit(RECORDING_SIZE_WARNING_BYTES);
+    });
+    await settle();
+    expect(text()).toContain(en.strings["recorder.approachingLimit"]);
+    await pressRecordButton();
+
+    // A new take starts un-warned, and a small chunk does not revive the
+    // previous take's warning: the guard's state does not leak across takes.
+    const second = await startManualRecording();
+    expect(text()).not.toContain(en.strings["recorder.approachingLimit"]);
+    await act(async () => {
+      second.emit(1024);
+    });
+    await settle();
+    expect(text()).not.toContain(en.strings["recorder.approachingLimit"]);
+    expect(second.state).toBe("recording");
   });
 });
 
