@@ -131,12 +131,12 @@
     },
     "overrides": {
       "express>path-to-regexp": "0.1.13",
-      "express>qs": "6.16.0",
-      "body-parser>qs": "6.16.0",
+      "express>qs": "6.16.1",
+      "body-parser>qs": "6.16.1",
       "tailwindcss>nanoid": "3.3.7",
       "body-parser": "1.20.9",
       "proxy-addr": "2.0.8",
-      "follow-redirects": "1.16.1"
+      "follow-redirects": "1.16.2"
     }
   }
 }
