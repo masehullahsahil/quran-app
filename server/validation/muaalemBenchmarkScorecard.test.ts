@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,11 +19,13 @@ import {
   collectLabels,
   countPct,
   isValidLabel,
+  normalizeAttemptExportRow,
   parseBundle,
   percentile,
   renderMarkdown,
   resolveRow,
   scoreBenchmark,
+  selectScorecardRows,
   shadowCategory,
 } from "../../scripts/score-muaalem-benchmark.mjs";
 
@@ -370,5 +372,233 @@ describe("CLI detection section", () => {
     const out = execFileSync("node", [script, "--self-test-detection"], { encoding: "utf8" });
     expect(out.startsWith("> SYNTHETIC FIXTURE")).toBe(true);
     expect(out).toContain("NOT benchmark results");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Attempts-export fallback (Step 1B). The September 2026 bundle was empty on
+// both sides while the attempts export held all 17 rows; the scorecard read
+// only the bundle and printed 0/0. All fixtures below are SYNTHETIC.
+// ---------------------------------------------------------------------------
+
+/** One flat attempts-export row, shaped like `rowOf` in attemptExport.ts. */
+const flatRow = (overrides: Record<string, any> = {}) => ({
+  runId: "run_synth_fallback",
+  attemptId: "att_synth_1",
+  correlationId: "synth-take-1",
+  route: "tutor",
+  outcome: "responded",
+  ayahRef: "1:1",
+  position: null,
+  wordIndex: null,
+  muaalemStatus: "available",
+  muaalemModelId: "obadx/muaalem-model-v3_2",
+  muaalemRawPosterior: 0.95,
+  muaalemPhonemeTokens: 31,
+  muaalemDecodedLevels: 11,
+  muaalemLatencyMs: 120,
+  evaluatorStatus: "abstained",
+  evaluatorHttpStatus: 200,
+  evaluatorLatencyMs: 1500,
+  primaryCorrectionsEnabled: false,
+  alignmentConfidence: 0.9,
+  findingsCount: 0,
+  abstentionReason: "insufficient_reliable_evidence",
+  verdict: "abstained",
+  tutorOutcome: "listening",
+  shouldAdvance: false,
+  verseFollowingReason: "matched",
+  reviewMessageCode: "none",
+  matchedCount: 7,
+  totalWords: 7,
+  score: 0.9,
+  errorCode: null,
+  startedAt: null,
+  evidenceReadyAt: null,
+  completedAt: null,
+  ...overrides,
+});
+
+/** 9 correct + 8 incorrect takes, labels keyed by correlationId, empty bundle. */
+function syntheticFallbackCase() {
+  const labels: Record<string, { variant: string; errorType: string | null; surah: number; ayah: number }> = {};
+  const attempts: Record<string, any>[] = [];
+  for (let i = 0; i < 17; i += 1) {
+    const incorrect = i >= 9;
+    const correlationId = `synth-take-${String(i + 1).padStart(2, "0")}`;
+    labels[correlationId] = {
+      variant: incorrect ? "incorrect" : "correct",
+      errorType: incorrect ? "mispronounced-letter" : null,
+      surah: 1,
+      ayah: 1,
+    };
+    attempts.push(
+      flatRow({
+        attemptId: `att_synth_${i + 1}`,
+        correlationId,
+        score: incorrect ? 0.4 : 0.9,
+      }),
+    );
+  }
+  const bundle = {
+    schemaVersion: 1,
+    runId: "run_synth_fallback",
+    exportedAt: "2026-09-27T04:55:00Z",
+    client: { runId: "run_synth_fallback", exportedAt: "2026-09-27T04:55:00Z", eventCount: 0, events: [] },
+    server: { runId: "run_synth_fallback", attemptDiagnostics: [] },
+  };
+  return { bundle, labels, attempts };
+}
+
+describe("attempts-export fallback", () => {
+  it("rebuilds a flat export row into the nested bundle-row shape", () => {
+    const research = { levels: [] };
+    const nested: any = normalizeAttemptExportRow(flatRow({ researchPhonemes: research }));
+    expect(nested.attemptId).toBe("att_synth_1");
+    expect(nested.correlationId).toBe("synth-take-1");
+    expect(nested.evaluatorLatencyMs).toBe(1500);
+    expect(nested.acoustic).toMatchObject({
+      shadowStatus: "available",
+      shadowModelId: "obadx/muaalem-model-v3_2",
+      shadowAveragePosterior: 0.95,
+      shadowPhonemeTokens: 31,
+      shadowDecodedLevels: 11,
+      shadowLatencyMs: 120,
+      evaluatorStatus: "abstained",
+      evaluatorHttpStatus: 200,
+      evaluatorLatencyMs: 1500,
+      primaryCorrectionsEnabled: false,
+      alignmentConfidence: 0.9,
+      findingsCount: 0,
+      abstentionReason: "insufficient_reliable_evidence",
+    });
+    expect(nested.decision).toMatchObject({
+      tutorOutcome: "listening",
+      shouldAdvance: false,
+      verseFollowingReason: "matched",
+      reviewMessageCode: "none",
+      matchedCount: 7,
+      totalWords: 7,
+      score: 0.9,
+    });
+    expect(nested.researchPhonemes).toBe(research);
+  });
+
+  it("maps missing flat fields to null and omits researchPhonemes when absent", () => {
+    const nested: any = normalizeAttemptExportRow({ attemptId: "att_x", correlationId: "synth-x" });
+    expect(nested.acoustic.shadowStatus).toBeNull();
+    expect(nested.decision.score).toBeNull();
+    expect(nested.evaluatorLatencyMs).toBeNull();
+    expect("researchPhonemes" in nested).toBe(false);
+  });
+
+  it("keeps bundle rows untouched when the bundle has any", () => {
+    const { serverRows } = parseBundle(buildSyntheticBundle());
+    expect(selectScorecardRows(serverRows, [flatRow()])).toBe(serverRows);
+  });
+
+  it("scores 17/17 from the export when the bundle is empty", () => {
+    const { bundle, labels, attempts } = syntheticFallbackCase();
+    const { clientEvents, serverRows } = parseBundle(bundle);
+    const { labels: collected } = collectLabels(clientEvents, labels);
+    expect(collected.size).toBe(17);
+    const idMap = buildClientToServerMap(clientEvents);
+    const rows = selectScorecardRows(serverRows, attempts);
+    expect(rows.length).toBe(17);
+    const metrics = scoreBenchmark({ labels: collected, idMap, serverRows: rows, clientEvents });
+    expect(metrics.unjoined).toBe(0);
+    expect(metrics.incorrect).toMatchObject({ n: 8, assessed: 8, flagged: 8 });
+    expect(metrics.correct).toMatchObject({ n: 9, assessed: 9, flagged: 9 });
+  });
+
+  it("scores 0 assessed from raw flat rows — the normalizer is required", () => {
+    const { bundle, labels, attempts } = syntheticFallbackCase();
+    const { clientEvents } = parseBundle(bundle);
+    const { labels: collected } = collectLabels(clientEvents, labels);
+    const idMap = buildClientToServerMap(clientEvents);
+    const metrics = scoreBenchmark({ labels: collected, idMap, serverRows: attempts, clientEvents });
+    expect(metrics.unjoined).toBe(0);
+    expect(metrics.incorrect.assessed + metrics.correct.assessed).toBe(0);
+  });
+});
+
+describe("CLI fallback and fail-loudly", () => {
+  const script = path.resolve(__dirname, "../../scripts/score-muaalem-benchmark.mjs");
+
+  it("scores the fallback export end to end: 17/17 joined and assessed", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "muaalem-fallback-"));
+    try {
+      const { bundle, labels, attempts } = syntheticFallbackCase();
+      const bundlePath = path.join(dir, "bundle.json");
+      const labelsPath = path.join(dir, "labels.json");
+      const attemptsPath = path.join(dir, "attempts.json");
+      writeFileSync(bundlePath, JSON.stringify(bundle));
+      writeFileSync(labelsPath, JSON.stringify(labels));
+      writeFileSync(
+        attemptsPath,
+        JSON.stringify({ schema: "quran.validation.attempts.v1", runId: "run_synth_fallback", attempts }),
+      );
+      const res = spawnSync("node", [script, bundlePath, "--labels", labelsPath, "--attempts", attemptsPath], {
+        encoding: "utf8",
+      });
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain("Labeled attempts scored: 17");
+      expect(res.stdout).toContain("Labeled attempts with no matching server diagnostics: 0");
+      expect(res.stdout).toContain("8/8 (100.0%)");
+      expect(res.stdout).toContain("9/9 (100.0%)");
+      expect(res.stdout).not.toContain("no server row");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 2 with no report when the bundle is empty and no export is given", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "muaalem-fallback-"));
+    try {
+      const { bundle, labels } = syntheticFallbackCase();
+      const bundlePath = path.join(dir, "bundle.json");
+      const labelsPath = path.join(dir, "labels.json");
+      writeFileSync(bundlePath, JSON.stringify(bundle));
+      writeFileSync(labelsPath, JSON.stringify(labels));
+      const res = spawnSync("node", [script, bundlePath, "--labels", labelsPath], { encoding: "utf8" });
+      expect(res.status).toBe(2);
+      expect(res.stdout).toBe("");
+      expect(res.stderr).toContain("refusing to emit a 0/0 report");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("exits 2 with no report when zero attempts are assessed", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "muaalem-fallback-"));
+    try {
+      // Bundle rows exist but carry no readable shadow diagnostics.
+      const bundle: any = buildSyntheticBundle();
+      for (const row of bundle.server.attemptDiagnostics) {
+        row.acoustic.shadowStatus = "not_run";
+        row.acoustic.shadowAveragePosterior = null;
+      }
+      const bundlePath = path.join(dir, "bundle.json");
+      writeFileSync(bundlePath, JSON.stringify(bundle));
+      const res = spawnSync("node", [script, bundlePath], { encoding: "utf8" });
+      expect(res.status).toBe(2);
+      expect(res.stdout).toBe("");
+      expect(res.stderr).toContain("refusing to emit a 0/0 report");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("still exits 0 with one unjoined attempt on the healthy synthetic bundle", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "muaalem-fallback-"));
+    try {
+      const bundlePath = path.join(dir, "bundle.json");
+      writeFileSync(bundlePath, JSON.stringify(buildSyntheticBundle()));
+      const res = spawnSync("node", [script, bundlePath], { encoding: "utf8" });
+      expect(res.status).toBe(0);
+      expect(res.stdout).toContain("Labeled attempts with no matching server diagnostics: 1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
