@@ -57,9 +57,14 @@
  * `pnpm export:validation-attempts`). When given, or when bundle rows carry
  * `researchPhonemes`, an additive "Phoneme-sequence detection" section is
  * appended after the unchanged scorecard. See that section's code comment.
+ * The export is also the scorecard's fallback row source: when the bundle
+ * carries no `attemptDiagnostics`, the export's flat rows are normalized
+ * into bundle-row shape and scored instead, so an empty bundle never
+ * silently scores 0/0.
  *
  * Exit codes: 0 scored (even when data is thin — the report says so);
- * 2 unusable input (missing file, bad JSON, wrong schema, zero labels).
+ * 2 unusable input (missing file, bad JSON, wrong schema, zero labels,
+ * no server rows from either source, or zero assessed attempts).
  */
 
 import { readFileSync } from "node:fs";
@@ -591,6 +596,70 @@ export function renderMarkdown(metrics, { runId, exportedAt }) {
   L.push("");
 
   return L.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Attempts-export fallback (scorecard row source)
+// ---------------------------------------------------------------------------
+//
+// A bundle whose `server.attemptDiagnostics` is empty scores 0/0 with every
+// attempt "no server row" — silently, exit 0. The September 2026 run did
+// exactly that: the bundle was empty on both sides while the attempts export
+// held all 17 rows. When the bundle carries no rows, the scorecard falls
+// back to the `--attempts` export, whose flat rows are rebuilt into the
+// nested bundle-row shape `scoreBenchmark` reads. The mapping is the exact
+// inverse of the server's own projection (`server/validation/attemptExport.ts`
+// `rowOf`): every nested field comes from the flat field that projection
+// wrote. Bundles that do carry rows are untouched — the fallback never runs.
+
+/**
+ * Rebuild one flat attempts-export row (a record from `parseAttemptExport`)
+ * into the nested bundle-row shape `scoreBenchmark` expects. Values copy
+ * as-is; the scorer's readers tolerate null. `researchPhonemes` rides along
+ * unchanged for the detection section.
+ */
+export function normalizeAttemptExportRow(flat) {
+  const row = {
+    attemptId: flat.attemptId ?? null,
+    correlationId: flat.correlationId ?? null,
+    evaluatorLatencyMs: flat.evaluatorLatencyMs ?? null,
+    acoustic: {
+      shadowStatus: flat.muaalemStatus ?? null,
+      shadowModelId: flat.muaalemModelId ?? null,
+      shadowAveragePosterior: flat.muaalemRawPosterior ?? null,
+      shadowPhonemeTokens: flat.muaalemPhonemeTokens ?? null,
+      shadowDecodedLevels: flat.muaalemDecodedLevels ?? null,
+      shadowLatencyMs: flat.muaalemLatencyMs ?? null,
+      evaluatorStatus: flat.evaluatorStatus ?? null,
+      evaluatorHttpStatus: flat.evaluatorHttpStatus ?? null,
+      evaluatorLatencyMs: flat.evaluatorLatencyMs ?? null,
+      primaryCorrectionsEnabled: flat.primaryCorrectionsEnabled ?? null,
+      alignmentConfidence: flat.alignmentConfidence ?? null,
+      findingsCount: flat.findingsCount ?? null,
+      abstentionReason: flat.abstentionReason ?? null,
+    },
+    decision: {
+      tutorOutcome: flat.tutorOutcome ?? null,
+      shouldAdvance: flat.shouldAdvance ?? null,
+      verseFollowingReason: flat.verseFollowingReason ?? null,
+      reviewMessageCode: flat.reviewMessageCode ?? null,
+      matchedCount: flat.matchedCount ?? null,
+      totalWords: flat.totalWords ?? null,
+      score: flat.score ?? null,
+    },
+  };
+  if (flat.researchPhonemes !== undefined) row.researchPhonemes = flat.researchPhonemes;
+  return row;
+}
+
+/**
+ * The rows the scorecard scores: the bundle's own rows when it has any,
+ * otherwise the normalized `--attempts` export rows. Returns [] only when
+ * neither source has rows — the caller fails loudly on that, never 0/0.
+ */
+export function selectScorecardRows(bundleRows, attemptRows) {
+  if (bundleRows.length > 0) return bundleRows;
+  return attemptRows.filter(isRecord).map(normalizeAttemptExportRow);
 }
 
 // ---------------------------------------------------------------------------
@@ -1363,15 +1432,9 @@ function main(argv) {
     process.exit(2);
   }
   const idMap = buildClientToServerMap(parsed.clientEvents);
-  const metrics = scoreBenchmark({ labels, idMap, serverRows: parsed.serverRows, clientEvents: parsed.clientEvents });
-  if (invalidNoteCount > 0 || invalidFileCount > 0) {
-    process.stderr.write(
-      `warning: ignored ${invalidNoteCount} invalid note label(s) and ${invalidFileCount} invalid file label(s)\n`,
-    );
-  }
-  process.stdout.write(`${renderMarkdown(metrics, { runId: parsed.runId, exportedAt: parsed.exportedAt })}\n`);
-
-  // Additive, opt-in detection section: only when research data can exist.
+  // The attempts export is parsed BEFORE scoring: it is the scorecard's
+  // fallback row source when the bundle carries no diagnostics, as well as
+  // the detection section's input.
   let attemptRows = [];
   if (attemptsPath) {
     try {
@@ -1381,8 +1444,32 @@ function main(argv) {
       process.exit(2);
     }
   }
-  if (attemptsPath || parsed.serverRows.some((r) => r.researchPhonemes !== undefined)) {
-    const detection = scoreDetection({ labels, idMap, serverRows: parsed.serverRows, attemptRows });
+  const serverRows = selectScorecardRows(parsed.serverRows, attemptRows);
+  if (serverRows.length === 0) {
+    process.stderr.write(
+      "error: no server diagnostics to score — the bundle has no attemptDiagnostics " +
+        "and no --attempts export rows were provided; refusing to emit a 0/0 report\n",
+    );
+    process.exit(2);
+  }
+  const metrics = scoreBenchmark({ labels, idMap, serverRows, clientEvents: parsed.clientEvents });
+  if (metrics.incorrect.assessed + metrics.correct.assessed === 0) {
+    process.stderr.write(
+      `error: 0 of ${labels.size} labeled attempt(s) assessed — no row carried shadow diagnostics ` +
+        "the scorer could read; refusing to emit a 0/0 report\n",
+    );
+    process.exit(2);
+  }
+  if (invalidNoteCount > 0 || invalidFileCount > 0) {
+    process.stderr.write(
+      `warning: ignored ${invalidNoteCount} invalid note label(s) and ${invalidFileCount} invalid file label(s)\n`,
+    );
+  }
+  process.stdout.write(`${renderMarkdown(metrics, { runId: parsed.runId, exportedAt: parsed.exportedAt })}\n`);
+
+  // Additive, opt-in detection section: only when research data can exist.
+  if (attemptsPath || serverRows.some((r) => r.researchPhonemes !== undefined)) {
+    const detection = scoreDetection({ labels, idMap, serverRows, attemptRows });
     process.stdout.write(`\n${renderDetectionMarkdown(detection)}\n`);
   }
 }
