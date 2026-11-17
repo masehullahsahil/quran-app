@@ -23,21 +23,21 @@ describe("what the panel shows a new learner", () => {
     expect(view.nextLesson?.id).toBe(QAIDA_LESSONS[1].id);
   });
 
-  it("marks the first level current and every later level locked", () => {
+  it("marks the first level current and gives every level a target", () => {
     expect(view.levels).toHaveLength(QAIDA_LEVELS.length);
     expect(view.levels[0]).toMatchObject({ isCurrent: true, isDone: false, completed: 0 });
     expect(view.levels[0].target).toBe(FIRST_LESSON_ID);
 
     for (const chip of view.levels.slice(1)) {
-      expect(chip.target, chip.level.id).toBeNull();
+      expect(chip.target, chip.level.id).toBe(lessonsForLevel(chip.level.id)[0].id);
       expect(chip.isCurrent, chip.level.id).toBe(false);
       expect(chip.isDone, chip.level.id).toBe(false);
     }
   });
 
-  it("unlocks only the first lesson of the level list", () => {
+  it("unlocks every lesson of the level list", () => {
     expect(view.lessonsOfLevel[0]).toMatchObject({ unlocked: true, done: false, isCurrent: true });
-    expect(view.lessonsOfLevel.slice(1).every((entry) => !entry.unlocked)).toBe(true);
+    expect(view.lessonsOfLevel.slice(1).every((entry) => entry.unlocked)).toBe(true);
   });
 });
 
@@ -54,7 +54,7 @@ describe("what it shows part-way through", () => {
     expect(view.lessonsOfLevel[3]).toMatchObject({ unlocked: true, isCurrent: true });
   });
 
-  it("marks a finished level done and unlocks the next one", () => {
+  it("marks a finished level done and moves to the next one", () => {
     const firstLevelLessons = lessonsForLevel(QAIDA_LEVELS[0].id).length;
     const view = describeCourseView(progressAfter(firstLevelLessons));
 
@@ -62,6 +62,41 @@ describe("what it shows part-way through", () => {
     expect(view.levels[1]).toMatchObject({ isCurrent: true, isDone: false });
     expect(view.levels[1].target).not.toBeNull();
     expect(view.level.id).toBe(QAIDA_LEVELS[1].id);
+  });
+});
+
+describe("all levels open from the start", () => {
+  it("gives all 12 level chips a target with fresh progress", () => {
+    const view = describeCourseView(emptyQaidaProgress());
+
+    expect(QAIDA_LEVELS).toHaveLength(12);
+    expect(view.levels).toHaveLength(12);
+    for (const chip of view.levels) {
+      expect(chip.target, chip.level.id).toBe(lessonsForLevel(chip.level.id)[0].id);
+    }
+  });
+
+  it("unlocks all lessons of every level with fresh progress", () => {
+    for (const level of QAIDA_LEVELS) {
+      const firstLesson = lessonsForLevel(level.id)[0];
+      const view = describeCourseView(openLesson(emptyQaidaProgress(), firstLesson.id));
+
+      expect(view.level.id).toBe(level.id);
+      expect(view.lessonsOfLevel).toHaveLength(lessonsForLevel(level.id).length);
+      expect(view.lessonsOfLevel.every((entry) => entry.unlocked), level.id).toBe(true);
+      expect(view.lessonsOfLevel.every((entry) => !entry.done), level.id).toBe(true);
+    }
+  });
+
+  it("still marks completion and counts progress with every level open", () => {
+    const view = describeCourseView(progressAfter(3));
+
+    expect(view.percentComplete).toBe(Math.round((3 / QAIDA_LESSONS.length) * 100));
+    expect(view.lessonsOfLevel.filter((entry) => entry.done)).toHaveLength(3);
+    expect(view.levels[0]).toMatchObject({ completed: 3, isDone: false });
+    for (const chip of view.levels) {
+      expect(chip.target, chip.level.id).not.toBeNull();
+    }
   });
 });
 
