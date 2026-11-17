@@ -15,8 +15,8 @@
 import {
   QAIDA_LESSONS,
   QAIDA_LEVELS,
+  advanceTargetAfter,
   curriculumProgressPercent,
-  followingLesson,
   getQaidaLesson,
   getQaidaLevel,
   lessonsForLevel,
@@ -70,7 +70,10 @@ export function describeCourseView(progress: QaidaProgress): CourseView {
     lessonsInLevel: levelLessons.length,
     isReview: progress.completedLessons.includes(lesson.id),
     percentComplete: curriculumProgressPercent(progress.completedLessons),
-    nextLesson: followingLesson(lesson.id),
+    // The finish-button label names this lesson, and finishing opens it: the
+    // shared advance target, not merely the next lesson in course order, so
+    // the label never names a lesson that is already complete.
+    nextLesson: advanceTargetAfter(lesson.id, progress.completedLessons),
     levels: QAIDA_LEVELS.map((entry) => chipFor(entry.id, lesson.level, progress)),
     lessonsOfLevel: levelLessons.map((entry) => ({
       lesson: entry,
