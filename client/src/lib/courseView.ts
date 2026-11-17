@@ -5,6 +5,12 @@
  * prerequisites and mastery all stay where they are — this only answers the
  * three questions the panel has to answer on screen: which level, which lesson,
  * and how far through.
+ *
+ * Every level and lesson is open from the start: learners do not all begin
+ * from zero, and the full course must be visible so gaps can be seen. The
+ * prerequisite chain in the shared curriculum stays as the recommended order
+ * (it still drives the next-lesson advance); it no longer gates what the
+ * learner may open.
  */
 import {
   QAIDA_LESSONS,
@@ -13,7 +19,6 @@ import {
   followingLesson,
   getQaidaLesson,
   getQaidaLevel,
-  isLessonUnlocked,
   lessonsForLevel,
   levelProgress,
   type QaidaLesson,
@@ -24,7 +29,7 @@ import type { QaidaProgress } from "./qaidaProgress";
 
 export type CourseLevelChip = {
   level: QaidaLevel;
-  /** The lesson this chip opens, or null when the level is still locked. */
+  /** The lesson this chip opens: the first lesson of the level. */
   target: string | null;
   isCurrent: boolean;
   /** Every lesson of the level is complete. */
@@ -69,7 +74,8 @@ export function describeCourseView(progress: QaidaProgress): CourseView {
     levels: QAIDA_LEVELS.map((entry) => chipFor(entry.id, lesson.level, progress)),
     lessonsOfLevel: levelLessons.map((entry) => ({
       lesson: entry,
-      unlocked: isLessonUnlocked(entry.id, progress.completedLessons),
+      // All lessons are open; completion is tracked, not gated.
+      unlocked: true,
       done: progress.completedLessons.includes(entry.id),
       isCurrent: entry.id === lesson.id,
     })),
@@ -79,9 +85,8 @@ export function describeCourseView(progress: QaidaProgress): CourseView {
 function chipFor(levelId: QaidaLevelId, currentLevelId: QaidaLevelId, progress: QaidaProgress): CourseLevelChip {
   const summary = levelProgress(levelId, progress.completedLessons);
   const level = getQaidaLevel(levelId) ?? QAIDA_LEVELS[0];
-  const target = lessonsForLevel(levelId).find((candidate) =>
-    isLessonUnlocked(candidate.id, progress.completedLessons),
-  );
+  // Every level opens on its first lesson, whatever the learner has done.
+  const target = lessonsForLevel(levelId)[0];
 
   return {
     level,
