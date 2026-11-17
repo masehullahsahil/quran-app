@@ -6,7 +6,13 @@
  * deliberately tolerant — a value written by an older build, or a lesson id that
  * no longer exists, degrades to "not completed" rather than throwing on load.
  */
-import { FIRST_LESSON_ID, getQaidaLesson, nextIncompleteLesson } from "@shared/qaidaCurriculum";
+import {
+  FIRST_LESSON_ID,
+  followingLesson,
+  getQaidaLesson,
+  nextIncompleteLesson,
+  type QaidaLesson,
+} from "@shared/qaidaCurriculum";
 
 export const QAIDA_PROGRESS_KEY = "miqra-qaida-progress";
 
@@ -80,8 +86,25 @@ export function completeLesson(progress: QaidaProgress, lessonId: string): Qaida
     : [...progress.completedLessons, lessonId];
   return {
     completedLessons,
-    currentLessonId: nextIncompleteLesson(completedLessons)?.id ?? lessonId,
+    // Advance from where the learner is: the next uncompleted lesson after the
+    // one just finished, so opening a later level first does not drop the
+    // learner back to the start of the course. Only when nothing after it is
+    // left do we fall back to the first incomplete lesson overall, and when
+    // the course is done we stay on the finished lesson.
+    currentLessonId:
+      firstIncompleteAfter(lessonId, completedLessons)?.id
+      ?? nextIncompleteLesson(completedLessons)?.id
+      ?? lessonId,
   };
+}
+
+/** First not-yet-completed lesson after the given one in course order, if any. */
+function firstIncompleteAfter(lessonId: string, completedLessons: readonly string[]): QaidaLesson | null {
+  let candidate = followingLesson(lessonId);
+  while (candidate && completedLessons.includes(candidate.id)) {
+    candidate = followingLesson(candidate.id);
+  }
+  return candidate;
 }
 
 /** Opens a lesson — including one already completed, for review. */
