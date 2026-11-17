@@ -114,6 +114,46 @@ describe("reviewing a completed lesson", () => {
   });
 });
 
+describe("the finish button names the lesson finishing opens", () => {
+  it("skips an already-completed next lesson in both the label and the landing", () => {
+    const [a, b, c] = QAIDA_LESSONS.slice(10, 13);
+    const progress: QaidaProgress = { completedLessons: [b.id], currentLessonId: a.id };
+
+    expect(describeCourseView(progress).nextLesson?.id).toBe(c.id);
+    expect(completeLesson(progress, a.id).currentLessonId).toBe(c.id);
+  });
+
+  it("falls back to the first incomplete lesson in both when nothing after is left", () => {
+    const last = QAIDA_LESSONS[QAIDA_LESSONS.length - 1];
+    const earliestUndone = QAIDA_LESSONS[5];
+    const completedLessons = QAIDA_LESSONS.map((lesson) => lesson.id).filter(
+      (id) => id !== earliestUndone.id && id !== last.id,
+    );
+    const progress: QaidaProgress = { completedLessons, currentLessonId: last.id };
+
+    expect(describeCourseView(progress).nextLesson?.id).toBe(earliestUndone.id);
+    expect(completeLesson(progress, last.id).currentLessonId).toBe(earliestUndone.id);
+  });
+
+  it("has no next lesson and stays put once the course is fully complete", () => {
+    const last = QAIDA_LESSONS[QAIDA_LESSONS.length - 1];
+    const progress: QaidaProgress = {
+      completedLessons: QAIDA_LESSONS.map((lesson) => lesson.id),
+      currentLessonId: last.id,
+    };
+
+    expect(describeCourseView(progress).nextLesson).toBeNull();
+    expect(completeLesson(progress, last.id).currentLessonId).toBe(last.id);
+  });
+
+  it("names the second lesson for a learner working in order", () => {
+    const progress = emptyQaidaProgress();
+
+    expect(describeCourseView(progress).nextLesson?.id).toBe(QAIDA_LESSONS[1].id);
+    expect(completeLesson(progress, FIRST_LESSON_ID).currentLessonId).toBe(QAIDA_LESSONS[1].id);
+  });
+});
+
 describe("the end of the course", () => {
   it("has no next lesson and reports full completion", () => {
     const view = describeCourseView(progressAfter(QAIDA_LESSONS.length));

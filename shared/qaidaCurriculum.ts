@@ -1319,6 +1319,28 @@ export function followingLesson(lessonId: string): QaidaLesson | null {
   return next ? getQaidaLesson(next) : null;
 }
 
+/**
+ * Where finishing a lesson leads: the first incomplete lesson after the given
+ * one in course order, falling back to the first incomplete lesson overall,
+ * or null when the course is fully complete. The finish-button label and the
+ * completion advance share this one function so they can never disagree.
+ */
+export function advanceTargetAfter(
+  lessonId: string,
+  completedLessons: readonly string[],
+): QaidaLesson | null {
+  return firstIncompleteAfter(lessonId, completedLessons) ?? nextIncompleteLesson(completedLessons);
+}
+
+/** First not-yet-completed lesson after the given one in course order, if any. */
+function firstIncompleteAfter(lessonId: string, completedLessons: readonly string[]): QaidaLesson | null {
+  let candidate = followingLesson(lessonId);
+  while (candidate && completedLessons.includes(candidate.id)) {
+    candidate = followingLesson(candidate.id);
+  }
+  return candidate;
+}
+
 export type QaidaLevelProgress = {
   level: QaidaLevel;
   completed: number;
