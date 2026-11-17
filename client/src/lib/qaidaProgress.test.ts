@@ -3,6 +3,7 @@ import {
   FIRST_LESSON_ID,
   QAIDA_LESSONS,
   getQaidaLesson,
+  lessonsForLevel,
 } from "@shared/qaidaCurriculum";
 import { ARABIC_LETTERS, letterAudioPath } from "./arabicLetters";
 import {
@@ -107,6 +108,39 @@ describe("completeLesson", () => {
 
     expect(progress.currentLessonId).toBe(last.id);
     expect(progress.completedLessons).toHaveLength(QAIDA_LESSONS.length);
+  });
+
+  it("moves to the next lesson in the same level when a later level is opened first", () => {
+    const levelFive = lessonsForLevel("madd");
+    const opened = openLesson(emptyQaidaProgress(), levelFive[0].id);
+    const progress = completeLesson(opened, levelFive[0].id);
+
+    expect(progress.completedLessons).toEqual([levelFive[0].id]);
+    expect(progress.currentLessonId).toBe(levelFive[1].id);
+    expect(progress.currentLessonId).not.toBe(FIRST_LESSON_ID);
+  });
+
+  it("skips lessons already completed after the finished one", () => {
+    const levelFive = lessonsForLevel("madd");
+    const done = completeLesson(emptyQaidaProgress(), levelFive[1].id);
+    const opened = openLesson(done, levelFive[0].id);
+    const progress = completeLesson(opened, levelFive[0].id);
+
+    // Both Level 5 lessons are done, so the learner moves to the first
+    // uncompleted lesson after them, not back to the start of the course.
+    expect(progress.currentLessonId).not.toBe(FIRST_LESSON_ID);
+    expect(progress.currentLessonId).not.toBe(levelFive[1].id);
+    expect(QAIDA_LESSONS.findIndex((lesson) => lesson.id === progress.currentLessonId)).toBeGreaterThan(
+      QAIDA_LESSONS.findIndex((lesson) => lesson.id === levelFive[1].id),
+    );
+  });
+
+  it("falls back to the first incomplete lesson when nothing after the finished one is left", () => {
+    const last = QAIDA_LESSONS[QAIDA_LESSONS.length - 1];
+    const progress = completeLesson(emptyQaidaProgress(), last.id);
+
+    expect(progress.completedLessons).toEqual([last.id]);
+    expect(progress.currentLessonId).toBe(FIRST_LESSON_ID);
   });
 });
 
