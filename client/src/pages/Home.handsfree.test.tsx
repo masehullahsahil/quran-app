@@ -899,7 +899,8 @@ describe("the lesson teaches in five languages", () => {
 
     expect(document.documentElement.dir).toBe(directionFor(code as LocaleCode));
     // Whatever the interface is doing, the Quran is Arabic and right-to-left.
-    const ayah = container.querySelector(".tutor-ayah p");
+    // The ayah lives in the study card now, not in the tutor panel.
+    const ayah = container.querySelector(".study-arabic");
     expect(ayah?.getAttribute("lang")).toBe("ar");
     expect(ayah?.getAttribute("dir")).toBe("rtl");
     expect(ayah?.textContent).toBe(AYAH_ARABIC);

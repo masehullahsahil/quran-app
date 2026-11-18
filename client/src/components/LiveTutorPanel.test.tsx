@@ -9,6 +9,10 @@
  * three the moment calls for, that a word which has come through stops being
  * presented as an error, and that nothing anywhere reaches for a synthesised
  * voice or claims a pronunciation was right.
+ *
+ * The panel itself no longer renders the ayah — the study card directly above
+ * it already shows it, so the panel repeating it put the same ayah on screen
+ * twice. The Quranic text that remains here is the word under correction.
  */
 // The default import is what the test transform needs: it compiles JSX to
 // `React.createElement` (tsconfig sets `jsx: "preserve"`).
@@ -29,8 +33,7 @@ import faAF from "@locales/fa-AF";
 import ur from "@locales/ur";
 import ar from "@locales/ar";
 
-/** Al-Fatiha 1:2, and the word a learner left out of it. */
-const AYAH = { arabic: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ", label: "Al-Fatiha 1:2" };
+/** The word a learner left out of Al-Fatiha 1:2. */
 const TARGET = { arabic: "رَبِّ", wordIndex: 3, totalWords: 4 };
 
 let container: HTMLDivElement;
@@ -54,7 +57,7 @@ function Harness({ session, locale }: { session: TutorSessionView; locale: Local
   React.useEffect(() => {
     setLocale(locale);
   }, [locale, setLocale]);
-  return <LiveTutorPanel session={session} ayah={AYAH} onIntent={onIntent} />;
+  return <LiveTutorPanel session={session} onIntent={onIntent} />;
 }
 
 async function show(session: TutorSessionView, locale: LocaleCode = "en") {
@@ -107,12 +110,11 @@ describe("the teacher is ready", () => {
     expect(controls()[0].className).toContain("is-primary");
   });
 
-  it("puts the ayah on screen before anything else", async () => {
+  it("does not repeat the ayah — the study card above already shows it", async () => {
     await show(session("ready"));
-    const ayah = container.querySelector(".tutor-ayah p")!;
-    expect(ayah.textContent).toBe(AYAH.arabic);
-    expect(ayah.getAttribute("lang")).toBe("ar");
-    expect(ayah.getAttribute("dir")).toBe("rtl");
+    expect(container.querySelector(".tutor-ayah")).toBeNull();
+    expect(message()?.textContent).toBe(en.strings["tutor.ready"]);
+    expect(controls()).toHaveLength(1);
   });
 });
 
@@ -356,11 +358,13 @@ describe("every language the app teaches in", () => {
   it("keeps the Quran in its own direction and order in every language", async () => {
     for (const code of SUPPORTED_LANGUAGE_CODES) {
       await show(session("correction", { target: TARGET }), code);
-      const ayah = container.querySelector(".tutor-ayah p")!;
-      expect(ayah.getAttribute("dir"), code).toBe("rtl");
-      expect(ayah.getAttribute("lang"), code).toBe("ar");
+      // The word under correction is the Quranic text this panel still shows:
+      // the ayah itself lives in the study card above it, not here.
+      const word = container.querySelector(".tutor-target p")!;
+      expect(word.getAttribute("dir"), code).toBe("rtl");
+      expect(word.getAttribute("lang"), code).toBe("ar");
       // Byte-for-byte: no normalisation, no stripped harakat, no reordering.
-      expect(Array.from(ayah.textContent!), code).toEqual(Array.from(AYAH.arabic));
+      expect(Array.from(word.textContent!), code).toEqual(Array.from(TARGET.arabic));
       expect(target()?.querySelector("p")?.getAttribute("dir"), code).toBe("rtl");
       expect(target()?.querySelector("p")?.textContent, code).toBe("رَبِّ");
     }
@@ -372,10 +376,10 @@ describe("every language the app teaches in", () => {
       expect(document.documentElement.dir, code).toBe("rtl");
       expect(document.documentElement.lang, code).toBe(code);
     }
-    await show(session("ready"), "en");
+    await show(session("correction", { target: TARGET }), "en");
     expect(document.documentElement.dir).toBe("ltr");
     // The Quran keeps its own direction whichever way the interface runs.
-    expect(container.querySelector(".tutor-ayah p")?.getAttribute("dir")).toBe("rtl");
+    expect(container.querySelector(".tutor-target p")?.getAttribute("dir")).toBe("rtl");
   });
 });
 
@@ -441,7 +445,7 @@ describe("the learner is not shown everything at once", () => {
     await show(session("correction", { target: TARGET }));
     expect(text()).not.toMatch(/\d+%/);
     expect(container.querySelector(".tutor-details")).toBeNull();
-    // The screen is the ayah, one sentence, the word, and the controls.
+    // The screen is one sentence, the word, and the controls.
     expect(container.querySelectorAll(".tutor-message")).toHaveLength(1);
   });
 
@@ -449,7 +453,7 @@ describe("the learner is not shown everything at once", () => {
     await act(async () => {
       root.render(
         <LocaleProvider>
-          <LiveTutorPanel session={session("correction", { target: TARGET })} ayah={AYAH} onIntent={onIntent} details={<p>detail</p>} />
+          <LiveTutorPanel session={session("correction", { target: TARGET })} onIntent={onIntent} details={<p>detail</p>} />
         </LocaleProvider>,
       );
     });

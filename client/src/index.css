@@ -487,11 +487,6 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 @keyframes tutor-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
 @keyframes tutor-turn { to { transform: rotate(360deg); } }
 
-/* The Quran. Its own text, its own direction, whatever the interface is doing. */
-.tutor-ayah { margin-top: 14px; padding: 14px 16px; background: rgba(255,255,255,.7); border: 1px solid #e6e0d2; border-radius: 10px; text-align: center; }
-.tutor-ayah p { margin: 0; color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: clamp(24px, 5vw, 32px); line-height: 2; }
-.tutor-ayah small { display: block; margin-top: 6px; color: #97a29a; font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
-
 /* What the teacher just said. The largest words in the interface after the
    Quran, because it is the thing a learner reads from arm's length. */
 .tutor-message { margin: 16px 0 0; color: #22312a; font-size: clamp(19px, 4.4vw, 23px); font-weight: 700; line-height: 1.4; }
@@ -710,7 +705,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
    scopes the bidi algorithm to the element and leaves the sentence alone. Latin
    digits inside RTL text are handled by the algorithm itself and must not be
    forced, which is why nothing here sets `direction` on a number. */
-.now-word, .fix-word, .lesson-word, .lesson-context p span, .tutor-ayah p, .tutor-target p,
+.now-word, .fix-word, .lesson-word, .lesson-context p span, .tutor-target p,
 .correction-word, .course-example span,
 .course-subject span, .course-choice span, .acoustic-finding small,
 .chapter-arabic span, .brand-arabic { unicode-bidi: isolate; }
@@ -815,8 +810,6 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
      sit under them rather than crowding the same row. */
   .live-tutor { padding: 16px 14px; }
   .tutor-message { font-size: clamp(18px, 5.6vw, 22px); }
-  .tutor-ayah { padding: 12px 10px; }
-  .tutor-ayah p { font-size: clamp(22px, 6.4vw, 28px); }
   .tutor-controls { flex-direction: column; align-items: stretch; }
   .tutor-control { width: 100%; min-height: 50px; }
   .tutor-control.is-primary { min-height: 54px; }

@@ -440,7 +440,7 @@ describe("the learner meets the tutor in Study", () => {
 
     await click(container.querySelector<HTMLButtonElement>(".surah-beginning"));
 
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(FIRST_AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(FIRST_AYAH_ARABIC);
     expect(mutationMocks.tutorStart.mock.calls.map(([input]) => input.ayah)).toEqual([1, 3, 1]);
   });
 
@@ -449,14 +449,17 @@ describe("the learner meets the tutor in Study", () => {
     expect(panel()).toBeNull();
   });
 
-  it("puts the ayah, one sentence and one action in front of the learner", async () => {
+  it("shows the ayah Arabic once, in the study card — never in the tutor panel", async () => {
     await mount();
     await openLesson();
 
-    const ayah = panel()!.querySelector(".tutor-ayah p")!;
-    expect(ayah.textContent).toBe(AYAH_ARABIC);
-    expect(ayah.getAttribute("lang")).toBe("ar");
-    expect(ayah.getAttribute("dir")).toBe("rtl");
+    // The study card is the one place the ayah shows. The tutor panel used to
+    // repeat it in its own box, so the same ayah read twice on one screen.
+    expect(container.querySelector(".study-card .study-arabic")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".tutor-ayah")).toBeNull();
+    expect(text().split(AYAH_ARABIC).length - 1).toBe(1);
+
+    // The tutor panel is still there: one sentence and one thing to do.
     expect(message()?.textContent).toBe(en.strings["tutor.ready"]);
     expect(controls()).toHaveLength(1);
     expect(controls()[0].textContent).toContain(en.strings["tutor.doStart"]);
@@ -675,7 +678,7 @@ describe("the learner cannot walk past an unresolved correction", () => {
       expect.stringContaining(en.strings["tutor.doContinue"]!),
     );
     // And the ayah on screen has not moved.
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
   });
 });
 
@@ -783,20 +786,20 @@ describe("the رَبِّ sequence, decided by the server", () => {
     expect(message()?.textContent).toBe(en.strings["tutor.wordMissed"]);
     expect(tutorTarget()?.querySelector("p")?.textContent).toBe(TARGET);
     expect(text()).toContain("Word 3 of 4");
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
 
     // Attempt 2 — the word goes through, scoped to the word. Still Ayah 2, and
     // nothing has been completed: the teacher now asks for the whole ayah.
     await recordThroughTutor();
     expect(attempts).toEqual(["ayah", "word"]);
     expect(message()?.textContent).toBe(en.strings["tutor.wordRecognised"]);
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
 
     // Attempt 3 — the whole ayah. Only now does the lesson move to Ayah 3, and
     // the screen follows it rather than leading it.
     await recordThroughTutor();
     expect(attempts).toEqual(["ayah", "word", "ayah"]);
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe("ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ");
+    expect(container.querySelector(".study-arabic")?.textContent).toBe("ٱلرَّحْمَـٰنِ ٱلرَّحِيمِ");
     expect(tutorTarget()).toBeNull();
   });
 
@@ -808,7 +811,7 @@ describe("the رَبِّ sequence, decided by the server", () => {
     await recordThroughTutor();
 
     // Same ayah, and the tutor was never reopened at another position.
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
     expect(mutationMocks.tutorStart.mock.calls.map(([input]) => input.ayah)).toEqual([1, AYAH_NUMBER]);
   });
 
@@ -820,7 +823,7 @@ describe("the رَبِّ sequence, decided by the server", () => {
     await recordThroughTutor();
 
     expect(tutorTarget()?.querySelector("p")?.textContent).toBe(TARGET);
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
   });
 });
 
@@ -839,7 +842,7 @@ describe("continue cannot move the Quran", () => {
       anyControl.click();
     });
     await settle();
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
   });
 
   it("does not navigate when the learner continues from a clean position", async () => {
@@ -847,13 +850,13 @@ describe("continue cannot move the Quran", () => {
     await openLesson();
     // "Start", then the engine's own continue: neither is a Quran move.
     await click(controls()[0]);
-    const before = container.querySelector(".tutor-ayah p")?.textContent;
+    const before = container.querySelector(".study-arabic")?.textContent;
     const continueControl = controls().find((control) =>
       (control.textContent ?? "").includes(en.strings["tutor.doContinue"]!),
     );
     if (continueControl) await click(continueControl);
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(before);
-    expect(container.querySelector(".tutor-ayah p")?.textContent).toBe(AYAH_ARABIC);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(before);
+    expect(container.querySelector(".study-arabic")?.textContent).toBe(AYAH_ARABIC);
   });
 });
 
@@ -921,7 +924,7 @@ describe("the tutor teaches in every language", () => {
     if (code !== "en") await chooseLanguage(code);
     await settle();
 
-    const ayah = container.querySelector(".tutor-ayah p")!;
+    const ayah = container.querySelector(".study-arabic")!;
     expect(ayah.getAttribute("dir"), code).toBe("rtl");
     expect(ayah.getAttribute("lang"), code).toBe("ar");
     // Byte-for-byte: no normalisation, no reordering, no stripped harakat.
