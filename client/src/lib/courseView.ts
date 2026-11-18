@@ -72,8 +72,11 @@ export function describeCourseView(progress: QaidaProgress): CourseView {
     percentComplete: curriculumProgressPercent(progress.completedLessons),
     // The finish-button label names this lesson, and finishing opens it: the
     // shared advance target, not merely the next lesson in course order, so
-    // the label never names a lesson that is already complete.
-    nextLesson: advanceTargetAfter(lesson.id, progress.completedLessons),
+    // the label never names a lesson that is already complete. The lesson
+    // being viewed counts as completed here, because finishing it is what
+    // the button does: without that, when it is the only incomplete lesson
+    // left, the fallback would name it again instead of finishing the course.
+    nextLesson: advanceTargetAfter(lesson.id, [...progress.completedLessons, lesson.id]),
     levels: QAIDA_LEVELS.map((entry) => chipFor(entry.id, lesson.level, progress)),
     lessonsOfLevel: levelLessons.map((entry) => ({
       lesson: entry,
