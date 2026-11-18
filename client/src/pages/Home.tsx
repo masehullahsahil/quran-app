@@ -29,10 +29,12 @@ import {
   Sparkles,
   Square,
   Volume2,
+  X,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
 import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
+import { clearSavedPlace, loadSavedPlace, saveSavedPlace, type SavedPlace } from "@/lib/savedPlace";
 import { QaidaCourse } from "@/components/QaidaCourse";
 import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
 import { type SupportedLanguageCode } from "@shared/languages";
@@ -390,7 +392,25 @@ export default function Home() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [covered, setCovered] = useState(false);
   const [showTranslation, setShowTranslation] = useState(true);
-  const [saved, setSaved] = useState(false);
+  // The learner's saved place, read once from localStorage. One place only.
+  // `saved` below is derived from it on every render, so the Save button
+  // reads "Saved" exactly when the ayah on screen is the stored one — never
+  // from a toggle that forgets on refresh.
+  const [savedPlace, setSavedPlace] = useState<SavedPlace | null>(() => loadSavedPlace());
+  const saved = savedPlace !== null && savedPlace.surah === surahNumber && savedPlace.ayah === selectedVerse;
+  // Below 1190px the side panel leaves the grid and becomes a slide-over
+  // drawer. The toggle lives in the desk header; opening moves focus into
+  // the panel and closing returns it to the toggle.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelToggleRef = useRef<HTMLButtonElement | null>(null);
+  const panelCloseRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (panelOpen) panelCloseRef.current?.focus();
+  }, [panelOpen]);
+  const closePanel = () => {
+    setPanelOpen(false);
+    panelToggleRef.current?.focus();
+  };
   const [lessonStage, setLessonStage] = useState<LessonStage>("listen");
   const [isRecording, setIsRecording] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState("");
@@ -624,6 +644,11 @@ export default function Home() {
   const nextVerse = activeIndex >= 0 ? ayahs[activeIndex + 1] ?? null : null;
   const previousVerse = activeIndex > 0 ? ayahs[activeIndex - 1] : null;
   const surahLabel = activeSurah?.nameSimple ?? t("reader.loading");
+  // The saved place may be in another surah, so its name comes from the
+  // chapter index rather than the surah on screen.
+  const savedSurahName = savedPlace
+    ? surahs.find((item) => item.number === savedPlace.surah)?.nameSimple ?? t("reader.loading")
+    : null;
   // Juz are ordered and contiguous, so the reader's juz is the last one that
   // starts at or before the selected ayah. This keeps the juz picker in step
   // when a long surah is read straight through a juz boundary.
@@ -795,6 +820,29 @@ export default function Home() {
     setSurahNumber(number);
     setSelectedVerse(ayah);
     if (view === "memorise") setCovered(false);
+  };
+
+  /**
+   * Save this ayah as the one place to return to — or clear it, when this
+   * ayah already is the saved one. Saving a different ayah replaces the
+   * stored place; there is only ever one.
+   */
+  const toggleSave = () => {
+    if (saved) {
+      clearSavedPlace();
+      setSavedPlace(null);
+      return;
+    }
+    const place: SavedPlace = { surah: surahNumber, ayah: selectedVerse, savedAt: new Date().toISOString() };
+    saveSavedPlace(place);
+    setSavedPlace(place);
+  };
+
+  /** Jump to the saved place. Surah and ayah change together, so the landing
+      ayah is the saved one — a surah change on its own would reload the ayahs
+      and leave the learner on ayah 1. */
+  const goToSavedPlace = () => {
+    if (savedPlace) selectSurah(savedPlace.surah, savedPlace.ayah);
   };
 
   const selectJuz = (juzNumber: number) => {
@@ -2082,6 +2130,10 @@ export default function Home() {
             </label>
             <button type="button" className="icon-button" aria-label={t("reader.searchLabel")}><Search size={18} /></button>
             <button type="button" className="icon-button" aria-label={t("reader.settingsLabel")}><Settings2 size={18} /></button>
+            {/* Below 1190px the side panel leaves the grid and becomes a
+                slide-over drawer; this is the only way to open it there.
+                Above 1190px the panel is always visible and this stays hidden. */}
+            <button type="button" className="panel-toggle" ref={panelToggleRef} aria-expanded={panelOpen} aria-controls="study-panel" onClick={() => setPanelOpen(true)}><Bookmark size={18} /> {t("panel.openPlace")}</button>
             {/* The sign-in entry point. Login stays optional and never gates a
                 screen; signing in only saves progress to the learner's
                 account. Home already fetches auth.me above — this reuses that
@@ -2389,9 +2441,11 @@ export default function Home() {
         <div className="page-controls"><button type="button" className="surah-beginning" onClick={goToSurahBeginning} disabled={!previousVerse}><RotateCcw size={16} /> {t("reader.surahBeginning")}</button><button type="button" onClick={() => moveVerse(-1)} disabled={!previousVerse}><ArrowLeft size={16} /> {t("reader.previousAyah")}</button><span>{surahLabel} · {activeVerse?.number ?? "—"}/{ayahs.length || "—"}</span><button type="button" onClick={() => moveVerse(1)} disabled={!nextVerse}>{t("reader.nextAyah")} <ArrowRight size={16} /></button></div>
       </main>
 
-      <aside className="study-panel" aria-label={t("panel.label")}>
-        <div className="panel-topbar"><p className="eyebrow">{t("panel.keepPlace")}</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={() => setSaved((current) => !current)} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {t(saved ? "panel.saved" : "panel.save")}</button></div>
-        {activeVerse && <div className="selected-ayah"><div className="ayah-reference"><span>{surahLabel}</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <>{activeVerse.transliteration && <p className="panel-transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="panel-translation">{activeVerse.translation}</p>}</>}</div>}
+      {panelOpen && <div className="panel-backdrop" aria-hidden="true" onClick={closePanel} />}
+      <aside id="study-panel" className={`study-panel ${panelOpen ? "is-open" : ""}`} aria-label={t("panel.label")} onKeyDown={(event) => { if (panelOpen && event.key === "Escape") closePanel(); }}>
+        <div className="panel-topbar"><p className="eyebrow">{t("panel.keepPlace")}</p><button type="button" className={`save-button ${saved ? "is-saved" : ""}`} onClick={toggleSave} aria-pressed={saved}><Bookmark size={16} fill={saved ? "currentColor" : "none"} /> {t(saved ? "panel.saved" : "panel.save")}</button><button type="button" className="panel-close" ref={panelCloseRef} aria-label={t("panel.closeLabel")} onClick={closePanel}><X size={18} /></button></div>
+        {savedPlace && !saved && savedSurahName && <p className="saved-place"><span>{t("panel.savedPlace", { surah: savedSurahName, ayah: savedPlace.ayah })}</span><button type="button" onClick={goToSavedPlace}>{t("panel.savedPlaceGo")}</button></p>}
+        {activeVerse && view !== "study" && <div className="selected-ayah"><div className="ayah-reference"><span>{surahLabel}</span><VerseMedallion number={activeVerse.number} /></div><p lang="ar" dir="rtl">{activeVerse.arabic}</p>{showTranslation && <>{activeVerse.transliteration && <p className="panel-transliteration">{activeVerse.transliteration}</p>}{activeVerse.translation && <p className="panel-translation">{activeVerse.translation}</p>}</>}</div>}
         <div className="audio-module"><div className="audio-heading"><span className={`audio-pulse ${isPlaying ? "is-playing" : ""}`} /><span>{t(isPlaying ? "panel.audioPlaying" : "panel.listenRepeat")}</span></div><div className="audio-track"><span className={isPlaying ? "track-fill is-moving" : "track-fill"} /></div><div className="audio-times"><span>{activeReciterName}</span><span>{t("panel.ayahNumber", { number: activeVerse?.number ?? "—" })}</span></div><button type="button" className="listen-button" onClick={() => void playReciter(1)} disabled={audioUnavailable}>{isPlaying ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" />} {t(isPlaying ? "panel.playingReciter" : "panel.listenSelected")}</button><p className="audio-note"><Headphones size={14} /> {t("panel.audioNote")}</p></div>
         <div className="practice-note"><img src="/assets/quran-study-lantern-illustration.svg" alt="" /><div><span className="eyebrow">{t("panel.sequenceEyebrow")}</span><p>{t("panel.sequenceCopy")}</p></div></div>
         {/* This is the learner's place in the surah — ayah 2 of 7 is 29% — and it
