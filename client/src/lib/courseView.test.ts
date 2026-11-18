@@ -135,6 +135,17 @@ describe("the finish button names the lesson finishing opens", () => {
     expect(completeLesson(progress, last.id).currentLessonId).toBe(earliestUndone.id);
   });
 
+  it("finishes the course when the viewed lesson is the only one left", () => {
+    const remaining = QAIDA_LESSONS[5];
+    const completedLessons = QAIDA_LESSONS.map((lesson) => lesson.id).filter(
+      (id) => id !== remaining.id,
+    );
+    const progress: QaidaProgress = { completedLessons, currentLessonId: remaining.id };
+
+    expect(describeCourseView(progress).nextLesson).toBeNull();
+    expect(completeLesson(progress, remaining.id).currentLessonId).toBe(remaining.id);
+  });
+
   it("has no next lesson and stays put once the course is fully complete", () => {
     const last = QAIDA_LESSONS[QAIDA_LESSONS.length - 1];
     const progress: QaidaProgress = {
