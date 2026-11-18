@@ -76,7 +76,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 
 .reading-desk { position: relative; min-width: 0; padding: 25px clamp(25px, 4vw, 68px) 34px; background: #f6f3ec; }
 .desk-header, .chapter-intro, .page-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
-.desk-header { margin-bottom: 46px; }
+.desk-header { flex-wrap: wrap; margin-bottom: 46px; }
 .crumbs, .header-tools { display: flex; align-items: center; gap: 11px; }
 .crumb-separator { color: #b2b0a8; }
 .chapter-picker { display: flex; align-items: center; gap: 3px; padding: 0; color: #4f5b54; border: 0; background: transparent; cursor: pointer; font-size: 12px; font-weight: 600; }
@@ -633,6 +633,15 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .panel-topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; margin-bottom: 26px; border-bottom: 1px solid #e6e1d7; }
 .save-button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 8px; color: #6d786f; border: 0; background: transparent; border-radius: 7px; cursor: pointer; font-size: 11px; font-weight: 700; transition: color .18s cubic-bezier(.23,1,.32,1), background-color .18s cubic-bezier(.23,1,.32,1); }
 .save-button:hover, .save-button.is-saved { color: #174d42; background: #e8f1ec; }
+/* The saved place, when it is not the ayah on screen: one line under the
+   topbar with a way back to it. */
+.saved-place { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 13px; margin: -14px 0 13px; border-bottom: 1px solid #e6e1d7; color: #405047; font-size: 11px; font-weight: 700; }
+.saved-place button { padding: 4px 2px; color: #174d42; border: 0; background: transparent; cursor: pointer; font-size: 11px; font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
+/* Drawer chrome: hidden while the panel sits in the grid. Below 1190px the
+   media query below turns the toggle, close control and backdrop on. */
+.panel-toggle { display: none; }
+.panel-close { display: none; }
+.panel-backdrop { display: none; }
 .selected-ayah { position: relative; z-index: 1; padding-bottom: 26px; border-bottom: 1px solid #e6e1d7; }
 .ayah-reference { display: flex; align-items: center; justify-content: space-between; color: #718075; font-size: 11px; font-weight: 700; }
 .ayah-reference .verse-medallion { font-size: 12px; }
@@ -714,14 +723,22 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } }
 
 @media (max-width: 1190px) {
-  .sanctuary-shell { grid-template-columns: 208px minmax(500px,1fr) 304px; }
+  /* The panel leaves the grid and becomes a slide-over drawer, so the shell
+     is rail + main only and nothing is clipped at any width below here. The
+     drawer is off-canvas and hidden from keyboard and assistive tech until
+     opened; the toggle in the desk header opens it. */
+  .sanctuary-shell { grid-template-columns: 208px minmax(0,1fr); }
   .reading-desk { padding-inline: 31px; }
   .mode-tab { min-width: 122px; }
-  .study-panel { padding-inline: 19px; }
+  .study-panel { position: fixed; right: 0; top: 0; height: 100%; width: min(350px, 92vw); padding-inline: 19px; overflow-y: auto; box-shadow: -12px 0 32px rgba(23,45,38,.18); transform: translateX(102%); visibility: hidden; transition: transform .25s ease, visibility 0s linear .25s; z-index: 50; }
+  .study-panel.is-open { transform: translateX(0); visibility: visible; transition: transform .25s ease, visibility 0s; }
+  .panel-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; color: #174d42; border: 1px solid #c3d2c6; background: #fffdf8; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
+  .panel-close { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: #6d786f; border: 0; background: transparent; border-radius: 50%; cursor: pointer; }
+  .panel-close:hover { color: #174d42; background: #e8f1ec; }
+  .panel-backdrop { display: block; position: fixed; inset: 0; background: rgba(23,45,38,.45); z-index: 40; }
 }
 @media (max-width: 1000px) {
   .sanctuary-shell { grid-template-columns: 194px minmax(0,1fr); }
-  .study-panel { display: none; }
   .reading-desk { min-height: 100vh; }
 }
 @media (max-width: 700px) {

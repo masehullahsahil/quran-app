@@ -55,6 +55,36 @@ describe("no known horizontal-overflow patterns", () => {
   });
 });
 
+describe("the side panel stays reachable", () => {
+  it("never hides the panel with display: none", () => {
+    // The panel used to vanish below 1000px with no way to open it. A
+    // drawer that is off-canvas is hidden, never removed.
+    expect(css).not.toMatch(/\.study-panel\s*\{[^}]*display:\s*none/);
+  });
+
+  it("turns the panel into a slide-over drawer below 1190px", () => {
+    // Below 1190px the shell is rail + main only, so its hard minimum can
+    // no longer push the panel off the right edge; the panel is fixed to
+    // the viewport and slides in when opened.
+    expect(css).toMatch(/@media \(max-width:\s*1190px\)[\s\S]*?\.sanctuary-shell\s*\{[^}]*grid-template-columns:\s*208px minmax\(0,\s*1fr\)/);
+    expect(css).toMatch(/\.study-panel\s*\{[^}]*position:\s*fixed/);
+    expect(css).toMatch(/\.study-panel\s*\{[^}]*transform:\s*translateX\(102%\)/);
+    expect(css).toMatch(/\.study-panel\.is-open\s*\{[^}]*transform:\s*translateX\(0\)/);
+    expect(css).toMatch(/\.study-panel\s*\{[^}]*visibility:\s*hidden/);
+    expect(css).toMatch(/\.study-panel\.is-open\s*\{[^}]*visibility:\s*visible/);
+  });
+
+  it("gives the drawer a toggle, a close control and a backdrop", () => {
+    expect(css).toMatch(/\.panel-toggle\s*\{[^}]*display:\s*inline-flex/);
+    expect(css).toMatch(/\.panel-close\s*\{[^}]*display:\s*inline-flex/);
+    expect(css).toMatch(/\.panel-backdrop\s*\{[^}]*position:\s*fixed/);
+  });
+
+  it("lets the desk header wrap so its pills stay reachable", () => {
+    expect(css).toMatch(/\.desk-header\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+});
+
 describe("narrow-screen controls", () => {
   it("gives the primary Study and Learn actions the full width", () => {
     const block = mobileBlock();
