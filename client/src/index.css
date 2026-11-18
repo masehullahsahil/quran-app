@@ -779,8 +779,11 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .study-index strong { font-size: 25px; }
   .study-layout { display: flex; flex-direction: column; }
   .study-index { order: 0; }
-  .teacher-loop { order: 1; }
-  .study-card { order: 2; padding: 12px 15px; }
+  /* The ayah card first, then the tutor: the ayah no longer lives in the
+     tutor card, so putting the tutor first would show the prompt before the
+     verse the learner is being asked to repeat. Matches desktop order. */
+  .study-card { order: 1; padding: 12px 15px; }
+  .teacher-loop { order: 2; }
   .study-pagination { order: 3; }
   .study-visual { display: none; }
   .study-fix { padding: 13px 12px; }

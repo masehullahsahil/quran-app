@@ -134,18 +134,21 @@ describe("the instruction stays the largest thing in Study", () => {
   });
 });
 
-describe("the phone puts teaching before content", () => {
-  it("orders the instruction block above the ayah card", () => {
+describe("the phone puts the ayah before the tutor", () => {
+  it("orders the ayah card above the tutor panel", () => {
     const block = mobileBlock();
     const orderOf = (selector: string) => {
       const match = block.match(new RegExp(`${selector}\\s*\\{[^}]*order:\\s*(\\d+)`));
       return match ? Number(match[1]) : NaN;
     };
 
+    // The ayah no longer lives in the tutor card, so the card must come
+    // first: a learner on a phone should see the verse before the tutor's
+    // prompt, not the prompt and then the verse after scrolling.
     expect(block).toMatch(/\.study-layout\s*\{[^}]*flex-direction:\s*column/);
-    expect(orderOf("\\.teacher-loop")).toBeLessThan(orderOf("\\.study-card"));
-    expect(orderOf("\\.study-index")).toBeLessThan(orderOf("\\.teacher-loop"));
-    expect(orderOf("\\.study-pagination")).toBeGreaterThan(orderOf("\\.study-card"));
+    expect(orderOf("\\.study-card")).toBeLessThan(orderOf("\\.teacher-loop"));
+    expect(orderOf("\\.study-index")).toBeLessThan(orderOf("\\.study-card"));
+    expect(orderOf("\\.study-pagination")).toBeGreaterThan(orderOf("\\.teacher-loop"));
   });
 
   it("drops the decorative wash rather than scrolling past it", () => {
