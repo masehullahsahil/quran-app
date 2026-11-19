@@ -28,8 +28,7 @@ import faAF from "@locales/fa-AF";
 import ur from "@locales/ur";
 import ar from "@locales/ar";
 
-/** Al-Fatiha 1:2, and the word a learner left out of it. */
-const AYAH = { arabic: "ٱلْحَمْدُ لِلَّهِ رَبِّ ٱلْعَـٰلَمِينَ", label: "Al-Fatiha 1:2" };
+/** The word a learner left out of Al-Fatiha 1:2. */
 const TARGET = { arabic: "رَبِّ", wordIndex: 3, totalWords: 4 };
 
 const PACKS: Record<LocaleCode, { strings: Record<string, string> }> = {
@@ -75,7 +74,7 @@ function Harness({ session, locale }: { session: TutorSessionView; locale: Local
   React.useEffect(() => {
     setLocale(locale);
   }, [locale, setLocale]);
-  return <LiveTutorPanel session={session} ayah={AYAH} onIntent={onIntent} />;
+  return <LiveTutorPanel session={session} onIntent={onIntent} />;
 }
 
 async function show(session: TutorSessionView, locale: LocaleCode) {

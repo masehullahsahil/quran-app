@@ -8,9 +8,12 @@
  *
  * What is on screen, in order, and nothing else by default:
  *
- *   1. the ayah,
- *   2. what the teacher just said,
- *   3. the one thing to do now.
+ *   1. what the teacher just said,
+ *   2. the one thing to do now.
+ *
+ * The ayah itself is not repeated here: the study card directly above this
+ * panel already shows it large, with its meaning, so this panel saying it
+ * again in its own box put the same ayah on screen twice.
  *
  * Everything the teacher noticed is behind a disclosure. A learner reciting
  * with the phone propped in front of them should be able to read the sentence
@@ -48,8 +51,6 @@ import type { StringKey } from "@locales/index";
 export type LiveTutorPanelProps = {
   /** Everything the tutor engine says about this moment. */
   session: TutorSessionView;
-  /** The ayah on screen, exactly as the Quran data gives it. */
-  ayah?: { arabic: string; label: string } | null;
   /** The learner asked for something. The page decides what that does. */
   onIntent: (intent: TutorControlIntent) => void;
   /** Anything the teacher noticed, for the disclosure. Optional and secondary. */
@@ -62,8 +63,8 @@ export type LiveTutorPanelProps = {
    * of buttons offering to do those things is offering to do them twice. The
    * two controls a learner still needs (Pause, Finish) live with the microphone
    * state in `HandsFreeTutor`, and the recovery options are behind its
-   * disclosure. Everything else on this panel is unchanged: the ayah, the
-   * sentence, the word under correction, the presence line.
+   * disclosure. Everything else on this panel is unchanged: the sentence,
+   * the word under correction, the presence line.
    */
   handsFree?: boolean;
 };
@@ -98,7 +99,7 @@ const PRESENCE_ICONS: Record<TutorPresence, React.ComponentType<{ size?: number;
   waiting: Check,
 };
 
-export function LiveTutorPanel({ session, ayah = null, onIntent, details, handsFree = false }: LiveTutorPanelProps) {
+export function LiveTutorPanel({ session, onIntent, details, handsFree = false }: LiveTutorPanelProps) {
   const { t } = useLocale();
   const view = describeTutorView(session);
   const [voiceOpen, setVoiceOpen] = useState(false);
@@ -127,18 +128,7 @@ export function LiveTutorPanel({ session, ayah = null, onIntent, details, handsF
         <small>{t(view.turn === "teacher" ? "tutor.turnTeacher" : "tutor.turnLearner")}</small>
       </p>
 
-      {/* 1. The Quran. Its own text, its own direction, in every interface
-             language, and never mirrored by the layout around it. */}
-      {ayah && (
-        <div className="tutor-ayah">
-          <p lang="ar" dir="rtl">
-            {ayah.arabic}
-          </p>
-          <small>{ayah.label}</small>
-        </div>
-      )}
-
-      {/* 2. What the teacher just said. One sentence, announced when it changes. */}
+      {/* 1. What the teacher just said. One sentence, announced when it changes. */}
       <p className="tutor-message" ref={messageRef} tabIndex={-1} aria-live="polite">
         {t(view.messageKey, view.messageParams)}
       </p>
@@ -160,7 +150,7 @@ export function LiveTutorPanel({ session, ayah = null, onIntent, details, handsF
         </div>
       )}
 
-      {/* 3. The one thing to do now, and at most two ways round it. Absent in
+      {/* 2. The one thing to do now, and at most two ways round it. Absent in
              a hands-free session, where there is nothing to press. */}
       {!handsFree && view.controls.length > 0 && (
         <div className="tutor-controls">

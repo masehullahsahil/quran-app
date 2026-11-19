@@ -2225,7 +2225,6 @@ export default function Home() {
               {tutorView && (
                 <LiveTutorPanel
                   session={tutorView}
-                  ayah={{ arabic: activeVerse.arabic, label: `${surahLabel} ${t("now.place", { ayah: activeVerse.number, total: ayahs.length })}` }}
                   onIntent={runTutorIntent}
                   handsFree={handsFreeOn}
                 />
