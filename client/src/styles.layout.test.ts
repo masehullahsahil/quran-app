@@ -80,6 +80,44 @@ describe("the side panel stays reachable", () => {
     expect(css).toMatch(/\.panel-backdrop\s*\{[^}]*position:\s*fixed/);
   });
 
+  it("dresses the drawer chrome and saved place in the new tokens", () => {
+    // The drawer chrome and saved-place line arrived after the look passes,
+    // so they wore the old palette until this alignment. The scrim and the
+    // close control's resting colour are not palette tokens and stay put.
+    const savedPlace = css.match(/\.saved-place\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(savedPlace).toContain("border-bottom: 1px solid #e4dfd4");
+    expect(savedPlace).toContain("color: #405047");
+    expect(savedPlace).not.toContain("#e6e1d7");
+
+    const savedButton = css.match(/\.saved-place button\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(savedButton).toContain("color: #0f4a3c");
+    expect(savedButton).not.toContain("#174d42");
+
+    // The toggle and close control only gain their colours inside the 1190px
+    // block, where the drawer turns on; the base rules just hide them.
+    const drawer = css.slice(css.indexOf("@media (max-width: 1190px)"));
+    const toggle = drawer.match(/\.panel-toggle\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(toggle).toContain("color: #0f4a3c");
+    expect(toggle).toContain("background: #ffffff");
+    expect(toggle).toContain("border: 1px solid #ddd6c6");
+    expect(toggle).not.toContain("#174d42");
+    expect(toggle).not.toContain("#fffdf8");
+    expect(toggle).not.toContain("#c3d2c6");
+
+    const closeHover = drawer.match(/\.panel-close:hover\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(closeHover).toContain("color: #0f4a3c");
+    expect(closeHover).toContain("background: #e6f0e9");
+    expect(closeHover).not.toContain("#174d42");
+    expect(closeHover).not.toContain("#e8f1ec");
+
+    // Unchanged on purpose: the backdrop is a scrim, and the close control's
+    // resting colour was never flagged. The close control's coloured rule
+    // lives in the drawer block too — the base rule only hides it.
+    expect(css).toMatch(/\.panel-backdrop\s*\{[^}]*background:\s*rgba\(23,45,38,\.45\)/);
+    const closeBase = drawer.match(/\.panel-close\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(closeBase).toContain("color: #6d786f");
+  });
+
   it("lets the desk header wrap so its pills stay reachable", () => {
     expect(css).toMatch(/\.desk-header\s*\{[^}]*flex-wrap:\s*wrap/);
   });

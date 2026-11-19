@@ -636,8 +636,8 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .save-button:hover, .save-button.is-saved { color: #0f4a3c; background: #e6f0e9; }
 /* The saved place, when it is not the ayah on screen: one line under the
    topbar with a way back to it. */
-.saved-place { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 13px; margin: -14px 0 13px; border-bottom: 1px solid #e6e1d7; color: #405047; font-size: 11px; font-weight: 700; }
-.saved-place button { padding: 4px 2px; color: #174d42; border: 0; background: transparent; cursor: pointer; font-size: 11px; font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
+.saved-place { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 13px; margin: -14px 0 13px; border-bottom: 1px solid #e4dfd4; color: #405047; font-size: 11px; font-weight: 700; }
+.saved-place button { padding: 4px 2px; color: #0f4a3c; border: 0; background: transparent; cursor: pointer; font-size: 11px; font-weight: 800; text-decoration: underline; text-underline-offset: 2px; }
 /* Drawer chrome: hidden while the panel sits in the grid. Below 1190px the
    media query below turns the toggle, close control and backdrop on. */
 .panel-toggle { display: none; }
@@ -733,9 +733,9 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
   .mode-tab { min-width: 122px; }
   .study-panel { position: fixed; right: 0; top: 0; height: 100%; width: min(350px, 92vw); padding-inline: 20px; overflow-y: auto; box-shadow: -12px 0 32px rgba(23,45,38,.18); transform: translateX(102%); visibility: hidden; transition: transform .25s ease, visibility 0s linear .25s; z-index: 50; }
   .study-panel.is-open { transform: translateX(0); visibility: visible; transition: transform .25s ease, visibility 0s; }
-  .panel-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; color: #174d42; border: 1px solid #c3d2c6; background: #fffdf8; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
+  .panel-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; color: #0f4a3c; border: 1px solid #ddd6c6; background: #ffffff; border-radius: 999px; cursor: pointer; font-size: 11px; font-weight: 800; }
   .panel-close { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; padding: 0; color: #6d786f; border: 0; background: transparent; border-radius: 50%; cursor: pointer; }
-  .panel-close:hover { color: #174d42; background: #e8f1ec; }
+  .panel-close:hover { color: #0f4a3c; background: #e6f0e9; }
   .panel-backdrop { display: block; position: fixed; inset: 0; background: rgba(23,45,38,.45); z-index: 40; }
 }
 @media (max-width: 1000px) {
