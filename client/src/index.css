@@ -271,7 +271,7 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
 .micro-practice { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; padding: 12px; background: #f3f8f4; border-top: 1px solid #c6dacb; border-bottom: 1px solid #c6dacb; }.micro-practice p { margin: 4px 0 0; color: #416054; font-size: 11px; }.micro-practice p strong { color: #1f4d3d; font-family: "Amiri Quran", serif; font-size: 23px; font-weight: 400; }.answer-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 5px; }.answer-options button { min-width: 41px; padding: 7px 8px; color: #395d4d; border: 1px solid #afc9b7; background: #fffdf8; border-radius: 5px; cursor: pointer; font-size: 10px; font-weight: 800; }.answer-options button:hover { background: #e7f3ea; }.answer-options button.is-correct { color: #fffdf8; border-color: #2e7857; background: #2e7857; }.answer-options button.is-retry { color: #8a6532; border-color: #e3c887; background: #fbf0d8; }.exercise-response { grid-column: 1 / -1; margin: 0 !important; padding-top: 8px; border-top: 1px solid rgba(120,151,132,.3); line-height: 1.45; }.exercise-response.is-correct { color: #286148; }.exercise-response.is-retry { color: #86693c; }.vowel-practice { grid-column: 1 / -1; margin: 0 0 15px; }
 .qaida-count { display: grid; }.qaida-count small { margin-top: 2px; color: #9b8b6f; font-family: "DM Sans", sans-serif; font-size: 8px; font-weight: 700; text-transform: uppercase; }.alphabet-grid button.is-practised:not(.is-selected) { color: #3b6951; background: #f0f7f2; border-color: #bdd5c3; }.quiet-action.is-complete { color: #fffdf8; border-color: #3d765d; background: #3d765d; }.path-progress { padding: 6px 8px; color: #8c6b38; background: #f9efde; border: 1px solid #e5d0a6; font-size: 9px; font-weight: 800; }.path-steps button { padding: 12px; border: 1px solid #e4ded1; background: #f7f4ec; cursor: pointer; text-align: left; transition: background .16s cubic-bezier(.23,1,.32,1), border-color .16s cubic-bezier(.23,1,.32,1), transform .16s cubic-bezier(.23,1,.32,1); }.path-steps button:hover { transform: translateY(-1px); background: #fffdf8; }.path-steps button.is-complete { background: #edf5ef; border-color: #b6d0bc; }.path-steps button span { display: grid; width: 18px; height: 18px; place-content: center; color: #9a7742; border: 1px solid #dcc49b; border-radius: 50%; }.path-steps button.is-complete span { color: #fffdf8; border-color: #3b745c; background: #3b745c; }
 
-.teacher-loop { grid-column: 2; max-width: 650px; width: 100%; padding: 20px 24px 21px; margin: 2px auto 0; background: rgba(255,253,248,.8); border-top: 1px solid #c6d7cf; border-bottom: 1px solid #c6d7cf; border-left: 2px solid #ad8547; box-shadow: 0 8px 18px rgba(52,70,58,.045); }
+.teacher-loop { grid-column: 2; max-width: 650px; width: 100%; padding: 20px 24px 21px; margin: 2px auto 0; background: transparent; }
 .loop-header, .feedback-summary, .live-guidance-top { display: flex; align-items: start; justify-content: space-between; gap: 14px; }
 .loop-header h2 { margin: 6px 0 0; color: #244138; font-family: "Fraunces", Georgia, serif; font-size: 22px; font-weight: 500; letter-spacing: -.04em; }
 .teacher-badge { padding: 5px 8px; color: #8b6734; background: #f7efdf; border: 1px solid #e3d0ab; font-size: 9px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; }
@@ -418,11 +418,11 @@ button:focus-visible { outline: 2px solid #a87a3d; outline-offset: 3px; }
    ink colour. Nothing here communicates state by motion or by colour alone —
    every state is also a word on screen.
 --------------------------------------------------------------------------- */
-.live-tutor { padding: 20px; background: #fffdf8; border: 1px solid #e0dccf; border-left: 3px solid #174d42; border-radius: 4px; }
+.live-tutor { padding: 20px; background: transparent; }
 .live-tutor.turn-teacher { border-left-color: #174d42; }
 .live-tutor.turn-learner { border-left-color: #b38748; }
-.live-tutor.is-word-recognised, .live-tutor.is-complete { background: #f4f9f5; border-color: #bcd4c3; border-left-color: #2e7857; }
-.live-tutor.is-paused { background: #f7f7f5; border-color: #d9d7d1; border-left-color: #8d8f8a; }
+.live-tutor.is-word-recognised, .live-tutor.is-complete { border-color: #bcd4c3; border-left-color: #2e7857; }
+.live-tutor.is-paused { border-color: #d9d7d1; border-left-color: #8d8f8a; }
 
 /* ---------------------------------------------------------------------------
    The hands-free lesson.
