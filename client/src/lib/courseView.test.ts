@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { FIRST_LESSON_ID, QAIDA_LESSONS, QAIDA_LEVELS, lessonsForLevel } from "@shared/qaidaCurriculum";
+import {
+  FIRST_LESSON_ID,
+  QAIDA_LESSONS,
+  QAIDA_LETTERS,
+  QAIDA_LEVELS,
+  firstLetterIndexForLesson,
+  lessonsForLevel,
+} from "@shared/qaidaCurriculum";
+import { ARABIC_LETTERS } from "@shared/arabicLetters";
 import { completeLesson, emptyQaidaProgress, openLesson, type QaidaProgress } from "./qaidaProgress";
 import { describeCourseView } from "./courseView";
 
@@ -181,5 +189,69 @@ describe("bad state", () => {
 
     expect(view.lesson.id).toBe(FIRST_LESSON_ID);
     expect(view.level.id).toBe(QAIDA_LEVELS[0].id);
+  });
+});
+
+describe("which letter a lesson teaches", () => {
+  it("focuses the first letter of each letters lesson", () => {
+    // The groups, in course order: Alif's group opens the course, Jeem's is
+    // second, and the last group starts at Kaaf. A revision lesson focuses
+    // the first letter of its first contrast group — Baa, for the dots.
+    expect(firstLetterIndexForLesson("letters-alif-ba-ta-tha")).toBe(0);
+    expect(QAIDA_LETTERS[0].slug).toBe("alif");
+    expect(firstLetterIndexForLesson("letters-jeem-hha-kha")).toBe(4);
+    expect(QAIDA_LETTERS[4].slug).toBe("jeem");
+    expect(firstLetterIndexForLesson("letters-kaf-to-ya")).toBe(21);
+    expect(QAIDA_LETTERS[21].slug).toBe("kaf");
+    expect(firstLetterIndexForLesson("letters-similar")).toBe(1);
+    expect(QAIDA_LETTERS[1].slug).toBe("ba");
+  });
+
+  it("has no letter for a lesson that is not about letters", () => {
+    // Level 5, "Short against long": long vowels, no single letter to focus.
+    expect(firstLetterIndexForLesson("madd-short-vs-long")).toBeNull();
+    expect(firstLetterIndexForLesson("no-such-lesson")).toBeNull();
+  });
+
+  it("focuses the first letter every letters lesson shows", () => {
+    for (const lesson of lessonsForLevel("letters")) {
+      const index = firstLetterIndexForLesson(lesson.id);
+      expect(index, lesson.id).not.toBeNull();
+      expect(QAIDA_LETTERS[index!].glyph, lesson.id).toBe(lesson.examples[0].arabic.split(" ")[0]);
+    }
+  });
+
+  it("resolves every one of the 28 letters through its lesson", () => {
+    // A letters lesson teaches a group, so its first letter is the focus and
+    // the rest of the group follows in the same lesson: the ranges
+    // [first index, first index + letters in the lesson) must cover the whole
+    // alphabet exactly once, with no gaps and no overlaps. Revision lessons
+    // show contrast groups instead of one letter per example, so they are
+    // covered by the test above and excluded here.
+    const groupLessons = lessonsForLevel("letters").filter((lesson) =>
+      lesson.examples.every((example) => example.arabic.length === 1),
+    );
+    expect(groupLessons).toHaveLength(10);
+    const covered = new Set<number>();
+    for (const lesson of groupLessons) {
+      const index = firstLetterIndexForLesson(lesson.id);
+      expect(index, lesson.id).not.toBeNull();
+      for (let offset = 0; offset < lesson.examples.length; offset += 1) {
+        expect(covered.has(index! + offset), `${lesson.id} overlaps another lesson`).toBe(false);
+        covered.add(index! + offset);
+      }
+    }
+    expect([...covered].sort((a, b) => a - b)).toEqual(
+      QAIDA_LETTERS.map((_, index) => index),
+    );
+  });
+
+  it("indexes the same alphabet the Learn view renders", () => {
+    // Home's selectedLetter indexes ARABIC_LETTERS; the helper indexes
+    // QAIDA_LETTERS. If the two orders ever drift, the focus would land on
+    // the wrong letter, so the shared order is pinned here.
+    expect(QAIDA_LETTERS.map((letter) => letter.slug)).toEqual(
+      ARABIC_LETTERS.map((letter) => letter.slug),
+    );
   });
 });

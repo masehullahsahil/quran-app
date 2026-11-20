@@ -34,9 +34,10 @@ import {
 import { trpc } from "@/lib/trpc";
 import { markIndexComplete, progressPercent } from "@/lib/learningProgress";
 import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib/qaidaProgress";
+import { describeCourseView } from "@/lib/courseView";
 import { clearSavedPlace, loadSavedPlace, saveSavedPlace, type SavedPlace } from "@/lib/savedPlace";
 import { QaidaCourse } from "@/components/QaidaCourse";
-import { curriculumProgressPercent } from "@shared/qaidaCurriculum";
+import { curriculumProgressPercent, firstLetterIndexForLesson } from "@shared/qaidaCurriculum";
 import { type SupportedLanguageCode } from "@shared/languages";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
 import { starterQuickCheckChoices } from "@/lib/starterQuickCheck";
@@ -467,6 +468,10 @@ export default function Home() {
   const [memorizationAttempts, setMemorizationAttempts] = useState<MemorizationAttempt[]>(() => historyRepository.list());
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  // The letter reference's disclosure, driven open or closed when the open
+  // course lesson changes (below) — never fought between lesson changes, so
+  // the learner can still fold it away by hand.
+  const letterReferenceRef = useRef<HTMLDetailsElement | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   // The recorder's own MIME type, captured at creation. The blob is built
   // from it, so the recorder — not the blob — is the authority on the
@@ -689,6 +694,28 @@ export default function Home() {
   // Teaching text for this letter in the instruction language, falling back to
   // English per letter when a pack has not translated it yet.
   const activeLesson = letterLesson(activeLetter.slug);
+  // The open course lesson, derived the same way QaidaCourse derives it, so
+  // the reference above can follow it without the course reporting back.
+  const openQaidaLessonId = useMemo(
+    () => describeCourseView(qaidaProgress).lesson.id,
+    [qaidaProgress],
+  );
+
+  // The alphabet reference follows the open course lesson. A letters lesson
+  // focuses its group's first letter and opens the reference; any other
+  // lesson closes the reference to its summary line, so the lesson is the
+  // focus and the page stays short. This runs only when the lesson itself
+  // changes: tile taps and the Next-letter button set selectedLetter
+  // directly, and a manual fold is not fought until the lesson changes again.
+  useEffect(() => {
+    const letterIndex = firstLetterIndexForLesson(openQaidaLessonId);
+    if (letterIndex !== null) {
+      setSelectedLetter(letterIndex);
+      if (letterReferenceRef.current) letterReferenceRef.current.open = true;
+    } else if (letterReferenceRef.current) {
+      letterReferenceRef.current.open = false;
+    }
+  }, [openQaidaLessonId]);
   // The Qaida level's headline figure is how much of the curriculum is done; the
   // letter explorer keeps its own count of letters practised beside it.
   const qaidaPercent = curriculumProgressPercent(qaidaProgress.completedLessons);
@@ -2179,7 +2206,7 @@ export default function Home() {
             {/* Open by default: while this was collapsed, every letter recording
                 in the app sat behind a disclosure a learner had no reason to
                 open, which is why the app looked as though it had no sound. */}
-            {learningLevel === "qaida" && <details className="letter-reference" open>
+            {learningLevel === "qaida" && <details className="letter-reference" open ref={letterReferenceRef}>
               <summary><span>{t("course.letterReference")}</span><small><Volume2 size={12} aria-hidden="true" /> {t("course.letterReferenceHint")}</small></summary>
               <div className="qaida-workspace"><div className="qaida-intro"><div><span className="eyebrow">{t("qaida.eyebrow")}</span><h3>{t("qaida.heading")}</h3><p>{t("qaida.copy")}</p></div><span className="qaida-count">{lettersPractised.length} / {alphabet.length}<small>{t("qaida.practisedCount", { percent: lettersPractisedPercent })}</small></span></div><div className="alphabet-grid" aria-label={t("qaida.alphabetLabel")}>{alphabet.map((item, index) => { const tileSrc = letterAudioPath(item.slug); return <button type="button" key={item.letter} className={`${selectedLetter === index ? "is-selected" : ""} ${lettersPractised.includes(index) ? "is-practised" : ""} ${isSameRecording(letterAudio.playingSrc, tileSrc) ? "is-playing" : ""}`} onClick={() => { setSelectedLetter(index); setLetterExerciseResult(null); if (tileSrc) void letterAudio.play(tileSrc); }} aria-label={t("qaida.playLetterLabel", { letter: item.name })}><span lang="ar" dir="rtl">{item.letter}</span><small>{item.name}</small><Volume2 size={11} aria-hidden="true" className="tile-speaker" /></button>; })}</div><div className="letter-lesson"><div className="letter-focus"><span lang="ar" dir="rtl">{activeLetter.letter}</span><div><p>{activeLetter.name}</p><small>{t("qaida.writtenAs", { transliteration: activeLetter.transliteration, sound: activeLetter.sound })}</small></div><button type="button" className={`letter-play ${isSameRecording(letterAudio.playingSrc, soloAudioSrc) ? "is-playing" : ""} ${isSameRecording(letterAudio.loadingSrc, soloAudioSrc) ? "is-loading" : ""} ${isSameRecording(letterAudio.unavailableSrc, soloAudioSrc) ? "is-unavailable" : ""}`} onClick={() => soloAudioSrc && void letterAudio.play(soloAudioSrc)} disabled={!soloAudioSrc} aria-label={t("qaida.playLetterLabel", { letter: activeLetter.name })}><Volume2 size={18} aria-hidden="true" /> {isSameRecording(letterAudio.loadingSrc, soloAudioSrc) ? t("qaida.audioLoading") : isSameRecording(letterAudio.unavailableSrc, soloAudioSrc) ? t("qaida.audioRetry") : t("qaida.listenLetter")}</button></div>
 
