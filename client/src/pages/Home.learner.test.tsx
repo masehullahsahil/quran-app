@@ -21,6 +21,8 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
+import { getQaidaLesson, QAIDA_LEVELS } from "@shared/qaidaCurriculum";
+import { QAIDA_PROGRESS_KEY } from "@/lib/qaidaProgress";
 import { MAX_AUDIO_BYTES, RECORDING_SIZE_WARNING_BYTES } from "@shared/recording";
 import { loadLocale } from "@locales/index";
 import type { SurahContent } from "@shared/quran";
@@ -1428,5 +1430,149 @@ describe("the correction card never contradicts itself", () => {
     // Nothing to correct yet, so the recorder's own line is the only thing
     // there is to say — this change suppresses a duplicate, not the status.
     expect(container.querySelector(".loop-message")).toBeTruthy();
+  });
+});
+
+/**
+ * The alphabet reference follows the open course lesson.
+ *
+ * The owner reported the alphabet never moves off Alif no matter which
+ * lesson is open, and that the always-open reference makes the Learn page
+ * very long before the lesson even starts. Opening a letters lesson focuses
+ * its first letter and opens the reference; opening any other lesson closes
+ * the reference to its summary line.
+ */
+describe("the alphabet reference follows the open lesson", () => {
+  const reference = () => container.querySelector<HTMLDetailsElement>("details.letter-reference")!;
+  const tiles = () => Array.from(container.querySelectorAll<HTMLButtonElement>(".alphabet-grid button"));
+  const selectedTileIndex = () => tiles().findIndex((tile) => tile.classList.contains("is-selected"));
+  const focusedLetterName = () => container.querySelector(".letter-focus p")?.textContent ?? "";
+
+  /** Opens a lesson from the course's own lesson list, the way a learner does. */
+  async function openCourseLesson(lessonId: string) {
+    const title = getQaidaLesson(lessonId)?.title;
+    if (!title) throw new Error(`No lesson ${lessonId}`);
+    const button = Array.from(container.querySelectorAll<HTMLButtonElement>(".course-lesson-list button")).find(
+      (entry) => entry.textContent?.includes(title),
+    );
+    if (!button) throw new Error(`No lesson list entry for ${title}`);
+    await act(async () => {
+      button.click();
+    });
+    await settle();
+  }
+
+  /** Opens a level from the course's level strip. */
+  async function openLevel(levelId: string) {
+    const level = QAIDA_LEVELS.find((entry) => entry.id === levelId);
+    if (!level) throw new Error(`No level ${levelId}`);
+    const chip = Array.from(container.querySelectorAll<HTMLButtonElement>(".course-level")).find((entry) =>
+      (entry.getAttribute("aria-label") ?? "").includes(level.title),
+    );
+    if (!chip) throw new Error(`No level chip for ${level.title}`);
+    await act(async () => {
+      chip.click();
+    });
+    await settle();
+  }
+
+  it("opens a letters lesson on its first letter", async () => {
+    await mount();
+    await openLearn();
+
+    // Fresh progress opens on Alif's group.
+    expect(selectedTileIndex()).toBe(0);
+    expect(focusedLetterName()).toBe("Alif");
+    expect(reference().open).toBe(true);
+
+    await openCourseLesson("letters-jeem-hha-kha");
+
+    expect(selectedTileIndex()).toBe(4);
+    expect(focusedLetterName()).toBe("Jeem");
+    expect(reference().open).toBe(true);
+  });
+
+  it("closes the reference to its summary line when a non-letter lesson opens", async () => {
+    await mount();
+    await openLearn();
+    expect(reference().open).toBe(true);
+
+    await openLevel("madd");
+
+    // Level 5 is on screen, and the reference is folded away: only the
+    // summary line is left at the top, so the lesson is the focus.
+    expect(container.querySelector(".course-topline h3")?.textContent).toContain("Long vowels");
+    expect(reference().open).toBe(false);
+    // The focused letter is untouched — the sync only moves it for a
+    // letters lesson, it never clears it for another kind.
+    expect(selectedTileIndex()).toBe(0);
+    expect(focusedLetterName()).toBe("Alif");
+  });
+
+  it("re-opens the reference when a letters lesson opens again", async () => {
+    await mount();
+    await openLearn();
+    await openLevel("madd");
+    expect(reference().open).toBe(false);
+
+    await openLevel("letters");
+
+    expect(reference().open).toBe(true);
+    expect(selectedTileIndex()).toBe(0);
+    expect(focusedLetterName()).toBe("Alif");
+  });
+
+  it("lets a manual tile tap change the focused letter", async () => {
+    await mount();
+    await openLearn();
+
+    await act(async () => {
+      tiles()[5].click();
+    });
+    await settle();
+
+    // Haa, and it stays put: the sync only runs when the lesson changes,
+    // so it does not fight the learner between lesson changes.
+    expect(selectedTileIndex()).toBe(5);
+    expect(focusedLetterName()).toBe("Haa");
+    expect(reference().open).toBe(true);
+  });
+
+  /** Seeds saved Qaida progress before mounting, the way a returning learner arrives. */
+  function seedQaidaProgress(currentLessonId: string) {
+    window.localStorage.setItem(
+      QAIDA_PROGRESS_KEY,
+      JSON.stringify({ completedLessons: [], currentLessonId }),
+    );
+  }
+
+  it("closes the reference on first opening Learn with a saved non-letter lesson", async () => {
+    seedQaidaProgress("madd-short-vs-long");
+    await mount();
+    await openLearn();
+
+    // Level 5 is the saved lesson, and the reference is folded away from
+    // the start: only the summary line is left at the top, so the lesson is
+    // the focus. Without the Learn-visible run, the first-load sync ran
+    // while Learn was hidden and the reference mounted open on Alif, staying
+    // that way until the lesson changed.
+    expect(container.querySelector(".course-topline h3")?.textContent).toContain("Long vowels");
+    expect(reference().open).toBe(false);
+    // The focused letter is untouched — the sync only moves it for a
+    // letters lesson, it never clears it for another kind.
+    expect(selectedTileIndex()).toBe(0);
+    expect(focusedLetterName()).toBe("Alif");
+  });
+
+  it("opens the reference on the saved letters lesson on first opening Learn", async () => {
+    seedQaidaProgress("letters-jeem-hha-kha");
+    await mount();
+    await openLearn();
+
+    // The reference opens on the saved lesson's first letter, Jeem — not on
+    // Alif, where a fresh learner starts.
+    expect(reference().open).toBe(true);
+    expect(selectedTileIndex()).toBe(4);
+    expect(focusedLetterName()).toBe("Jeem");
   });
 });

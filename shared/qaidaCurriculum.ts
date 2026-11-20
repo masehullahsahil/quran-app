@@ -1281,6 +1281,28 @@ export function getQaidaLesson(lessonId: string): QaidaLesson | null {
   return LESSONS_BY_ID.get(lessonId) ?? null;
 }
 
+/**
+ * The alphabet index of the first letter a Level-1 lesson shows, or null
+ * when the lesson is not a letters lesson.
+ *
+ * A letters lesson teaches a group of letters, so the reference focuses the
+ * first letter the lesson shows — the group's first letter, or the first
+ * letter of the first contrast group in a revision lesson — and the learner
+ * can tap any other tile from there. The index is into QAIDA_LETTERS, which
+ * is the alphabet in the same order the Learn view renders it.
+ */
+export function firstLetterIndexForLesson(lessonId: string): number | null {
+  const lesson = getQaidaLesson(lessonId);
+  if (!lesson || lesson.level !== "letters") return null;
+  // A group lesson shows one letter per example; a revision lesson shows a
+  // contrast group per example, glyphs joined with spaces. Either way the
+  // first glyph of the first example is the letter the lesson starts with.
+  const firstGlyph = lesson.examples[0]?.arabic.split(" ")[0];
+  if (!firstGlyph) return null;
+  const index = QAIDA_LETTERS.findIndex((letter) => letter.glyph === firstGlyph);
+  return index === -1 ? null : index;
+}
+
 export function getQaidaLevel(levelId: QaidaLevelId): QaidaLevel | null {
   return QAIDA_LEVELS.find((level) => level.id === levelId) ?? null;
 }
