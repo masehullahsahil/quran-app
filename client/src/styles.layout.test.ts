@@ -210,6 +210,38 @@ describe("the phone puts the ayah before the tutor", () => {
   });
 });
 
+describe("the tutor card matches the ayah area", () => {
+  it("carries no fill, border, or shadow on the tutor card or its panel", () => {
+    // The tutor card used to be a big white square under the ayah card.
+    // The ayah card (.study-card) has no fill, border, or shadow — it reads
+    // as the warm cream page itself — so the tutor card must not either.
+    // The inner .live-tutor panel is the same box, so it goes too, including
+    // the state tints that would bring a fill back mid-session. Every state
+    // is also a word on screen, so no signal is lost with the colour.
+    const loop = css.match(/\.teacher-loop\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(loop).toContain("background: transparent");
+    expect(loop).not.toMatch(/border/);
+    expect(loop).not.toMatch(/box-shadow/);
+
+    const panel = css.match(/\.live-tutor\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(panel).toContain("background: transparent");
+    expect(panel).not.toMatch(/border/);
+
+    const recognised =
+      css.match(/\.live-tutor\.is-word-recognised, \.live-tutor\.is-complete\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(recognised).not.toMatch(/background/);
+    const paused = css.match(/\.live-tutor\.is-paused\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(paused).not.toMatch(/background/);
+
+    // The reference itself: the ayah card stays fill-less, border-less,
+    // and shadow-less, so "the same as the ayah area" stays true.
+    const study = css.match(/\.study-card\s*\{([^}]*)\}/)?.[1] ?? "";
+    expect(study).not.toMatch(/background/);
+    expect(study).not.toMatch(/border/);
+    expect(study).not.toMatch(/box-shadow/);
+  });
+});
+
 describe("an unconfirmed result is not styled as an error", () => {
   it("gives the unsure tone its own neutral palette", () => {
     const unsure = css.match(/\.teacher-now\.is-unsure\s*\{([^}]*)\}/)?.[1] ?? "";
