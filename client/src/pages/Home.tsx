@@ -701,12 +701,18 @@ export default function Home() {
     [qaidaProgress],
   );
 
+  // Whether the Learn panel — and the reference inside it — is on screen.
+  const learnVisible = view === "learn" && learningLevel === "qaida";
+
   // The alphabet reference follows the open course lesson. A letters lesson
   // focuses its group's first letter and opens the reference; any other
   // lesson closes the reference to its summary line, so the lesson is the
-  // focus and the page stays short. This runs only when the lesson itself
-  // changes: tile taps and the Next-letter button set selectedLetter
-  // directly, and a manual fold is not fought until the lesson changes again.
+  // focus and the page stays short. This runs when the lesson itself changes
+  // and when Learn becomes visible: the first-load run happens while the
+  // page still shows Read, so without the visibility run a returning learner
+  // would see the reference open on Alif until the lesson changed. Tile taps
+  // and the Next-letter button set selectedLetter directly, and a manual
+  // fold is not fought until the lesson changes or Learn is re-opened.
   useEffect(() => {
     const letterIndex = firstLetterIndexForLesson(openQaidaLessonId);
     if (letterIndex !== null) {
@@ -715,7 +721,7 @@ export default function Home() {
     } else if (letterReferenceRef.current) {
       letterReferenceRef.current.open = false;
     }
-  }, [openQaidaLessonId]);
+  }, [openQaidaLessonId, learnVisible]);
   // The Qaida level's headline figure is how much of the curriculum is done; the
   // letter explorer keeps its own count of letters practised beside it.
   const qaidaPercent = curriculumProgressPercent(qaidaProgress.completedLessons);

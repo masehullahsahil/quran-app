@@ -22,6 +22,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SUPPORTED_LANGUAGE_CODES } from "@shared/languages";
 import { getQaidaLesson, QAIDA_LEVELS } from "@shared/qaidaCurriculum";
+import { QAIDA_PROGRESS_KEY } from "@/lib/qaidaProgress";
 import { MAX_AUDIO_BYTES, RECORDING_SIZE_WARNING_BYTES } from "@shared/recording";
 import { loadLocale } from "@locales/index";
 import type { SurahContent } from "@shared/quran";
@@ -1535,5 +1536,43 @@ describe("the alphabet reference follows the open lesson", () => {
     expect(selectedTileIndex()).toBe(5);
     expect(focusedLetterName()).toBe("Haa");
     expect(reference().open).toBe(true);
+  });
+
+  /** Seeds saved Qaida progress before mounting, the way a returning learner arrives. */
+  function seedQaidaProgress(currentLessonId: string) {
+    window.localStorage.setItem(
+      QAIDA_PROGRESS_KEY,
+      JSON.stringify({ completedLessons: [], currentLessonId }),
+    );
+  }
+
+  it("closes the reference on first opening Learn with a saved non-letter lesson", async () => {
+    seedQaidaProgress("madd-short-vs-long");
+    await mount();
+    await openLearn();
+
+    // Level 5 is the saved lesson, and the reference is folded away from
+    // the start: only the summary line is left at the top, so the lesson is
+    // the focus. Without the Learn-visible run, the first-load sync ran
+    // while Learn was hidden and the reference mounted open on Alif, staying
+    // that way until the lesson changed.
+    expect(container.querySelector(".course-topline h3")?.textContent).toContain("Long vowels");
+    expect(reference().open).toBe(false);
+    // The focused letter is untouched — the sync only moves it for a
+    // letters lesson, it never clears it for another kind.
+    expect(selectedTileIndex()).toBe(0);
+    expect(focusedLetterName()).toBe("Alif");
+  });
+
+  it("opens the reference on the saved letters lesson on first opening Learn", async () => {
+    seedQaidaProgress("letters-jeem-hha-kha");
+    await mount();
+    await openLearn();
+
+    // The reference opens on the saved lesson's first letter, Jeem — not on
+    // Alif, where a fresh learner starts.
+    expect(reference().open).toBe(true);
+    expect(selectedTileIndex()).toBe(4);
+    expect(focusedLetterName()).toBe("Jeem");
   });
 });
