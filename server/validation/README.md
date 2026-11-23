@@ -19,7 +19,7 @@ policy.
   `recitation.ingestLiveAudio`): run activation/deactivation/export,
   run-ID/correlation-ID extraction from the request context, and the
   structural checkpoint/correction/playback-directive recording used by the
-  `observedLiveProcedure` middleware in `server/routers.ts`.
+  `observedLiveProcedure` middleware in `server/recitationRouter.ts`.
 - `index.ts` — re-exports.
 
 ## Observation points currently wired
@@ -40,7 +40,7 @@ policy.
 
 ## Production wiring (connected)
 
-Live-router observation is wired in `server/routers.ts` via the
+Live-router observation is wired in `server/recitationRouter.ts` via the
 `observedLiveProcedure` middleware, which wraps `recitation.startLive` and
 `recitation.ingestLiveAudio`. The observation points, implemented in
 `server/validation/liveObservation.ts`:
