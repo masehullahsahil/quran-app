@@ -28,6 +28,7 @@ import {
 } from "../azureCoachVoice";
 import { requestIdMiddleware } from "./requestId";
 import { securityHeadersMiddleware } from "./securityHeaders";
+import { registerCspReportEndpoint } from "./cspReport";
 import { logger } from "./logger";
 import { REQUEST_BODY_LIMIT_BYTES } from "@shared/recording";
 
@@ -95,6 +96,9 @@ export function createApp(): Express {
   // Registered only when QURAN_VALIDATION_STAFF_API=1; otherwise the routes
   // do not exist. Never enable on Vercel serverless (process-local registry).
   registerStaffValidationEndpoints(app);
+
+  // Collects Content-Security-Policy reports (the policy is report-only).
+  registerCspReportEndpoint(app);
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);

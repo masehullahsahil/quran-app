@@ -97,7 +97,20 @@ Learner recitation audio is **not stored by default**. It is archived to Forge s
 
 ## Sessions and headers
 
-Google ID tokens are accepted only after their issuer, audience, expiry and issue time are validated; an email is stored only when Google marks it verified. Session cookies are `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS, and expire after 30 days. Sessions are stateless JWTs, so signing out clears the cookie but a copied token stays valid until it expires; rotating `JWT_SECRET` revokes every session. Baseline security headers are applied by Express and by `vercel.json`; a Content-Security-Policy is still to be designed once the audio and font hosts are inventoried.
+Google ID tokens are accepted only after their issuer, audience, expiry and issue time are validated; an email is stored only when Google marks it verified. Session cookies are `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS, and expire after 30 days. Sessions are stateless JWTs, so signing out clears the cookie but a copied token stays valid until it expires; rotating `JWT_SECRET` revokes every session. Baseline security headers are applied by Express and by `vercel.json`.
+
+### Content-Security-Policy rollout
+
+The policy (`CONTENT_SECURITY_POLICY` in `server/_core/securityHeaders.ts`, mirrored in `vercel.json`) ships as `Content-Security-Policy-Report-Only`: browsers block nothing and POST each would-be violation to `/api/csp-report`, which logs a `csp.violation` warning with only the directive, the blocked origin and the page path (query strings are dropped; identical reports are logged once per hour per instance). It is omitted outside production so Vite's dev server does not generate noise.
+
+Verified locally against the production build in Chromium: the app shell, `/curriculum-audit` and the Learn/Study/Read tabs raise no violations, and a deliberately disallowed audio URL is reported and logged. Reciter audio could not be exercised here (Quran.com was unreachable from the build sandbox), which is exactly what report-only mode is for.
+
+To enforce it:
+
+1. Deploy, then use the reader, Study, Learn and the live tutor with several reciters for a week.
+2. Search the logs for `csp.violation`. Add each legitimate origin (most likely extra reciter audio hosts under `media-src`) to the policy in both places; `securityHeaders.test.ts` fails if the two drift.
+3. If analytics is enabled, add the `VITE_ANALYTICS_ENDPOINT` origin to `script-src` and `connect-src`.
+4. When the logs stay quiet, rename the header to `Content-Security-Policy` in both places.
 
 ## Verified scope and remaining blockers
 
