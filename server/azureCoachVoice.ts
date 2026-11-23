@@ -27,6 +27,7 @@
  */
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CoachSpeechSynthesizer } from "./coachSpeechEndpoint";
 import { isSupportedLanguage, type SupportedLanguageCode } from "@shared/languages";
@@ -183,9 +184,25 @@ export function coachAudioCacheKey(voiceId: string, text: string): string {
  * 501-when-unconfigured behavior — the factory below returns undefined so
  * wiring stays a one-liner.
  */
+/**
+ * Where synthesized coach audio is cached on disk.
+ *
+ * COACH_AUDIO_CACHE_DIR wins when set. On Vercel the deployment filesystem
+ * is read-only apart from the OS temp directory, so writes to
+ * server/coach-audio silently failed there and every phrase was paid for
+ * again; the temp directory keeps a per-instance cache instead. Everywhere
+ * else the repository's server/coach-audio (pre-generated corpus) is used.
+ */
+export function defaultCoachAudioCacheDir(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env.COACH_AUDIO_CACHE_DIR?.trim();
+  if (override) return override;
+  if (env.VERCEL) return join(tmpdir(), "coach-audio");
+  return join(process.cwd(), "server", "coach-audio");
+}
+
 export function createCachedCoachSynthesizer(
   inner: CoachSpeechSynthesizer | undefined,
-  cacheDir: string = join(process.cwd(), "server", "coach-audio"),
+  cacheDir: string = defaultCoachAudioCacheDir(),
 ): CoachSpeechSynthesizer | undefined {
   if (!inner) return undefined;
   return async (text, language): Promise<Buffer | null> => {

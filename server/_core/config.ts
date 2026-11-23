@@ -126,6 +126,17 @@ export function validateConfig(env: Env = process.env): ConfigReport {
     });
   }
 
+  // On serverless, the in-memory fallback is per instance: each warm
+  // function keeps its own counters, so the public recitation endpoints
+  // (which spend OpenAI money) are effectively unlimited. Say so loudly.
+  if (!isBlank(env.VERCEL) && !isBlank(env.OPENAI_API_KEY) && !redisUrl && !redisToken) {
+    warnings.push({
+      variable: "RECITATION_RATE_LIMIT_REDIS_REST_URL",
+      severity: "warning",
+      message: "running on Vercel without the Redis rate-limit store; recitation limits are per serverless instance and do not cap OpenAI spend. Set RECITATION_RATE_LIMIT_REDIS_REST_URL and RECITATION_RATE_LIMIT_REDIS_REST_TOKEN",
+    });
+  }
+
   // Feature-specific: analytics needs both halves to emit anything.
   const analyticsEndpoint = !isBlank(env.VITE_ANALYTICS_ENDPOINT);
   const analyticsId = !isBlank(env.VITE_ANALYTICS_WEBSITE_ID);

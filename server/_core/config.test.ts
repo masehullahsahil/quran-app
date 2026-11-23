@@ -96,6 +96,28 @@ describe("validateConfig", () => {
     expect(evaluator.warnings.map((f) => f.variable)).toContain("QURAN_EVALUATOR_URL");
   });
 
+  it("warns on Vercel when recitation spend is not covered by the distributed rate limiter", () => {
+    const report = validateConfig({
+      ...FULL_ENV,
+      VERCEL: "1",
+      RECITATION_RATE_LIMIT_REDIS_REST_URL: "",
+      RECITATION_RATE_LIMIT_REDIS_REST_TOKEN: "",
+    });
+    expect(report.valid).toBe(true);
+    expect(report.warnings.map((f) => f.variable)).toContain("RECITATION_RATE_LIMIT_REDIS_REST_URL");
+
+    // Locally (no VERCEL) the in-memory limiter is fine and stays quiet.
+    const local = validateConfig({
+      ...FULL_ENV,
+      RECITATION_RATE_LIMIT_REDIS_REST_URL: "",
+      RECITATION_RATE_LIMIT_REDIS_REST_TOKEN: "",
+    });
+    expect(local.warnings).toHaveLength(0);
+
+    // With Redis configured on Vercel there is nothing to warn about.
+    expect(validateConfig({ ...FULL_ENV, VERCEL: "1" }).warnings).toHaveLength(0);
+  });
+
   it("marks optional features disabled when unset, without errors", () => {
     const { OPENAI_API_KEY: _drop, ...minimal } = FULL_ENV;
     const report = validateConfig(minimal);
