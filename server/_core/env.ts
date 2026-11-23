@@ -17,6 +17,13 @@ export const ENV = {
   ownerEmail: process.env.OWNER_EMAIL ?? "",
   forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL ?? "",
   forgeApiKey: process.env.BUILT_IN_FORGE_API_KEY ?? "",
+  // Archiving learners' recitation audio is opt-in. Recordings are voice
+  // data: keep them only when the operator has deliberately chosen to (and
+  // has a retention policy for the bucket), never merely because storage
+  // happens to be configured for something else.
+  archiveRecitationAudio:
+    process.env.RECITATION_ARCHIVE_AUDIO === "1" ||
+    process.env.RECITATION_ARCHIVE_AUDIO?.toLowerCase() === "true",
   // Direct OpenAI access, used by _core/llm.ts and _core/voiceTranscription.ts.
   // Only the key has to be set; the base URL is overridable so the same code
   // can point at an OpenAI-compatible gateway or a local test double.

@@ -726,9 +726,11 @@ export const appRouter = router({
 
       // Archiving the attempt is a side effect, not a prerequisite: storage
       // runs on Forge while transcription runs on OpenAI, so the review has to
-      // work with OPENAI_API_KEY alone. Upload only when Forge is configured,
-      // and never fail the review because the archive step did.
-      if (isStorageConfigured()) {
+      // work with OPENAI_API_KEY alone. Recordings are learners' voices, so
+      // upload only when the operator opted in (RECITATION_ARCHIVE_AUDIO=1)
+      // and Forge is configured, and never fail the review because the
+      // archive step did.
+      if (ENV.archiveRecitationAudio && isStorageConfigured()) {
         const extension = input.mimeType === "audio/wav" ? "wav" : input.mimeType === "audio/ogg" ? "ogg" : input.mimeType === "audio/mp4" ? "m4a" : "webm";
         try {
           await storagePut(

@@ -401,10 +401,26 @@ describe("recitation.evaluate transcription failure classes", () => {
     expect(calls).toContain("https://quran-evaluator.example.test/v1/evaluate");
   });
 
-  it("archives the attempt when Forge storage is configured", async () => {
+  it("does not archive learner audio unless the operator opted in, even with Forge storage configured", async () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
     vi.stubEnv("BUILT_IN_FORGE_API_KEY", "forge-key");
+    vi.stubEnv("RECITATION_ARCHIVE_AUDIO", "");
+
+    const calls = stubServices();
+    const { appRouter } = await import("./routers");
+
+    const result = await appRouter.createCaller(callerContext).recitation.evaluate(evaluateInput);
+
+    expect(result.wordReviewAvailable).toBe(true);
+    expect(calls.some(url => url.includes("/storage/"))).toBe(false);
+  });
+
+  it("archives the attempt when Forge storage is configured and archiving is opted in", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "test-key");
+    vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
+    vi.stubEnv("BUILT_IN_FORGE_API_KEY", "forge-key");
+    vi.stubEnv("RECITATION_ARCHIVE_AUDIO", "1");
 
     const calls = stubServices();
     const { appRouter } = await import("./routers");
@@ -750,6 +766,7 @@ describe("recitation.evaluate transcription failure classes", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
     vi.stubEnv("BUILT_IN_FORGE_API_KEY", "forge-key");
+    vi.stubEnv("RECITATION_ARCHIVE_AUDIO", "1");
 
     const calls = stubServices({ failStorage: true });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -786,6 +803,7 @@ describe("recitation.evaluate transcription failure classes", () => {
     vi.stubEnv("OPENAI_API_KEY", "test-key");
     vi.stubEnv("BUILT_IN_FORGE_API_URL", "https://forge.example.test");
     vi.stubEnv("BUILT_IN_FORGE_API_KEY", "forge-key");
+    vi.stubEnv("RECITATION_ARCHIVE_AUDIO", "1");
 
     const calls = stubServices();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
