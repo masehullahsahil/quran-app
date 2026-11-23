@@ -72,19 +72,21 @@ through `dotenv` at startup, and Vite reads the same file at build time for the
 
 **You can skip this entirely to start.** Every variable is optional for booting:
 `pnpm dev` starts and serves the UI with no `.env` present. Each variable gates
-one feature, and the app degrades cleanly without it (the server logs a warning
-about `OAUTH_SERVER_URL` on startup — harmless until you want sign-in).
+one feature, and the app degrades cleanly without it (the server logs a config
+summary on startup listing what is missing — harmless until you want sign-in).
 
 Fill things in as you need the features they unlock:
 
 | Want to…                                                      | Set                                                                      |
 | ------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Persist users                                                 | `DATABASE_URL`                                                           |
-| Enable sign-in                                                | `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID` |
-| Grant yourself admin                                          | `OWNER_OPEN_ID`                                                          |
+| Enable Google sign-in                                         | `JWT_SECRET`, `VITE_APP_ID`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_APP_URL` |
+| Grant yourself admin                                          | `OWNER_OPEN_ID` (`google:<your Google account sub>`)                     |
 | Transcribe recitations and generate coaching feedback         | `OPENAI_API_KEY`                                                         |
 | Read the Quran from a mirror instead of `api.quran.com`       | `QURAN_API_BASE_URL`                                                     |
-| Image generation, uploads, notifications, archiving attempts  | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
+| Image generation, uploads, notifications                      | `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY`                       |
+| Archive learners' recitation audio (opt-in)                   | The two Forge variables **and** `RECITATION_ARCHIVE_AUDIO=1`             |
+| Enforce recitation rate limits across serverless instances    | `RECITATION_RATE_LIMIT_REDIS_REST_URL`, `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` |
 | Render maps                                                   | `VITE_FRONTEND_FORGE_API_KEY`                                            |
 | Collect analytics                                             | `VITE_ANALYTICS_ENDPOINT`, `VITE_ANALYTICS_WEBSITE_ID`                   |
 
@@ -95,10 +97,10 @@ it is missing. Two things worth knowing up front:
   at build time and visible to anyone who loads the page. Never put a private
   secret behind a `VITE_` name — `OPENAI_API_KEY` and `BUILT_IN_FORGE_API_KEY`
   in particular are server-side only.
-- **If you leave the analytics variables blank,** their placeholders are emitted
-  into the built HTML verbatim and the production page requests a broken script
-  URL. Either set both, or delete the analytics `<script>` from
-  `client/index.html`.
+- **Analytics needs both variables.** The Umami script is injected at build
+  time only when `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID` are
+  both set (`shared/analyticsConfig.ts`); with either missing, no script is
+  emitted.
 
 ### Quran content
 
@@ -205,9 +207,12 @@ recitation audio come from the public Quran.com API, which needs no key.
 | Variable | Needed for | If unset |
 | -------- | ---------- | -------- |
 | `OPENAI_API_KEY` | Recitation review (Whisper + coaching), and generating the letter clips | Recording still works; the review returns an error. Letter clips cannot be generated, but committed ones keep playing |
-| `JWT_SECRET`, `OAUTH_SERVER_URL`, `VITE_OAUTH_PORTAL_URL`, `VITE_APP_ID` | Sign-in | Sign-in unavailable; a startup warning is logged. Everything else works |
-| `DATABASE_URL` | Persisting users | User writes log a warning and no-op |
-| `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY` | Archiving recitation attempts, uploads | Attempts are reviewed but not archived |
+| `JWT_SECRET`, `VITE_APP_ID`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `PUBLIC_APP_URL` | Google sign-in | Sign-in unavailable; `/api/health` reports the missing variables. Everything else works |
+| `DATABASE_URL` | Persisting users and learner progress | User writes log a warning and no-op |
+| `RECITATION_RATE_LIMIT_REDIS_REST_URL`, `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` | Rate limits that hold across serverless instances | Limits are per instance and do not cap OpenAI spend; `/api/health` warns. **Set these before public traffic** |
+| `BUILT_IN_FORGE_API_URL`, `BUILT_IN_FORGE_API_KEY` | Uploads, and archiving when opted in | Attempts are reviewed but not archived |
+| `RECITATION_ARCHIVE_AUDIO` | Archiving learners' recitation audio (`1` to enable) | Audio is never stored. Only enable with a privacy notice and a bucket retention rule |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION` | Neural coaching voice | The browser's built-in voice is used. On Vercel the synthesized clips are cached in the instance's temp dir (`COACH_AUDIO_CACHE_DIR` overrides) |
 | `QURAN_API_BASE_URL` | Pointing at a mirror | Defaults to `api.quran.com` — leave unset |
 
 Two things specific to Vercel:
@@ -215,12 +220,9 @@ Two things specific to Vercel:
 - **`VITE_`-prefixed variables are read at build time,** not at request time.
   Set them before the build that should contain them, and remember they are
   inlined into the client bundle and therefore public.
-- **The analytics placeholders ship verbatim if unset.** `client/index.html`
-  contains `src="%VITE_ANALYTICS_ENDPOINT%/umami"`, and Vite leaves the
-  placeholder in place when the variable is missing, so the deployed page
-  requests a broken script URL on every load. Either set
-  `VITE_ANALYTICS_ENDPOINT` and `VITE_ANALYTICS_WEBSITE_ID`, or delete that
-  `<script>` line from `client/index.html`.
+- **Security headers are set in two places.** API responses get them from
+  `server/_core/securityHeaders.ts`; CDN-served files get the same list from
+  the `headers` block in `vercel.json`. A test keeps the two in step.
 
 ### What the platform constrains
 
@@ -267,7 +269,7 @@ Quran.com API through the server, never from the browser directly.
 ```
 client/src/pages/Home.tsx      selection: surah, juz, reciter, ayah
         │  trpc quran.index / quran.surah
-server/routers.ts              request validation, error mapping
+server/quranRouter.ts          request validation, error mapping
         │
 server/quranApi.ts             the only file that knows Quran.com's field names
         │  TtlCache
@@ -516,6 +518,19 @@ the reciter is never handed a filename the app will not look for.
 
 ---
 
+## Security and privacy
+
+- **Recordings are not stored by default.** Learner audio is sent for review and
+  discarded unless `RECITATION_ARCHIVE_AUDIO=1` is set. Stored objects can only
+  be fetched through `/manus-storage/*` by a signed-in admin.
+- **Sessions** are 30-day `HttpOnly`, `SameSite=Lax` cookies minted after the
+  Google ID token's issuer, audience and expiry are checked.
+- **Spend controls:** configure the Redis rate-limit store and OpenAI project
+  budgets before public traffic.
+
+Details, and the remaining launch blockers, are in
+[`docs/production-readiness.md`](docs/production-readiness.md).
+
 ## Project layout
 
 ```
@@ -532,7 +547,8 @@ server/          Express + tRPC backend
   _core/app.ts     Express app: routes and middleware, no listener
   _core/index.ts   Local entry: HTTP server, port scan, Vite dev middleware
   _core/           OAuth, storage, AI integrations
-  routers.ts       tRPC router definitions
+  routers.ts       Composes the tRPC API from the feature routers below
+  *Router.ts       One router per feature: auth, learner, quran, recitation, tutor
   quranApi.ts      Quran.com API client (surahs, juz, verses, audio)
   quranCache.ts    TTL cache in front of Quran.com
   recitation.ts    Word-recall alignment for recorded attempts
