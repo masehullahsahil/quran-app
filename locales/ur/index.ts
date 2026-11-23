@@ -143,6 +143,7 @@ export const strings: TranslatableStrings = {
   "tutor.paused": "اطمینان سے۔ جب کہیں، آگے بڑھیں گے۔",
   "tutor.finished": "اچھا۔ فی الحال یہیں تک۔",
   "tutor.stopped": "ابھی کے لیے روک دیا۔",
+  "tutor.disconnected": "آپ کا استاد منقطع ہو گیا۔ آپ نیچے ریکارڈنگ جاری رکھ سکتے ہیں۔",
 
   // The two or three things offered at a time. Never all of them at once.
   "tutor.doStart": "شروع",

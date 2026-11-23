@@ -144,6 +144,7 @@ export const strings: TranslatableStrings = {
   "tutor.paused": "وقت بگیرید. هر وقت خواستید بگویید ادامه بدهیم.",
   "tutor.finished": "خوب است. فعلاً همین‌جا بس می‌کنیم.",
   "tutor.stopped": "فعلاً متوقف شدیم.",
+  "tutor.disconnected": "استاد شما قطع شد. می‌توانید ضبط را در پایین ادامه دهید.",
 
   // The two or three things offered at a time. Never all of them at once.
   "tutor.doStart": "شروع",

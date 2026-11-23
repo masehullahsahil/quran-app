@@ -2299,6 +2299,13 @@ export default function Home() {
               {!tutorView && <section className={`teacher-now is-${teacherAction.tone} is-${teacherAction.kind}`} aria-label={t("now.label")}>
                 <p className="now-place"><span className="now-surah">{surahLabel}</span><span>{t("now.place", { ayah: activeVerse.number, total: ayahs.length })}</span>{studyTiers.now.showWordPosition && teacherAction.focusWordIndex !== null && <span>{t("now.placeWord", { number: teacherAction.focusWordIndex })}</span>}{reviewDue && teacherAction.kind !== "review-today" && <span className="now-due">{t("now.reviewToday")}</span>}</p>
                 <h2 className="now-instruction" aria-live="polite">{t(studyTiers.now.instructionKey, studyTiers.now.instructionParams)}</h2>
+                {/* The tutor is gone and the manual controls below are the
+                    fallback — say so. This section only renders without a
+                    tutor view, so `lost` is exactly the dropped-session case;
+                    a fresh load is `idle` and a live session never reaches
+                    here, so neither shows the notice. No restart affordance:
+                    the listen/record controls below are the way on. */}
+                {tutor.status === "lost" && <p className="loop-message" role="status">{t("tutor.disconnected")}</p>}
                 {/* The word itself lives in the lesson below, once and large.
                     Repeating it here gave the learner the same diagnosis twice
                     within one screen, so NOW keeps only the position. */}
