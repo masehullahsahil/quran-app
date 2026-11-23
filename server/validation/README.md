@@ -184,6 +184,24 @@ cannot enter the ledger. The shadow never changes the learner review,
 correction focus, or advancement; `QURAN_EVALUATOR_PRIMARY_CORRECTIONS`
 stays `0`.
 
+### Persisted ledger files
+
+The server ledger also survives a server restart. Every ledger mutation
+rewrites `.validation-ledgers/<runId>/quran-validation-server-<runId>.json`
+(the live file, raw ledger export), and deactivation writes
+`.validation-ledgers/<runId>/quran-validation-server-<runId>-final.json`
+(the `{ runId, deactivated: true, ledger }` envelope — the same object
+`POST /deactivate` returns) once, never overwritten. The directory is
+`QURAN_VALIDATION_LEDGER_DIR` when set, else `<repo-root>/.validation-ledgers`,
+and only when the staff API is enabled; with the staff API off (including
+every production deployment) nothing is written. The persisted `-final`
+file is the durable artifact to keep beside the downloaded bundle. There
+is no automatic deletion: delete a run's directory when its evidence is
+no longer needed. A restart mid-run cannot be resumed — start a new run;
+the partial live file remains on disk for inspection. The bundle itself
+stays a client download (it needs the client log, which only the browser
+holds).
+
 ## Safety rules
 
 - No audio bytes, no raw transcripts (word indexes only), no tokens/secrets,

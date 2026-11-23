@@ -28,8 +28,16 @@ import {
   isRunId,
   type DeviceMetadata,
   type PositionCheckpoint,
+  type RecordOptions,
+  type ValidationEvent,
+  type ValidationEventType,
   type ValidationLedgerExport,
 } from "./validationRun";
+import {
+  persistFinalLedger,
+  persistLiveLedger,
+  type ValidationDeactivationExport,
+} from "./ledgerPersistence";
 
 /** Client-supplied header carrying the validation run ID. */
 export const VALIDATION_RUN_HEADER = "x-validation-run-id";
@@ -52,9 +60,39 @@ export type ActiveValidationRun = {
   ledger: ValidationLedger;
   activatedAt: string;
   researchConsent?: ResearchConsent;
+  /**
+   * The deactivation envelope, set by deactivateValidationRun. The staff
+   * endpoint returns this exact object, and the persisted `-final` file
+   * holds the same object — one envelope, built once, for both.
+   */
+  deactivationExport?: ValidationDeactivationExport;
 };
 
 const activeRuns = new Map<string, ActiveValidationRun>();
+
+/**
+ * The one choke point for server-side ledger recording on live staff runs.
+ * Records the event, then best-effort rewrites the run's live ledger file
+ * on disk. Persistence never throws and never fails the observation: a
+ * failed disk write is logged by the persistence module and the run
+ * continues in memory. The ValidationLedger class itself stays
+ * filesystem-free (it is also used by the offline harness and by tests).
+ */
+function recordPersisted(
+  run: ActiveValidationRun,
+  type: ValidationEventType,
+  details: Record<string, unknown>,
+  opts: RecordOptions = {},
+): ValidationEvent {
+  const event = run.ledger.record(type, details, opts);
+  try {
+    persistLiveLedger(run.runId, run.ledger.toJSON());
+  } catch {
+    // persistLiveLedger never throws; defense in depth — a failed disk
+    // write must never break observation.
+  }
+  return event;
+}
 
 /**
  * Activates a validation run on this server instance. Staff call this before a
@@ -86,7 +124,7 @@ export function activateValidationRun(
     ...(researchConsent ? { researchConsent } : {}),
   };
   activeRuns.set(runId, entry);
-  entry.ledger.record("session.start", { source: "server", origin: "run-activated" });
+  recordPersisted(entry, "session.start", { source: "server", origin: "run-activated" });
   return entry;
 }
 
@@ -95,13 +133,33 @@ export function getActiveValidationRun(runId: string): ActiveValidationRun | und
 }
 
 /**
+ * The deactivation envelope: exactly what POST /deactivate returns and
+ * exactly what the persisted `-final` file holds. One source of truth for
+ * the envelope shape; built once per deactivation so the file and the
+ * HTTP response are byte-for-byte the same object.
+ */
+export function buildDeactivationExport(entry: ActiveValidationRun): ValidationDeactivationExport {
+  return { runId: entry.runId, deactivated: true, ledger: entry.ledger.toJSON() };
+}
+
+/**
  * Deactivates a run and returns it so staff can export the ledger
  * (`entry.ledger.toJSON()`) for offline joining with the client log on
- * runId / correlationId.
+ * runId / correlationId. Builds the deactivation envelope once, writes the
+ * `-final` file best-effort (a failed write still returns the ledger over
+ * HTTP — see the staff endpoint), and attaches the envelope to the entry
+ * so the endpoint returns the same object that was written to disk.
  */
-export function deactivateValidationRun(runId: string): ActiveValidationRun | undefined {
+export function deactivateValidationRun(
+  runId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): ActiveValidationRun | undefined {
   const entry = activeRuns.get(runId);
-  if (entry) activeRuns.delete(runId);
+  if (!entry) return undefined;
+  const deactivationExport = buildDeactivationExport(entry);
+  persistFinalLedger(runId, deactivationExport, env);
+  activeRuns.delete(runId);
+  entry.deactivationExport = deactivationExport;
   return entry;
 }
 
@@ -438,7 +496,8 @@ function observeStartLive(run: ActiveValidationRun, result: unknown, opts: Obser
   const stream = asRecord(asRecord(result)?.stream);
   const tracker = trackerOf(stream);
   if (!tracker) return;
-  run.ledger.record(
+  recordPersisted(
+    run,
     "position.checkpoint",
     checkpointDetails(
       tracker,
@@ -479,7 +538,8 @@ function observeIngestLiveAudio(run: ActiveValidationRun, result: unknown, opts:
   if (ackSequence !== null) ackContext.sequence = ackSequence;
 
   if (tracker) {
-    run.ledger.record(
+    recordPersisted(
+      run,
       "position.checkpoint",
       checkpointDetails(
         tracker,
@@ -505,7 +565,8 @@ function observeIngestLiveAudio(run: ActiveValidationRun, result: unknown, opts:
   // applied input records it.
   const recitation = asRecord(response?.recitation);
   if (applied && recitation) {
-    run.ledger.record(
+    recordPersisted(
+      run,
       "attempt.diagnostics",
       {
         route: "live",
@@ -529,7 +590,8 @@ function observeIngestLiveAudio(run: ActiveValidationRun, result: unknown, opts:
     const targetWordIndex = asNumber(event?.targetWordIndex);
     if (targetWordIndex === null) return;
     const evidence = asString(event?.evidence);
-    run.ledger.record(
+    recordPersisted(
+      run,
       "correction.decided",
       {
         eventType: "word-omitted",
@@ -587,7 +649,8 @@ export function observeFinalRecitationResult(
       : outer;
     const tutor = path === "recitation.evaluateWithTutor" ? asRecord(outer?.tutor) : null;
     const quranAwareReview = asRecord(recitation?.quranAwareReview);
-    run.ledger.record(
+    recordPersisted(
+      run,
       "attempt.completed",
       {
         route: path === "recitation.evaluateWithTutor" ? "tutor" : "study",
@@ -618,7 +681,8 @@ export function observeFinalRecitationFailure(
   try {
     if (!isObservedFinalRecitationPath(path)) return;
     const code = asString(asRecord(error)?.code) ?? "UNKNOWN";
-    run.ledger.record(
+    recordPersisted(
+      run,
       "attempt.completed",
       {
         route: path === "recitation.evaluateWithTutor" ? "tutor" : "study",

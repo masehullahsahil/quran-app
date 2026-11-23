@@ -2,6 +2,9 @@
  * Per-attempt Muaalem shadow export: run scoping, redaction, and staff gating.
  */
 import type { AddressInfo } from "node:net";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 import { createApp } from "../_core/app";
@@ -23,19 +26,28 @@ import {
   type ActiveValidationRun,
 } from "./liveObservation";
 import { registerStaffValidationEndpoints } from "./staffEndpoints";
+import { LEDGER_DIR_ENV_VAR } from "./ledgerPersistence";
 import { createRunId } from "./validationRun";
 import type { QuranEvaluatorDiagnostics } from "../quranEvaluator";
 
 const savedEnv = { ...process.env };
 
+// Some tests below enable the staff API and activate runs — and activating
+// a run now persists its ledger. Point the ledger directory at a fresh tmp
+// dir per test so the suite never writes into the checkout.
+let ledgerDir = "";
+
 beforeEach(() => {
   resetValidationRunsForTests();
-  process.env = { ...savedEnv, LOG_LEVEL: "error" };
+  ledgerDir = mkdtempSync(path.join(tmpdir(), "attempt-export-ledger-"));
+  process.env = { ...savedEnv, LOG_LEVEL: "error", [LEDGER_DIR_ENV_VAR]: ledgerDir };
 });
 
 afterEach(() => {
   process.env = { ...savedEnv };
   resetValidationRunsForTests();
+  if (ledgerDir) rmSync(ledgerDir, { recursive: true, force: true });
+  ledgerDir = "";
 });
 
 const ARABIC = /[؀-ۿ]/;

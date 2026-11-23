@@ -140,3 +140,7 @@ services/quran-acoustic-evaluator/research/
 # once via scripts/generate-coach-audio.mjs and served from disk; regenerate
 # locally, never commit the binaries.
 server/coach-audio/
+
+# Persisted validation ledgers (QURAN_VALIDATION_LEDGER_DIR default).
+# Written by the single-instance staff server only; never commit.
+.validation-ledgers/

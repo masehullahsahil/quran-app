@@ -1,4 +1,7 @@
-import { describe, expect, it, beforeEach } from "vitest";
+import { describe, expect, it, afterEach, beforeEach } from "vitest";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import {
   ACOUSTIC_NOT_RUN,
   activateValidationRun,
@@ -18,6 +21,7 @@ import {
   validationAttemptIdFor,
 } from "./liveObservation";
 import { createRunId, isAttemptId } from "./validationRun";
+import { LEDGER_DIR_ENV_VAR, finalLedgerFileName, liveLedgerFileName } from "./ledgerPersistence";
 import type { TrpcContext } from "../_core/context";
 
 function ctxWith(headers: Record<string, string>, requestId?: string): TrpcContext {
@@ -485,5 +489,116 @@ describe("recordAttemptAcoustic", () => {
     const ranScope = createValidationAttemptScope(ctxWith({}), "recitation.evaluateWithTutor", {});
     recordAttemptAcoustic(ranScope, { ...ACOUSTIC_NOT_RUN, evaluatorCalled: true });
     expect(ranScope.evidenceReadyAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+});
+
+describe("ledger persistence", () => {
+  const savedEnv = { ...process.env };
+  let dir = "";
+
+  beforeEach(() => {
+    dir = mkdtempSync(path.join(tmpdir(), "live-observation-ledger-"));
+    process.env = { ...savedEnv, LOG_LEVEL: "error", [LEDGER_DIR_ENV_VAR]: dir };
+  });
+
+  afterEach(() => {
+    process.env = { ...savedEnv };
+    resetValidationRunsForTests();
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = "";
+  });
+
+  const shadowDiagnostics = {
+    evaluatorCalled: true,
+    evaluatorStatus: "available" as const,
+    evaluatorHttpStatus: 200,
+    evaluatorLatencyMs: 1200,
+    primaryCorrectionsEnabled: false,
+    shadowStatus: "available" as const,
+    shadowProvider: "muaalem-shadow",
+    shadowModelId: "obadx/muaalem-model-v3_2",
+    shadowDecodedLevels: 11,
+    shadowPhonemeTokens: 31,
+    shadowAveragePosterior: 0.9,
+    shadowLatencyMs: 900,
+    evaluatedSurah: 1,
+    evaluatedAyah: 1,
+    alignmentConfidence: 0.9,
+    findingsCount: 0,
+    abstentionReason: null,
+  };
+
+  it("writes the live file on every mutation and the final file on deactivate", () => {
+    const runId = createRunId();
+    const run = activateValidationRun(runId);
+    const livePath = path.join(dir, runId, liveLedgerFileName(runId));
+    // Activation already persisted the session.start event.
+    expect(existsSync(livePath)).toBe(true);
+    expect(JSON.parse(readFileSync(livePath, "utf8")).events.map((e: { type: string }) => e.type)).toEqual([
+      "session.start",
+    ]);
+
+    observeFinalRecitationResult(
+      run,
+      "recitation.evaluateWithTutor",
+      {
+        recitation: {
+          attemptScope: "ayah",
+          reviewStatus: "available",
+          matchedCount: 7,
+          totalWords: 7,
+          score: 0.95,
+          verseFollowing: { reason: "matched", state: "following", shouldAdvance: true },
+          quranAwareReview: { status: "available" },
+        },
+        tutor: { status: "updated", action: { kind: "continue-recitation", reason: "ayah-completed" } },
+        outcome: "accepted",
+      },
+      { attemptId: "att_0123456789abcdef01234567", acoustic: shadowDiagnostics },
+    );
+    const live = JSON.parse(readFileSync(livePath, "utf8")) as {
+      events: Array<{ type: string; attemptId: string | null }>;
+    };
+    expect(live.events.map((e) => e.type)).toEqual(["session.start", "attempt.completed"]);
+    expect(live.events[1].attemptId).toBe("att_0123456789abcdef01234567");
+
+    const removed = deactivateValidationRun(runId);
+    expect(removed).toBe(run);
+    const finalPath = path.join(dir, runId, finalLedgerFileName(runId));
+    expect(existsSync(finalPath)).toBe(true);
+    const finalFile = JSON.parse(readFileSync(finalPath, "utf8")) as {
+      runId: string;
+      deactivated: boolean;
+      ledger: { runId: string; events: Array<{ type: string }> };
+    };
+    expect(finalFile).toMatchObject({
+      runId,
+      deactivated: true,
+      ledger: { runId },
+    });
+    expect(finalFile.ledger.events.map((e) => e.type)).toEqual(["session.start", "attempt.completed"]);
+    // The envelope attached to the entry is the same object that was written.
+    expect(removed?.deactivationExport).toEqual(finalFile);
+    // The run is gone from the registry, and the live file is left in place.
+    expect(exportValidationRun(runId)).toBeNull();
+    expect(existsSync(livePath)).toBe(true);
+  });
+
+  it("keeps recording in memory when the disk write fails", () => {
+    const blocker = path.join(dir, "blocker");
+    writeFileSync(blocker, "x");
+    process.env = { ...process.env, [LEDGER_DIR_ENV_VAR]: path.join(blocker, "ledgers") };
+    const run = activateValidationRun(createRunId());
+    expect(() => {
+      observeFinalRecitationResult(
+        run,
+        "recitation.evaluate",
+        { attemptScope: "ayah", reviewStatus: "available" },
+        { attemptId: "att_0123456789abcdef01234568" },
+      );
+    }).not.toThrow();
+    expect(run.ledger.eventsOfType("attempt.completed")).toHaveLength(1);
+    expect(() => deactivateValidationRun(run.runId)).not.toThrow();
+    expect(exportValidationRun(run.runId)).toBeNull();
   });
 });

@@ -166,6 +166,17 @@ curl -s -X POST http://localhost:3000/api/validation/runs/$RUN_ID/deactivate \
   -o /tmp/validation-ledger-final.json
 ```
 
+The server also writes the final ledger to disk automatically:
+`.validation-ledgers/<runId>/quran-validation-server-<runId>-final.json`
+(inside the repo checkout unless `QURAN_VALIDATION_LEDGER_DIR` is set).
+This file — not the `/tmp` copy — is the durable artifact: keep it beside
+the downloaded bundle. There is no automatic deletion: delete a run's
+directory when its evidence is no longer needed.
+
+If the staff server restarts mid-run, start a new run; the partial live
+ledger file (`.validation-ledgers/<runId>/quran-validation-server-<runId>.json`)
+remains on disk for inspection.
+
 After deactivation the run is removed from the registry; further exports for
 that run ID return 404.
 

@@ -28,6 +28,7 @@
 import type { Express, Request, Response } from "express";
 import {
   activateValidationRun,
+  buildDeactivationExport,
   deactivateValidationRun,
   exportValidationRun,
   isStaffValidationApiEnabled,
@@ -366,13 +367,12 @@ export function registerStaffValidationEndpoints(
         message: `staff deactivated validation run ${runId}`,
         details: {},
       });
+      // The envelope was built once by deactivateValidationRun and is the
+      // same object written to the persisted `-final` file; rebuild it only
+      // if this entry somehow has none.
       res
         .status(200)
-        .json({
-          runId: entry.runId,
-          deactivated: true,
-          ledger: entry.ledger.toJSON(),
-        });
+        .json(entry.deactivationExport ?? buildDeactivationExport(entry));
     }
   );
 }
