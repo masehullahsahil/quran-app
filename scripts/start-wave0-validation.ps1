@@ -53,6 +53,11 @@ Write-Host ""
 Write-Host "Starting the single-instance Wave 0 server."
 Write-Host "After 'Server running' appears, open /validation-launcher on the actual port reported by the server."
 Write-Host "Press Ctrl+C to stop the local server."
+$ledgerDir = $env:QURAN_VALIDATION_LEDGER_DIR
+if ([string]::IsNullOrWhiteSpace($ledgerDir)) {
+  $ledgerDir = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.validation-ledgers"))
+}
+Write-Host "Validation ledgers: $ledgerDir (override with QURAN_VALIDATION_LEDGER_DIR)."
 Write-Host ""
 
 & pnpm dev

@@ -181,9 +181,16 @@ export function parseBundle(bundle) {
   const client = isRecord(bundle.client) ? bundle.client : {};
   const clientEvents = Array.isArray(client.events) ? client.events.filter(isRecord) : [];
   const server = isRecord(bundle.server) ? bundle.server : {};
+  // Server rows live under server.attemptDiagnostics in the flat shape, or
+  // under server.ledger.attemptDiagnostics when the bundle carries the
+  // deactivate envelope (the panel's finishAndDownloadBundle shape). The
+  // flat shape keeps priority when both are present.
+  const serverLedger = isRecord(server.ledger) ? server.ledger : {};
   const rows = Array.isArray(server.attemptDiagnostics)
     ? server.attemptDiagnostics.filter(isRecord)
-    : [];
+    : Array.isArray(serverLedger.attemptDiagnostics)
+      ? serverLedger.attemptDiagnostics.filter(isRecord)
+      : [];
   return { runId, exportedAt: asNonEmptyString(bundle.exportedAt), clientEvents, serverRows: rows };
 }
 

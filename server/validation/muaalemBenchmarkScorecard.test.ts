@@ -1,8 +1,10 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildAttemptExport, ledgerFromSavedFile } from "./attemptExport";
+import { createAttemptId, createRunId } from "./validationRun";
 import {
   CARD_CHECKS,
   REFERENCE_PHONEMES,
@@ -49,6 +51,42 @@ describe("parseBundle", () => {
     expect(runId).toBe("run_abcdef0123456789abcdef01");
     expect(clientEvents.length).toBeGreaterThan(0);
     expect(serverRows.length).toBe(9); // 8 labeled attempts + 1 unlabeled row
+  });
+
+  it("unwraps server.ledger.attemptDiagnostics (the panel bundle shape)", () => {
+    const flat = buildSyntheticBundle();
+    // The panel's finishAndDownloadBundle puts the deactivate envelope
+    // ({runId, deactivated, ledger}) under `server`, so the rows live one
+    // level deeper than the flat shape.
+    const panelBundle = {
+      ...flat,
+      server: {
+        runId: flat.runId,
+        ledger: { runId: flat.runId, attemptDiagnostics: flat.server.attemptDiagnostics },
+      },
+    };
+    const { serverRows } = parseBundle(panelBundle);
+    expect(serverRows.length).toBe(9);
+    expect(serverRows[0].attemptId).toBe("srv-ctrl-1");
+  });
+
+  it("keeps the flat shape's priority when both shapes are present", () => {
+    const flat = buildSyntheticBundle();
+    const both = {
+      ...flat,
+      server: {
+        ...flat.server,
+        ledger: {
+          runId: flat.runId,
+          attemptDiagnostics: [
+            { attemptId: "ledger-only-1", correlationId: "req_ledger_only", acoustic: {}, decision: {} },
+          ],
+        },
+      },
+    };
+    const { serverRows } = parseBundle(both);
+    expect(serverRows.length).toBe(9);
+    expect(serverRows.some((row) => row.attemptId === "ledger-only-1")).toBe(false);
   });
 });
 
@@ -601,4 +639,115 @@ describe("CLI fallback and fail-loudly", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("persisted ledger survives a fresh process", () => {
+  // Regression test for the September 2026 loss: the server ledger lived
+  // only in process-local memory, so a restart before the download lost the
+  // run. Here the write (child process) and the read (this process) MUST
+  // happen in different processes — the test reads ONLY the persisted
+  // `-final` file from disk. The client events below are test scaffolding
+  // (labels + the client→server id map); the server row must come from disk.
+  it("scores a finalized attempt read only from the persisted -final file", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "muaalem-persisted-"));
+    try {
+      const runId = createRunId();
+      const attemptId = createAttemptId();
+      const childPath = path.join(dir, "persist-child.ts");
+      const liveObservationPath = path.join(__dirname, "liveObservation.ts");
+      writeFileSync(
+        childPath,
+        [
+          `import { activateValidationRun, deactivateValidationRun, observeFinalRecitationResult } from "${liveObservationPath}";`,
+          "const [ledgerDir, runId, attemptId] = process.argv.slice(2);",
+          "process.env.QURAN_VALIDATION_LEDGER_DIR = ledgerDir;",
+          "const run = activateValidationRun(runId);",
+          "observeFinalRecitationResult(run, \"recitation.evaluateWithTutor\", {",
+          "  recitation: {",
+          "    attemptScope: \"ayah\",",
+          "    reviewStatus: \"available\",",
+          "    matchedCount: 7,",
+          "    totalWords: 7,",
+          "    score: 0.95,",
+          "    verseFollowing: { reason: \"matched\", state: \"following\", shouldAdvance: true },",
+          "    quranAwareReview: { status: \"available\" },",
+          "  },",
+          "  tutor: { status: \"updated\", action: { kind: \"continue-recitation\", reason: \"ayah-completed\" } },",
+          "  outcome: \"accepted\",",
+          "}, {",
+          "  attemptId,",
+          "  acoustic: {",
+          "    evaluatorCalled: true,",
+          "    evaluatorStatus: \"available\",",
+          "    evaluatorHttpStatus: 200,",
+          "    evaluatorLatencyMs: 1200,",
+          "    primaryCorrectionsEnabled: false,",
+          "    shadowStatus: \"available\",",
+          "    shadowProvider: \"muaalem-shadow\",",
+          "    shadowModelId: \"obadx/muaalem-model-v3_2\",",
+          "    shadowDecodedLevels: 11,",
+          "    shadowPhonemeTokens: 31,",
+          "    shadowAveragePosterior: 0.9,",
+          "    shadowLatencyMs: 900,",
+          "    evaluatedSurah: 1,",
+          "    evaluatedAyah: 1,",
+          "    alignmentConfidence: 0.9,",
+          "    findingsCount: 0,",
+          "    abstentionReason: null,",
+          "  },",
+          "});",
+          "const entry = deactivateValidationRun(runId);",
+          "if (!entry) { console.error(\"child: deactivate returned nothing\"); process.exit(1); }",
+          "",
+        ].join("\n"),
+      );
+      const tsx = path.resolve(__dirname, "../../node_modules/tsx/dist/cli.mjs");
+      const res = spawnSync(process.execPath, [tsx, childPath, dir, runId, attemptId], {
+        encoding: "utf8",
+        timeout: 20_000,
+      });
+      if (res.status !== 0) {
+        // Surface the child's failure instead of a bare status assertion.
+        process.stdout.write(`child stdout: ${res.stdout ?? ""}\nchild stderr: ${res.stderr ?? ""}\n`);
+      }
+      expect(res.status).toBe(0);
+
+      const finalPath = path.join(dir, runId, `quran-validation-server-${runId}-final.json`);
+      expect(existsSync(finalPath)).toBe(true);
+      const saved = JSON.parse(readFileSync(finalPath, "utf8"));
+      const attempts = buildAttemptExport(ledgerFromSavedFile(saved));
+      expect(attempts?.attemptCount).toBe(1);
+      const serverRows = selectScorecardRows([], attempts!.attempts);
+      expect(serverRows).toHaveLength(1);
+
+      const t0 = "2026-09-27T04:55:00.000Z";
+      const clientEvents = [
+        {
+          seq: 1,
+          t: t0,
+          runId,
+          attemptId: "c-persist-1",
+          correlationId: null,
+          type: "note",
+          details: { benchmarkLabel: { variant: "correct", errorType: null, surah: 1, ayah: 1 } },
+        },
+        {
+          seq: 2,
+          t: t0,
+          runId,
+          attemptId: "c-persist-1",
+          correlationId: null,
+          type: "attempt.lifecycle",
+          details: { stage: "submission.responded", serverAttemptId: attemptId },
+        },
+      ];
+      const { labels } = collectLabels(clientEvents, null);
+      const idMap = buildClientToServerMap(clientEvents);
+      const metrics = scoreBenchmark({ labels, idMap, serverRows, clientEvents });
+      expect(metrics.unjoined).toBe(0);
+      expect(metrics.correct.assessed).toBe(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });

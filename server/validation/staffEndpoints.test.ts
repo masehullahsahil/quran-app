@@ -7,6 +7,9 @@
  * real Express app. No test touches the network beyond 127.0.0.1.
  */
 import type { AddressInfo } from "node:net";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import express from "express";
 import { createApp } from "../_core/app";
@@ -20,18 +23,27 @@ import {
   checkStaffValidationPreflight,
   registerStaffValidationEndpoints,
 } from "./staffEndpoints";
+import { LEDGER_DIR_ENV_VAR, finalLedgerFileName } from "./ledgerPersistence";
 import { isRunId } from "./validationRun";
 
 const savedEnv = { ...process.env };
 
+// The staff API is enabled in most tests below, which activates runs —
+// and activating a run now persists its ledger. Point the ledger directory
+// at a fresh tmp dir per test so the suite never writes into the checkout.
+let ledgerDir = "";
+
 beforeEach(() => {
   resetValidationRunsForTests();
-  process.env = { ...savedEnv, LOG_LEVEL: "error" };
+  ledgerDir = mkdtempSync(path.join(tmpdir(), "staff-endpoints-ledger-"));
+  process.env = { ...savedEnv, LOG_LEVEL: "error", [LEDGER_DIR_ENV_VAR]: ledgerDir };
 });
 
 afterEach(() => {
   process.env = { ...savedEnv };
   resetValidationRunsForTests();
+  if (ledgerDir) rmSync(ledgerDir, { recursive: true, force: true });
+  ledgerDir = "";
 });
 
 function routeList(app: express.Express): string[] {
@@ -298,6 +310,67 @@ describe("staff validation endpoints over HTTP", () => {
         `http://127.0.0.1:${port}/api/validation/runs/${runId}/ledger`
       );
       expect(again.status).toBe(404);
+    } finally {
+      await close();
+    }
+  }, 20_000);
+
+  it("writes the -final file on deactivate, byte-for-byte the response", async () => {
+    process.env = { ...process.env, [STAFF_API_ENV_VAR]: "1" };
+    const app = createApp();
+    const { port, close } = await listen(app);
+    try {
+      const activate = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, {
+        method: "POST",
+      });
+      const { runId } = (await activate.json()) as { runId: string };
+
+      const deactivate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${runId}/deactivate`,
+        { method: "POST" },
+      );
+      expect(deactivate.status).toBe(200);
+      const done = (await deactivate.json()) as {
+        runId: string;
+        deactivated: boolean;
+        ledger: { runId: string; events: unknown[] };
+      };
+
+      const finalPath = path.join(ledgerDir, runId, finalLedgerFileName(runId));
+      expect(existsSync(finalPath)).toBe(true);
+      expect(JSON.parse(readFileSync(finalPath, "utf8"))).toEqual(done);
+    } finally {
+      await close();
+    }
+  }, 20_000);
+
+  it("still returns the ledger over HTTP when the -final write fails", async () => {
+    process.env = { ...process.env, [STAFF_API_ENV_VAR]: "1" };
+    const blocker = path.join(ledgerDir, "blocker");
+    writeFileSync(blocker, "x");
+    process.env = { ...process.env, [LEDGER_DIR_ENV_VAR]: path.join(blocker, "ledgers") };
+    const app = createApp();
+    const { port, close } = await listen(app);
+    try {
+      const activate = await fetch(`http://127.0.0.1:${port}/api/validation/runs`, {
+        method: "POST",
+      });
+      expect(activate.status).toBe(201);
+      const { runId } = (await activate.json()) as { runId: string };
+
+      const deactivate = await fetch(
+        `http://127.0.0.1:${port}/api/validation/runs/${runId}/deactivate`,
+        { method: "POST" },
+      );
+      expect(deactivate.status).toBe(200);
+      const done = (await deactivate.json()) as {
+        runId: string;
+        deactivated: boolean;
+        ledger: { runId: string; events: Array<{ type: string }> };
+      };
+      expect(done.runId).toBe(runId);
+      expect(done.deactivated).toBe(true);
+      expect(done.ledger.events.some((e) => e.type === "session.start")).toBe(true);
     } finally {
       await close();
     }
