@@ -312,7 +312,7 @@ decorative artwork is not rendered at all.
 
 ## The language-model boundary
 
-The coach model (`createCoachSummary` in `server/routers.ts`) **may**: phrase encouragement, restate the deterministic next step in friendlier words, and produce a short line safe to read aloud.
+The coach model (`createCoachSummary` in `server/recitationRouter.ts`) **may**: phrase encouragement, restate the deterministic next step in friendlier words, and produce a short line safe to read aloud.
 
 It **may not**, and structurally cannot:
 

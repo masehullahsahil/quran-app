@@ -6,7 +6,7 @@
  * strings is learner-facing, so every one comes from a locale key resolved
  * here in the learner's `uiLanguage`, using the same packs and the same
  * per-key English fallback as the client. No English literal may be
- * constructed in `server/routers.ts` or `server/recitation.ts`.
+ * constructed in `server/recitationRouter.ts` or `server/recitation.ts`.
  *
  * There is no model-generated learner prose: coach feedback is deterministic
  * and locale-backed, so a prompt asking a model to "reply in Urdu" is never

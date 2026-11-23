@@ -1,4 +1,4 @@
-import { COOKIE_NAME, ONE_YEAR_MS, OAUTH_STATE_COOKIE, decodeOAuthState } from "@shared/const";
+import { COOKIE_NAME, OAUTH_STATE_COOKIE, SESSION_MAX_AGE_MS, decodeOAuthState } from "@shared/const";
 import { parse as parseCookieHeader } from "cookie";
 import type { Express, Request, Response } from "express";
 import * as db from "../db";
@@ -22,20 +22,64 @@ function getRedirectUri(req: Request): string {
 
 /**
  * Decode the payload of a JWT without verifying its signature. The ID token
- * comes directly from Google's token endpoint over HTTPS, so its content is
- * trustworthy for identifying the user. (Full signature verification would
- * require fetching Google's public keys; the state-nonce CSRF check below
- * is the critical security boundary.)
+ * comes directly from Google's token endpoint over TLS, which OpenID Connect
+ * Core (section 3.1.3.7, step 6) accepts in place of a signature check. The
+ * claims still have to be validated — see validateGoogleIdTokenClaims.
  */
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     const payload = Buffer.from(parts[1], "base64url").toString("utf-8");
-    return JSON.parse(payload) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(payload);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
   } catch {
     return null;
   }
+}
+
+const GOOGLE_ISSUERS = new Set(["https://accounts.google.com", "accounts.google.com"]);
+/** Tolerance for clock drift between this server and Google. */
+const CLOCK_SKEW_SECONDS = 300;
+
+export type GoogleIdentity = {
+  sub: string;
+  /** Only set when Google reports the address as verified. */
+  email: string | null;
+  name: string | null;
+};
+
+/**
+ * Validate the ID token claims OpenID Connect requires (issuer, audience,
+ * expiry) and extract the identity. Returns null for any token that was not
+ * issued by Google for this client, or that has expired.
+ */
+export function validateGoogleIdTokenClaims(
+  claims: Record<string, unknown> | null,
+  clientId: string,
+  nowMs: number = Date.now(),
+): GoogleIdentity | null {
+  if (!claims || !clientId) return null;
+
+  if (typeof claims.iss !== "string" || !GOOGLE_ISSUERS.has(claims.iss)) return null;
+
+  const aud = claims.aud;
+  const audiences = Array.isArray(aud) ? aud : [aud];
+  if (!audiences.includes(clientId)) return null;
+  if (Array.isArray(aud) && aud.length > 1 && claims.azp !== clientId) return null;
+
+  const nowSeconds = Math.floor(nowMs / 1000);
+  if (typeof claims.exp !== "number" || claims.exp + CLOCK_SKEW_SECONDS < nowSeconds) return null;
+  if (typeof claims.iat === "number" && claims.iat - CLOCK_SKEW_SECONDS > nowSeconds) return null;
+
+  if (typeof claims.sub !== "string" || claims.sub.length === 0) return null;
+
+  const emailVerified = claims.email_verified === true || claims.email_verified === "true";
+  return {
+    sub: claims.sub,
+    email: emailVerified && typeof claims.email === "string" ? claims.email : null,
+    name: typeof claims.name === "string" && claims.name.length > 0 ? claims.name : null,
+  };
 }
 
 export function registerOAuthRoutes(app: Express) {
@@ -81,7 +125,7 @@ export function registerOAuthRoutes(app: Express) {
       res.status(403).json({ error: "invalid oauth state" });
       return;
     }
-    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: true, sameSite: "none" });
+    res.clearCookie(OAUTH_STATE_COOKIE, { path: "/", secure: true, sameSite: "lax" });
 
     const clientId = ENV.googleClientId;
     const clientSecret = ENV.googleClientSecret;
@@ -116,14 +160,13 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
 
-      const claims = decodeJwtPayload(idToken);
-      const googleSub = typeof claims?.sub === "string" ? claims.sub : null;
-      const email = typeof claims?.email === "string" ? claims.email : null;
-      const name = typeof claims?.name === "string" ? claims.name : null;
-      if (!googleSub) {
-        res.status(400).json({ error: "openId missing from Google id_token" });
+      const identity = validateGoogleIdTokenClaims(decodeJwtPayload(idToken), clientId);
+      if (!identity) {
+        console.error("[OAuth] Google id_token failed claim validation");
+        res.status(400).json({ error: "invalid id_token" });
         return;
       }
+      const { sub: googleSub, email, name } = identity;
 
       await db.upsertUser({
         openId: `google:${googleSub}`,
@@ -135,11 +178,11 @@ export function registerOAuthRoutes(app: Express) {
 
       const sessionToken = await sessionService.createSessionToken(`google:${googleSub}`, {
         name: name || "",
-        expiresInMs: ONE_YEAR_MS,
+        expiresInMs: SESSION_MAX_AGE_MS,
       });
 
       const cookieOptions = getSessionCookieOptions(req);
-      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
+      res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: SESSION_MAX_AGE_MS });
 
       res.redirect(302, "/");
     } catch (error) {

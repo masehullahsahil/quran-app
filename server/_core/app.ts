@@ -27,6 +27,7 @@ import {
   parseNeuralVoiceLanguages,
 } from "../azureCoachVoice";
 import { requestIdMiddleware } from "./requestId";
+import { securityHeadersMiddleware } from "./securityHeaders";
 import { logger } from "./logger";
 import { REQUEST_BODY_LIMIT_BYTES } from "@shared/recording";
 
@@ -76,9 +77,12 @@ function safeErrorHandler(err: unknown, req: Request, res: Response, _next: Next
 
 export function createApp(): Express {
   const app = express();
+  // Don't advertise the framework and version to every caller.
+  app.disable("x-powered-by");
 
   // Correlation first: every request (even rejected ones) gets an ID.
   app.use(requestIdMiddleware);
+  app.use(securityHeadersMiddleware);
 
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(express.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));

@@ -326,7 +326,7 @@ function getFileExtension(mimeType: string): string {
  * Example tRPC procedure implementation:
  * 
  * ```ts
- * // In server/routers.ts
+ * // In server/recitationRouter.ts
  * import { transcribeAudio } from "./_core/voiceTranscription";
  * 
  * export const voiceRouter = router({

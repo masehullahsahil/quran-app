@@ -148,7 +148,18 @@ function createStore(): {
     };
   }
 
+  warnMemoryStoreOnServerlessOnce();
   return { kind: "memory", increment: incrementMemory };
+}
+
+let warnedMemoryStoreOnServerless = false;
+function warnMemoryStoreOnServerlessOnce() {
+  if (warnedMemoryStoreOnServerless || !process.env.VERCEL) return;
+  warnedMemoryStoreOnServerless = true;
+  console.warn("[recitation] rate limiter is using the in-memory store on serverless", {
+    store: "memory",
+    effect: "limits are per instance; configure RECITATION_RATE_LIMIT_REDIS_REST_URL/TOKEN",
+  });
 }
 
 async function incrementRedis(

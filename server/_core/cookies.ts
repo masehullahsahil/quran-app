@@ -42,7 +42,12 @@ export function getSessionCookieOptions(
   return {
     httpOnly: true,
     path: "/",
-    sameSite: "none",
+    // The app and its API share one origin, so the session cookie never
+    // needs to travel on cross-site requests. "lax" still sends it on the
+    // top-level redirect back from Google, and stops other sites from
+    // riding the session on their own requests. ("none" was only needed for
+    // the retired Manus preview iframe.)
+    sameSite: "lax",
     secure: isSecureRequest(req),
   };
 }

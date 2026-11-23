@@ -7,7 +7,7 @@
  * the ayah and stop before the app notices a skipped word. So nothing here is
  * a mock that emits an interruption on cue. The page is the real Study screen,
  * the routes are the **real** `recitation.startLive` and
- * `recitation.ingestLiveAudio` from `server/routers.ts`, called through their
+ * `recitation.ingestLiveAudio` from `server/recitationRouter.ts`, called through their
  * real `.strict()` schemas, and the decision to interrupt is made by Codex's
  * tracker applying its own stability rule to transcripts it aligns itself.
  *

@@ -78,12 +78,26 @@ The limiter keys by authenticated `user.id` when authentication succeeds and by 
 
 The built-in limits are intentionally conservative for the costly path:
 
-- anonymous: 4 reviews per minute and 20 reviews per hour per IP;
-- authenticated: 8 reviews per minute and 60 reviews per hour per user.
+- anonymous: 12 reviews per minute and 20 reviews per hour per IP (a burst of
+  12 lets a learner finish a short surah with a few retries);
+- authenticated: 8 reviews per minute and 60 reviews per hour per user;
+- live recognition has its own budget: 16/min and 120/hour anonymous, 32/min
+  and 300/hour authenticated (see `server/recitationRateLimit.ts`, the source
+  of truth for these numbers).
 
-Production must configure `RECITATION_RATE_LIMIT_REDIS_REST_URL` and `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` for distributed enforcement across serverless instances. If those variables are absent, the repository-controlled fallback is in-memory and must be treated as development/limited-instance protection only. If the configured external limiter is unavailable, `recitation.evaluate` fails closed with `TOO_MANY_REQUESTS` instead of calling transcription or LLM providers.
+Production must configure `RECITATION_RATE_LIMIT_REDIS_REST_URL` and `RECITATION_RATE_LIMIT_REDIS_REST_TOKEN` for distributed enforcement across serverless instances. If those variables are absent, the repository-controlled fallback is in-memory and must be treated as development/limited-instance protection only. On Vercel without them, config validation (and therefore `/api/health`) reports a warning, and the limiter logs once per instance that it is using memory. If the configured external limiter is unavailable, `recitation.evaluate` fails closed with `TOO_MANY_REQUESTS` instead of calling transcription or LLM providers.
 
 Application rate limiting is not a substitute for provider-level spend controls. Before wider testing, the deployment owner should configure OpenAI project budgets and alerts, review model-level usage limits, and monitor transcription/chat-completion spend. This repository cannot verify those dashboard settings without production credentials, so they are required operator checks rather than code-verified guarantees.
+
+## Recording privacy and storage access
+
+Learner recitation audio is **not stored by default**. It is archived to Forge storage only when `RECITATION_ARCHIVE_AUDIO=1` is set in addition to the Forge credentials. Before enabling it, the deployment owner must add a learner-facing privacy notice, decide the purpose and retention period, and configure a lifecycle rule on the bucket. Archived keys carry a 128-bit random suffix.
+
+`/manus-storage/*` turns a storage key into a short-lived signed URL. It requires a signed-in admin (`users.role = 'admin'`, e.g. via `OWNER_OPEN_ID`), answers 401/403 before contacting storage otherwise, and sends `Cache-Control: no-store`. No learner-facing page reads from it.
+
+## Sessions and headers
+
+Google ID tokens are accepted only after their issuer, audience, expiry and issue time are validated; an email is stored only when Google marks it verified. Session cookies are `HttpOnly`, `SameSite=Lax`, `Secure` over HTTPS, and expire after 30 days. Sessions are stateless JWTs, so signing out clears the cookie but a copied token stays valid until it expires; rotating `JWT_SECRET` revokes every session. Baseline security headers are applied by Express and by `vercel.json`; a Content-Security-Policy is still to be designed once the audio and font hosts are inventoried.
 
 ## Verified scope and remaining blockers
 

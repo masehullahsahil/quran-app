@@ -16,7 +16,7 @@
  * set in Vercel, even though it is no longer a Manus client ID. Any stable
  * non-empty value works.
  */
-import { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
+import { COOKIE_NAME, SESSION_MAX_AGE_MS } from "@shared/const";
 import { ForbiddenError } from "@shared/_core/errors";
 import { parse as parseCookieHeader } from "cookie";
 import type { Request } from "express";
@@ -65,7 +65,7 @@ class SessionService {
     options: { expiresInMs?: number } = {}
   ): Promise<string> {
     const issuedAt = Date.now();
-    const expiresInMs = options.expiresInMs ?? ONE_YEAR_MS;
+    const expiresInMs = options.expiresInMs ?? SESSION_MAX_AGE_MS;
     const expirationSeconds = Math.floor((issuedAt + expiresInMs) / 1000);
     const secretKey = this.getSessionSecret();
 
@@ -94,10 +94,12 @@ class SessionService {
       });
       const { openId, appId, name } = payload as Record<string, unknown>;
 
+      // `name` may legitimately be empty (a Google profile without a display
+      // name); only its type is checked so such users can still sign in.
       if (
         !isNonEmptyString(openId) ||
         !isNonEmptyString(appId) ||
-        !isNonEmptyString(name)
+        typeof name !== "string"
       ) {
         console.warn("[Auth] Session payload missing required fields");
         return null;

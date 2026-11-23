@@ -13,6 +13,7 @@ import {
   coachAudioCacheKey,
   createAzureCoachSynthesizer,
   createCachedCoachSynthesizer,
+  defaultCoachAudioCacheDir,
   createLanguageGatedSynthesizer,
   listAzureVoices,
   parseNeuralVoiceLanguages,
@@ -262,5 +263,21 @@ describe("createLanguageGatedSynthesizer", () => {
     await expect(gated("hi", "fa-AF")).resolves.toBeNull();
     await expect(gated("hi", "ur")).resolves.toBeNull();
     expect(base).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("defaultCoachAudioCacheDir", () => {
+  it("honours an explicit override", () => {
+    expect(defaultCoachAudioCacheDir({ COACH_AUDIO_CACHE_DIR: "/data/coach", VERCEL: "1" })).toBe("/data/coach");
+  });
+
+  it("uses the writable temp directory on Vercel", () => {
+    const dir = defaultCoachAudioCacheDir({ VERCEL: "1" });
+    expect(dir.startsWith(tmpdir())).toBe(true);
+    expect(dir.endsWith("coach-audio")).toBe(true);
+  });
+
+  it("uses the repository cache everywhere else", () => {
+    expect(defaultCoachAudioCacheDir({})).toBe(join(process.cwd(), "server", "coach-audio"));
   });
 });

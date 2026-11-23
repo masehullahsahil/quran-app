@@ -33,7 +33,9 @@ function normalizeKey(relKey: string): string {
 }
 
 function appendHashSuffix(relKey: string): string {
-  const hash = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  // Full 128-bit random suffix: keys embed guessable parts (surah, ayah,
+  // timestamp), so the suffix is what keeps them from being enumerated.
+  const hash = crypto.randomUUID().replace(/-/g, "");
   const lastDot = relKey.lastIndexOf(".");
   if (lastDot === -1) return `${relKey}_${hash}`;
   return `${relKey.slice(0, lastDot)}_${hash}${relKey.slice(lastDot)}`;
