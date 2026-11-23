@@ -343,6 +343,7 @@ export const strings = {
   "tutor.paused": "Take your time. Tell me when to carry on.",
   "tutor.finished": "Good. We’ll stop here for now.",
   "tutor.stopped": "Stopped for now.",
+  "tutor.disconnected": "Your tutor disconnected. You can keep recording below.",
 
   // The two or three things offered at a time. Never all of them at once.
   "tutor.doStart": "Start",

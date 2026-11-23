@@ -900,6 +900,48 @@ describe("when the server no longer agrees", () => {
   });
 });
 
+/* ----------------------- the tutor dropping is named */
+
+describe("the learner is told when the tutor drops", () => {
+  it("names the dropped session in Study when the tutor is lost", async () => {
+    await mount();
+    await openLesson();
+    // The same loss as the test above: the lesson starts, the store is
+    // emptied while the learner is speaking, Done closes the take.
+    await click(controls().find((control) => (control.textContent ?? "").includes(en.strings["tutor.doStart"]!)));
+    resetLiveTutorSessionsForTests();
+    await click(controls().find((control) => (control.textContent ?? "").includes(en.strings["tutor.doDone"]!)));
+
+    const answer = await (mutationMocks.recitationEvaluateWithTutor.mock.results.at(-1)!.value as Promise<{ recitation: unknown; tutor: { status: string } }>);
+    expect(answer.tutor.status).toBe("lost");
+    // No tutor view any more, so the manual controls are back — and now the
+    // learner is told why, instead of finding the recorder with no
+    // explanation.
+    expect(container.querySelector(".loop-record")).toBeTruthy();
+    expect(text()).toContain(en.strings["tutor.disconnected"]);
+  });
+
+  it("says nothing on a fresh load when the tutor was never reached", async () => {
+    // The tutor cannot be reached: the start fails, the hook stays idle, and
+    // Study falls back to the manual surfaces it had before — which are the
+    // normal state here, not a dropped session.
+    mutationMocks.tutorStart.mockRejectedValue(new Error("unreachable"));
+    await mount();
+    await openStudy();
+
+    expect(container.querySelector(".loop-record")).toBeTruthy();
+    expect(text()).not.toContain(en.strings["tutor.disconnected"]);
+  });
+
+  it("says nothing while the tutor is live", async () => {
+    await mount();
+    await openLesson();
+
+    expect(panel()).toBeTruthy();
+    expect(text()).not.toContain(en.strings["tutor.disconnected"]);
+  });
+});
+
 /* ------------------------------------------ 16–21: languages and RTL */
 
 describe("the tutor teaches in every language", () => {
