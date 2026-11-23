@@ -12,6 +12,11 @@ afterEach(async () => {
   server = undefined;
 });
 
+const savedNodeEnv = process.env.NODE_ENV;
+afterEach(() => {
+  process.env.NODE_ENV = savedNodeEnv;
+});
+
 async function get(headers: Record<string, string> = {}) {
   const app = express();
   app.disable("x-powered-by");
@@ -33,6 +38,23 @@ describe("security headers", () => {
     expect(res.headers.get("permissions-policy")).toContain("microphone=(self)");
     expect(res.headers.get("strict-transport-security")).toBeNull();
     expect(res.headers.get("x-powered-by")).toBeNull();
+  });
+
+  it("sends the report-only CSP in production but not in development", async () => {
+    process.env.NODE_ENV = "development";
+    const dev = await get();
+    expect(dev.headers.get("content-security-policy-report-only")).toBeNull();
+    await new Promise<void>(resolve => server!.close(() => resolve()));
+    server = undefined;
+
+    process.env.NODE_ENV = "production";
+    const prod = await get();
+    const csp = prod.headers.get("content-security-policy-report-only") ?? "";
+    expect(csp).toContain("default-src 'self'");
+    expect(csp).toContain("media-src 'self' blob: https://verses.quran.com https://audio.qurancdn.com");
+    expect(csp).toContain("report-uri /api/csp-report");
+    // Report-only: nothing is enforced yet.
+    expect(prod.headers.get("content-security-policy")).toBeNull();
   });
 
   it("sends HSTS behind an HTTPS proxy", async () => {

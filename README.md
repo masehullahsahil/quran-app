@@ -527,6 +527,8 @@ the reciter is never handed a filename the app will not look for.
   Google ID token's issuer, audience and expiry are checked.
 - **Spend controls:** configure the Redis rate-limit store and OpenAI project
   budgets before public traffic.
+- **Content-Security-Policy** runs in report-only mode; violations are logged
+  as `csp.violation`. The steps to enforce it are in the readiness doc.
 
 Details, and the remaining launch blockers, are in
 [`docs/production-readiness.md`](docs/production-readiness.md).
