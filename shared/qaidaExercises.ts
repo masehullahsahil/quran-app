@@ -79,6 +79,14 @@ export type QaidaArabicText = {
   source: QaidaTextSource;
   /** "1:1" style reference. Required when `source` is "quran". */
   reference?: string;
+  /**
+   * The course is written in the Indo-Pak script (shared/qaidaScript.ts).
+   * "uthmani" marks the one deliberate exception: the bridge lesson's
+   * Uthmani spellings, shown beside their Indo-Pak forms so a learner knows
+   * Study and Read will look different. Rendered in Amiri Quran, not the
+   * Qaida font.
+   */
+  script?: "uthmani";
 };
 
 /** A reference recording already present in the app's letter audio set. */
@@ -93,6 +101,8 @@ export type QaidaChoice = {
   label?: string;
   /** Arabic glyph, for choices answered by shape. */
   arabic?: string;
+  /** See QaidaArabicText.script. */
+  script?: "uthmani";
   correct: boolean;
 };
 
@@ -131,16 +141,22 @@ export function quranWord(arabic: string, gloss: string, reference: string): Qai
   return { arabic, gloss, source: "quran", reference };
 }
 
+/** Quranic text in the Uthmani script, for the bridge lesson only. */
+export function uthmaniWord(arabic: string, gloss: string, reference: string): QaidaArabicText {
+  return { arabic: arabic.normalize("NFC"), gloss, source: "quran", reference, script: "uthmani" };
+}
+
 /**
  * Builds the choice list. Lesson data is written correct-answer-first because
  * that is how it reads, so the answer must be moved before it reaches a learner
  * — see `placeChoices`, which every lesson's items are passed through.
  */
-export function choices(options: Array<{ label?: string; arabic?: string; correct?: boolean }>): QaidaChoice[] {
+export function choices(options: Array<{ label?: string; arabic?: string; script?: "uthmani"; correct?: boolean }>): QaidaChoice[] {
   return options.map((option, index) => ({
     id: `option-${index + 1}`,
     ...(option.label === undefined ? {} : { label: option.label }),
     ...(option.arabic === undefined ? {} : { arabic: option.arabic }),
+    ...(option.script === undefined ? {} : { script: option.script }),
     correct: option.correct === true,
   }));
 }

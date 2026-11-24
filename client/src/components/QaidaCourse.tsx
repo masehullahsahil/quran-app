@@ -34,6 +34,15 @@ import { useLocale } from "@/contexts/LocaleContext";
 import { localizedExercise, localizedLesson } from "@shared/qaidaText";
 import type { StringKey } from "@locales/index";
 
+/**
+ * The font class for a piece of course Arabic. The course is in the Indo-Pak
+ * script and renders in the bundled Indo-Pak Quran font; the bridge lesson's
+ * Uthmani spellings render in Amiri Quran, as Study and Read do.
+ */
+export function scriptClass(script: "uthmani" | undefined): string {
+  return script === "uthmani" ? "quran-uthmani" : "qaida-arabic";
+}
+
 const stageLabels: Record<QaidaLessonStage, StringKey> = {
   learn: "course.stageLearn",
   listen: "course.stageListen",
@@ -93,7 +102,7 @@ export function QaidaCourse({
       <div className="course-topline">
         <div>
           <span className="eyebrow">{t("course.eyebrow")}</span>
-          <h3>{t("course.levelLabel", { order: level?.order ?? 1, title: level?.title ?? "" })}{level?.arabicTitle ? <span className="course-level-arabic" lang="ar" dir="rtl">{level.arabicTitle}</span> : null}</h3>
+          <h3>{t("course.levelLabel", { order: level?.order ?? 1, title: level?.title ?? "" })}{level?.arabicTitle ? <span className="course-level-arabic qaida-arabic" lang="ar" dir="rtl">{level.arabicTitle}</span> : null}</h3>
           <p className="course-level-objective">{level?.objective}</p>
         </div>
         <span className="course-progress">
@@ -118,7 +127,7 @@ export function QaidaCourse({
             onClick={() => chip.target && goToLesson(chip.target)}
           >
             <span aria-hidden="true">{chip.isDone ? <Check size={12} /> : !chip.target ? <Lock size={12} /> : String(chip.level.order).padStart(2, "0")}</span>
-            {chip.isCurrent && <strong>{chip.level.title} <span className="course-level-arabic" lang="ar" dir="rtl">{chip.level.arabicTitle}</span></strong>}
+            {chip.isCurrent && <strong>{chip.level.title} <span className="course-level-arabic qaida-arabic" lang="ar" dir="rtl">{chip.level.arabicTitle}</span></strong>}
           </button>
         ))}
       </div>
@@ -145,7 +154,7 @@ export function QaidaCourse({
             <div className="course-examples" aria-label={t("course.examplesLabel")}>
               {lesson.examples.map((example, index) => (
                 <div key={`${example.arabic}-${index}`} className={`course-example is-${example.source}`}>
-                  <span lang="ar" dir="rtl">{example.arabic}</span>
+                  <span className={scriptClass(example.script)} lang="ar" dir="rtl">{example.arabic}</span>
                   <small>{example.gloss}</small>
                   <em>{example.source === "quran" ? t("course.quranBadge", { reference: example.reference ?? "" }) : t("course.teachingBadge")}</em>
                 </div>
@@ -169,7 +178,7 @@ export function QaidaCourse({
 
             {item.subject && (
               <div className={`course-subject is-${item.subject.source}`}>
-                <span lang="ar" dir="rtl">{item.subject.arabic}</span>
+                <span className={scriptClass(item.subject.script)} lang="ar" dir="rtl">{item.subject.arabic}</span>
                 <small>
                   {item.subject.source === "quran"
                     ? t("course.quranBadge", { reference: item.subject.reference ?? "" })
@@ -211,7 +220,7 @@ export function QaidaCourse({
                   const state = chosen ? (session.result === "correct" ? "is-correct" : "is-retry") : "";
                   return (
                     <button type="button" key={choice.id} className={`course-choice ${state}`} onClick={() => answer(choice.id)}>
-                      {choice.arabic && <span lang="ar" dir="rtl">{choice.arabic}</span>}
+                      {choice.arabic && <span className={scriptClass(choice.script)} lang="ar" dir="rtl">{choice.arabic}</span>}
                       {choice.label && <small>{choice.label}</small>}
                     </button>
                   );

@@ -1,6 +1,6 @@
 # The Qaida Curriculum
 
-Learn mode runs a twelve-level Qaida course that takes a beginner from recognising an isolated Arabic letter to reading short ayat and carrying them into recorded practice in Study mode. Twelve levels, 53 lessons, 295 practice items, following the order of a Noorani Qaida — see [Noorani-style depth](#noorani-style-depth).
+Learn mode runs a twelve-level Qaida course that takes a beginner from recognising an isolated Arabic letter to reading short ayat and carrying them into recorded practice in Study mode. Twelve levels, 54 lessons, 311 practice items, following the order of a Noorani Qaida — see [Noorani-style depth](#noorani-style-depth) — and written in the **Indo-Pak script** — see [Script](#script).
 
 The curriculum is **data**. Levels, lessons, prerequisites and practice items are declared in `shared/qaidaCurriculum.ts`; exercise shapes and the small builders live in `shared/qaidaExercises.ts`; `client/src/components/QaidaCourse.tsx` renders whatever those say. Adding or reordering a lesson is a data change, not a UI change.
 
@@ -31,7 +31,7 @@ The curriculum is **data**. Levels, lessons, prerequisites and practice items ar
 | 9 | Hamzah and written forms | 3 | Hamzat al-wasl is explained through ال, so the article comes first |
 | 10 | Introductory tajweed patterns | 3 | Recognition only, once every mark can be read |
 | 11 | Mushaf symbols | 3 | Stop marks, small signs, and how a word's ending is read when stopping (waqf) |
-| 12 | Guided Quran reading | 5 | Word → phrase → one ayah → several ayat → a whole short surah, recorded |
+| 12 | Guided Quran reading | 6 | Word → phrase → one ayah → several ayat → a whole short surah, recorded → the same words in the Indo-Pak and Uthmani scripts |
 
 Two orderings changed during the quality audit, both for pedagogical reasons and both asserted by tests:
 
@@ -51,7 +51,71 @@ A Noorani Qaida teaches each mark by running it across the whole alphabet, row a
 
 Two ordering rules changed with it, both as a Noorani Qaida teaches: Hamzah ء is taught as a letter in Level 1 (its seats on waw and ya still wait for Level 9), and the small (standing) alif is taught with the long vowels in Level 5 rather than in Level 9. The teaching combinations are drills built from consecutive letters (بَتَثَ, جِحِخِ), labelled as teaching text and never as Quran.
 
-**Script.** The course keeps its current spelling. Noorani Qaidas are traditionally printed in the South Asian (Indo-Pak) script; whether this course should switch is a decision for the teacher review, and the standing-harakat lesson names both conventions in the meantime.
+The tanween and long-vowel drills run each mark over the whole alphabet. (An earlier version picked two alphabet chunks per mark with a modulo, so the first and third mark drilled the same letters and each covered only half the alphabet; `shared/qaidaNoorani.test.ts` now checks every letter against each tanween and each long-vowel form separately.)
+
+## Script
+
+**The Qaida course is written in the Indo-Pak script**, the script a Noorani Qaida and the mushafs of South Asia are printed in, and rendered in an Indo-Pak Quran font. **Study and Read are unchanged: they show the Uthmani text from Quran.com in Amiri Quran.** No ayah text, surah name or Study/Read rendering was touched. The last lesson of the course, *Two scripts, one Quran* (`quran-two-scripts`, Level 12), shows the same words in both scripts so a learner knows the ayah they open in Study will look different from the Qaida.
+
+> Like the rest of the course, the conversion is **AI-drafted and needs a qualified teacher's review**, including the choice of conventions below.
+
+### References
+
+The mapping was taken from data, not memory: each codepoint was counted in two digital Indo-Pak mushaf texts, and every Quranic word the course quotes was looked up at its own surah:ayah in both.
+
+- **IP-A** — the Naskh Nastaleeq Indo-Pak text published by QuranWBW and shown on Quran.com (Madinah version 9.6), which its authors checked word by word against the King Fahd Complex's printed Nastaleeq mushaf. Source: the history of `github.com/marwan/indopak-quran-text` (commit `739f6e7`). Consulted only; not copied into this repository beyond the short quoted words.
+- **IP-B** — DigitalKhatt's 15-line Indo-Pak mushaf text (Tarteel), the text the bundled font was built to render: `github.com/DigitalKhatt/digitalkhatt.org`, `ClientApp/src/app/services/quran_text_indopak_15.ts` (commit `4213fab`).
+- **Uthmani** (for the bridge lesson only) — DigitalKhatt's Madinah mushaf text in the same repository, `quran_text_madina.ts`, normalised to NFC.
+
+**A printed Noorani Qaida could not be consulted directly** from the build environment (scans hosted on archive.org were unreachable). The mapping therefore follows the Indo-Pak *mushaf*, which is what a Noorani Qaida prepares a learner to read. Printed Qaidas typeset in Urdu fonts often show ک and ہ in their alphabet chart; the Indo-Pak mushaf encodings keep Arabic Kaf and Heh and draw them in the Indo-Pak shape. A teacher should confirm this choice against the Qaida they teach from.
+
+### Mapping
+
+`INDOPAK_MAPPING` in `shared/qaidaScript.ts` is the source of this table; `shared/qaidaScript.test.ts` enforces it.
+
+| Before | Indo-Pak course | Codepoints | What the references show |
+|---|---|---|---|
+| ي Yeh | ي Yeh (unchanged) | U+064A → U+064A | IP-B: 24,816× U+064A, 0× U+06CC. IP-A uses U+06CC instead (24,415×, 0× U+064A). The references disagree; the course follows IP-B because the bundled font has no U+06CC and renders U+064A in the Indo-Pak (dotless final) form. |
+| ى Alef Maksura at the end of a word | ي after a standing fatha (ـٰي) | U+0649 → U+0670 U+064A | IP-B: 1,441 words end ٰي against 34 ending ٰى; IP-A writes them ٰی. Both use U+0649 only as the dotless seat of a hamzah (ىِٕ), which the course does not show. |
+| ك Kaf | ك Kaf (unchanged) | U+0643 → U+0643 | IP-A 10,496×, IP-B 10,504× U+0643; Keheh U+06A9 0× in both. The Indo-Pak shape is the font's, not a different codepoint. |
+| ه Heh | ه Heh (unchanged) | U+0647 → U+0647 | IP-A 14,850×, IP-B 14,967× U+0647; Heh Goal U+06C1 and Heh Doachashmee U+06BE 0× in both. |
+| أ Alef with hamza above (word-initial) | ا carrying the vowel (اَ اُ) | U+0623 → U+0627 + U+064E/U+064F | IP-A 2× (both خَطَأً, not word-initial), IP-B 0×. e.g. اَحَدٌ (112:1), اَنْعَمْتَ (1:7). |
+| إ Alef with hamza below | ا carrying kasra (اِ) | U+0625 → U+0627 U+0650 | 0× in both. e.g. اِيَّاكَ (1:5), اِنَّ (103:2). |
+| ٱ Alef wasla | ا (bare when continuing; carries its vowel at the start of an ayah) | U+0671 → U+0627 | 0× in both. e.g. اَلْحَمْدُ (1:2, ayah start), اِهْدِنَا (1:6), الرَّحْمٰنِ (1:1). |
+| ة Teh marbuta | ة (unchanged) | U+0629 → U+0629 | IP-A 2,344×, IP-B 2,475×; U+06C3 0× in both. e.g. هُمَزَةٍ (104:1). |
+| fatha + small alif (ـَٰ) | standing fatha alone (ـٰ) | U+064E U+0670 → U+0670 | Both: ذٰلِكَ (2:2), الرَّحْمٰنِ (1:1), اللّٰهِ (1:1). U+0670 is the same codepoint in both scripts; Indo-Pak writes it without the fatha. |
+| madd waw / ya with no mark (ـُو ـِي) | madd waw / ya carrying sukoon (ـُوْ ـِيْ) | U+064F U+0648 / U+0650 U+064A → U+064F U+0648 U+0652 / U+0650 U+064A U+0652 | Both: الرَّحِيْمِ (1:1), الدِّيْنِ (1:4), نَسْتَعِيْنُ (1:5). Alif madd stays bare (بَا). |
+| ؤ ئ ء hamzah and its seats | unchanged | U+0624 U+0626 U+0621 → U+0624 U+0626 U+0621 | IP-A uses the precomposed forms (706×, 244×, 1,714×); IP-B writes ؤ ئ as a base letter + U+0654. The course keeps the precomposed forms, which the font renders and Unicode normalisation (NFC) produces. |
+| small alif ـٰ, standing kasra ـٖ, inverted damma ـٗ | unchanged | U+0670 U+0656 U+0657 → U+0670 U+0656 U+0657 | Used by both (U+0656 993×, U+0657 1,257× in each). |
+| sukoon, tanween, maddah | unchanged | U+0652 U+064B-U+064D U+0653 → U+0652 U+064B-U+064D U+0653 | Round sukoon U+0652 in both (the Uthmani U+06E1 form is not used for sukoon). |
+
+**Where the references disagreed with the assumptions in the brief.** The brief expected Arabic Yeh, Kaf, Heh and Alef Maksura to be replaced. Kaf and Heh are *not* replaced in either Indo-Pak reference. Yeh is replaced by Farsi Yeh in IP-A but not in IP-B; the course follows IP-B because the bundled font has no Farsi Yeh and draws Arabic Yeh dotless at the end of a word, as the Indo-Pak mushaf prints it. Alef Maksura at the end of a word is replaced (by ي after a standing fatha).
+
+**Quoted Quranic words** are not converted by rule. Each is copied from the references at its own surah:ayah (`INDOPAK_QURAN_WORDS`), and both references agreed on every one. Two differ from the old spelling in shape, not only in marks: 1:4 is مٰلِكِ (a standing fatha, not a full alif) and 1:2's الْعٰلَمِيْنَ likewise; at the start of an ayah the joining alif carries its vowel (اَلْحَمْدُ, اِهْدِنَا).
+
+**Lessons whose wording changed because of the script**, not only their Arabic: *Short against long* now uses صِرَاطَ (1:7) as its full-alif example, since مٰلِكِ has none in Indo-Pak; *Hamzah and its seats* teaches that a word-initial hamzah is a vowelled alif (اَ اِ اُ); *Hamzat al-wasl* teaches the bare and vowelled joining alif instead of the Uthmani ٱ; the alif-maqsura lesson teaches ـٰي (عَلٰي, 2:5); *Standing harakat* now says the course is Indo-Pak and Study/Read are Uthmani; the stop marks قلى and صلى are written قلي and صلي. Their translations were updated in all four language packs.
+
+**Rules the quality gates had to learn.** A sukoon on a madd waw or ya (بُوْ, بِيْ) is part of how Indo-Pak writes a long vowel and is taught with the long vowels, before sukoon has its own lesson; and the marks on the disjointed letters (الٓمّٓ, طٰهٰ) are not read as vowels, so that lesson is exempt from the "no mark before it is taught" check.
+
+### Font
+
+| | |
+|---|---|
+| Font | **DigitalKhatt IndoPak** (Version 0.1) by Amine Anane, © 2024-2025 Amine Anane and Tarteel Inc. |
+| Licence | **SIL Open Font License 1.1**, no Reserved Font Name; `client/public/fonts/qaida/OFL.txt` |
+| Based on | the 13-line "Quraan Al Majeed" Indo-Pak mushaf |
+| Where it comes from | upstream source `github.com/DigitalKhatt/indopakfont`; the compiled TTF from `github.com/DigitalKhatt/digitalkhatt.org` (`ClientApp/src/assets/fonts/coretext/DigitalKhattIndoPak.ttf`), repackaged as WOFF2 with no change to glyphs, tables or names — full provenance in `client/public/fonts/qaida/README.md` |
+| Served as | `/fonts/qaida/DigitalKhattIndoPak.woff2` (101 KB, same origin, so the CSP's `font-src 'self'` covers it) |
+| Used by | the `.qaida-arabic` class: course examples, subjects, options, level titles and drills (`QaidaCourse.tsx`), and the letter panel's alphabet grid, letter focus, harakat strip and quick check (`Home.tsx`) |
+| Not used by | Study and Read, which keep Amiri Quran; the bridge lesson's Uthmani spellings use `.quran-uthmani` (Amiri Quran) |
+
+The font maps 96 codepoints. `shared/qaidaScript.test.ts` reads its character map from the WOFF2 and fails if any Arabic in any lesson uses a codepoint it cannot draw. It was checked visually in Chromium on the converted rows, the disjointed letters, standing harakat and the bridge lesson. Its space is narrow, so `.qaida-arabic` adds word spacing to keep drill syllables apart.
+
+### What was left as it is
+
+- `shared/arabicLetters.ts` supplies the alphabet glyphs (unchanged: Yeh stays U+064A) and an `arabicName` per letter (أَلِف, جِيم …). `arabicName` is never shown in the Qaida: it is only the text handed to the speech generator for the synthesised placeholder clips (`scripts/generate-letter-audio.mjs`), which are not served. It was left unchanged so those committed clips still match their source text.
+- Level titles in Arabic (الحروف, ال التعريف …) are labels, not reading text; they render in the Qaida font, and أل التعريف became ال التعريف with the rest of the course.
+- `shared/qaidaExercises.ts` and `shared/qaidaText.ts` contain no Arabic text of their own (checked); `qaidaExercises.ts` gained the `script: "uthmani"` marker for the bridge lesson.
 
 ## Lesson shape
 
@@ -86,13 +150,13 @@ Two rules, both enforced by tests:
 - Every piece of Arabic is marked `source: "teaching"` or `source: "quran"`. A teaching combination (بَتَ, نَمْ) is built to practise a shape and is labelled as such in the UI; it is never presented as Quran.
 - Anything marked `quran` carries a `surah:ayah` reference and is at most two words. Whole ayat are never transcribed here: Level 12 uses reference-only items that open the ayah from the app's Quran data layer, where the text and the reciter's audio come from Quran.com.
 
-Quoted words use a simplified vowelled spelling (الصِّرَاطَ) rather than the Uthmani spelling the mushaf and the app's reader use (ٱلصِّرَٰطَ), because a beginner meets that spelling in a Qaida. The one exception is the small alif in الرَّحْمَٰنِ, which is shown in mushaf form because the lesson is about that mark. **A qualified teacher should confirm which convention this course ought to use.**
+Quoted words are in the Indo-Pak spelling of the references named under [Script](#script) (الصِّرَاطَ, الرَّحْمٰنِ, الرَّحِيْمِ), not the Uthmani spelling the app's reader uses; only the bridge lesson shows Uthmani, beside the Indo-Pak form. **A qualified teacher should confirm the conventions.**
 
 `pnpm verify:qaida` checks every quoted word against the ayah it names, fetching the ayah through the app's own Quran client and comparing with the aligner's normalisation. It needs network access to Quran.com; the offline checks live in `shared/qaidaQuality.test.ts`.
 
 ## Teacher review checklist
 
-The structured version of this checklist is the **[teacher audit](./qaida-teacher-audit.md)**: a review workspace at `/curriculum-audit` and a printable report (`pnpm audit:qaida`) that break the course into 1,051 reviewable items — every level, lesson, objective, example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each carrying its own review state and provenance. Use it to record decisions; the table below stays as the shape of the job.
+The structured version of this checklist is the **[teacher audit](./qaida-teacher-audit.md)**: a review workspace at `/curriculum-audit` and a printable report (`pnpm audit:qaida`) that break the course into 1,099 reviewable items — every level, lesson, objective, example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each carrying its own review state and provenance. Use it to record decisions; the table below stays as the shape of the job.
 
 Nothing in this list is verified by code. Each item needs a qualified Qari or Qaida teacher to sign off before this course is presented as finished teaching material.
 
@@ -118,7 +182,8 @@ Nothing in this list is verified by code. Each item needs a qualified Qari or Qa
 - **Recognition, not production.** A learner can pass every exercise by reading correctly on the page.
 - **Audio coverage follows the active source.** With the placeholder recording set there are no vowelled-form recordings, so `match-audio` items past Level 1 show the unavailable note.
 - **Mastery is per sitting.** Leaving a lesson part-way and returning restarts its practice; completed lessons are unaffected.
-- **No mushaf-accurate Uthmani rendering** in curriculum examples — see the note above.
+- **Indo-Pak, from digital references.** The script follows two digital Indo-Pak mushaf texts; no printed Noorani Qaida was consulted directly (see [Script](#script)).
+- **`pnpm verify:qaida` was not re-run** after the conversion: it fetches ayat from Quran.com, which the build environment cannot reach. It folds marks before comparing, so Indo-Pak spellings should still match their ayat; run it once with network access.
 - **Ayah-count checks cover only the surahs quoted** (1, 2, 19, 20, 26, 36, 38, 40, 50, 68, 103, 104, 106, 108, 112, 113, 114). Quoting another surah means adding it to that table.
 - **Still thin after Level 7.** The definite article, hamzah, tajweed-pattern and mushaf-symbol lessons have two or three items each. They lean on Quranic words, which need a teacher's eye, so they were not bulk-generated.
 - **Reading aloud is self-reported.** A read item is completed when the learner says they read it; the app does not listen in the Learn view.

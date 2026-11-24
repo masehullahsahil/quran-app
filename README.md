@@ -344,7 +344,7 @@ The Arabic text is the point of the app, so it is the last thing to be given up:
 
 ## Qaida curriculum teacher audit
 
-The twelve-level Qaida course was written by a software team and **has not been reviewed by a qualified Qari or Qaida teacher**. The review workspace at `/curriculum-audit` breaks it into 1,051 items — every level, lesson, objective, Arabic example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each starting as *AI-drafted, pending review*, and lets a named reviewer record corrections, clarifications and approvals, then export the result as a file.
+The twelve-level Qaida course was written by a software team and **has not been reviewed by a qualified Qari or Qaida teacher**. The review workspace at `/curriculum-audit` breaks it into 1,099 items — every level, lesson, objective, Arabic example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each starting as *AI-drafted, pending review*, and lets a named reviewer record corrections, clarifications and approvals, then export the result as a file.
 
 Nothing in this repository can approve that content: a passing test suite says the curriculum data is well formed, not that the teaching is right. See [docs/qaida-teacher-audit.md](./docs/qaida-teacher-audit.md) for how a teacher performs and records the audit, and `pnpm audit:qaida` for the same inventory on paper.
 

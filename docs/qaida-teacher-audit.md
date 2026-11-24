@@ -11,24 +11,24 @@ This document explains how that review is carried out and recorded. It describes
 | | Count |
 |---|---|
 | Levels | 12 |
-| Lessons | 53 |
-| Practice items | 295 |
-| **Review items in the inventory** | **1,051** |
+| Lessons | 54 |
+| Practice items | 311 |
+| **Review items in the inventory** | **1,099** |
 
-The 1,051 items are the whole course broken into the smallest things a teacher can accept or reject one at a time:
+The 1,099 items are the whole course broken into the smallest things a teacher can accept or reject one at a time:
 
 | Item kind | Items | What it is |
 |---|---|---|
 | `level` | 12 | A level's title and objective |
-| `prerequisite` | 64 | A lesson's dependency on an earlier one, plus each level's placement |
-| `lesson-objective` | 53 | What a lesson claims the learner will be able to do |
-| `lesson-teaching` | 47 | The explanation shown before practice |
+| `prerequisite` | 65 | A lesson's dependency on an earlier one, plus each level's placement |
+| `lesson-objective` | 54 | What a lesson claims the learner will be able to do |
+| `lesson-teaching` | 48 | The explanation shown before practice |
 | `tajweed-explanation` | 6 | The same, for the lessons that name a rule of recitation |
-| `arabic-example` | 110 | A teaching combination shown on screen |
-| `quran-reference` | 45 | A quoted Quranic word, or an ayah the course opens |
-| `exercise-prompt` | 295 | A practice question as the learner reads it |
-| `expected-answer` | 295 | What the course counts as the correct answer |
-| `mastery-rule` | 53 | The counting rule that completes a lesson |
+| `arabic-example` | 109 | A teaching combination shown on screen |
+| `quran-reference` | 58 | A quoted Quranic word, or an ayah the course opens |
+| `exercise-prompt` | 311 | A practice question as the learner reads it |
+| `expected-answer` | 311 | What the course counts as the correct answer |
+| `mastery-rule` | 54 | The counting rule that completes a lesson |
 | `boundary-note` | 15 | A statement of what the app does not judge |
 | `articulation-note` | 56 | The written articulation note and practice cue for each of the 28 letters |
 
@@ -62,7 +62,7 @@ And separately, the provenance the interface must show:
 
 | Provenance | Meaning |
 |---|---|
-| `AI-drafted` | Written by the team with model assistance. **Where all 1,051 items stand today.** |
+| `AI-drafted` | Written by the team with model assistance. **Where all 1,099 items stand today.** |
 | `Teacher-reviewed` | A qualified reviewer has recorded a comment on it. |
 | `Teacher-approved` | A qualified reviewer has approved it, in their name, with their attestation. |
 
@@ -152,6 +152,6 @@ Two deliberate scope decisions:
 
 ## The sentence that matters
 
-> No part of this curriculum has been approved by a qualified teacher. 1,051 items are drafted and awaiting review.
+> No part of this curriculum has been approved by a qualified teacher. 1,099 items are drafted and awaiting review.
 
 That line is computed from the ledger — by `approvalStatement` in `shared/curriculumAudit.ts` — and printed at the top of the workspace and of every report. It changes only when a qualified teacher records approvals, item by item, in their own name.

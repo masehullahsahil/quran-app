@@ -157,7 +157,11 @@ describe("difficulty progression", () => {
     // هُوَ has a damma then a *vowelled* waw, which is an ordinary consonant,
     // and إِيَّاكَ has a doubled ya, not a madd.
     { name: "long vowels", level: 5, test: (t) => /َا|ُو(?![َُِّْ])|ِي(?![َُِّْ])/.test(t) },
-    { name: "sukoon", level: 6, test: (t) => /ْ/.test(t) },
+    // In the Indo-Pak script a madd waw or ya carries a sukoon (بُوْ, بِيْ):
+    // that sukoon is part of how a long vowel is written, taught with the
+    // long vowels, as a Noorani Qaida prints it. Only a sukoon anywhere else
+    // is the sukoon of the sukoon level.
+    { name: "sukoon", level: 6, test: (t) => /(?<!\u064F\u0648|\u0650\u064A)\u0652/.test(t) },
     { name: "shaddah", level: 7, test: (t) => /ّ/.test(t) },
     // الٓمٓ opens a surah with the letters Alif, Laam, Meem, each carrying the
     // madd sign; it is not the definite article.
@@ -172,6 +176,10 @@ describe("difficulty progression", () => {
   it("shows no mark before the level that teaches it", () => {
     const violations: string[] = [];
     for (const lesson of QAIDA_LESSONS) {
+      // The disjointed letters (الٓمّٓ, طٰهٰ) are read by the letters' names; the
+      // marks the mushaf prints on them are not read as vowels at this stage,
+      // so they are not "using" those marks before they are taught.
+      if (lesson.id === "forms-muqattaat") continue;
       for (const { where, text } of arabicOf(lesson)) {
         for (const feature of FEATURES) {
           if (feature.test(text) && feature.level > orderOf(lesson)) {
@@ -320,10 +328,11 @@ describe("the tajweed and mushaf levels stay inside what the app can see", () =>
 describe("the last level graduates into Study mode", () => {
   const lessons = lessonsForLevel("quran-reading");
 
-  it("goes word, then phrase, then one ayah, then several", () => {
-    const [words, phrases, firstAyah, shortAyat, surah] = lessons;
+  it("goes word, then phrase, then one ayah, then several, then the two scripts", () => {
+    const [words, phrases, firstAyah, shortAyat, surah, bridge] = lessons;
 
-    expect(lessons).toHaveLength(5);
+    expect(lessons).toHaveLength(6);
+    expect(bridge.id).toBe("quran-two-scripts");
     for (const item of words.practice) {
       expect(item.type, item.id).toBe("read-word");
       expect(item.subject?.arabic.split(/\s+/).filter(Boolean), item.id).toHaveLength(1);
@@ -338,7 +347,7 @@ describe("the last level graduates into Study mode", () => {
   });
 
   it("finishes the surah it started rather than jumping between surahs", () => {
-    const surahLesson = lessons[lessons.length - 1];
+    const surahLesson = lessons.find((lesson) => lesson.id === "quran-short-surah")!;
     const surahs = new Set(surahLesson.practice.map((item) => item.quran?.surah));
 
     expect(surahs.size).toBe(1);
