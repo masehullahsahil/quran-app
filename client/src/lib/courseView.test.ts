@@ -216,8 +216,16 @@ describe("which letter a lesson teaches", () => {
   it("focuses the first letter every letters lesson shows", () => {
     for (const lesson of lessonsForLevel("letters")) {
       const index = firstLetterIndexForLesson(lesson.id);
+      const firstGlyph = lesson.examples[0].arabic.split(" ")[0];
+      // Hamzah (ء) and Laam-Alif (لا) are taught in Level 1 but have no tile in
+      // the 28-letter reference, so their lesson focuses nothing rather than
+      // the wrong letter.
+      if (!QAIDA_LETTERS.some((letter) => letter.glyph === firstGlyph)) {
+        expect(index, lesson.id).toBeNull();
+        continue;
+      }
       expect(index, lesson.id).not.toBeNull();
-      expect(QAIDA_LETTERS[index!].glyph, lesson.id).toBe(lesson.examples[0].arabic.split(" ")[0]);
+      expect(QAIDA_LETTERS[index!].glyph, lesson.id).toBe(firstGlyph);
     }
   });
 

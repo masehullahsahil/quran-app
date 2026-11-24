@@ -52,7 +52,7 @@ import {
 } from "@shared/curriculumAudit";
 import { CURRICULUM_AUDIT_INVENTORY } from "@shared/curriculumAuditInventory";
 import { findingsForItem } from "@shared/curriculumAuditFindings";
-import { QAIDA_LEVELS, getQaidaLesson, lessonOrder } from "@shared/qaidaCurriculum";
+import { QAIDA_LESSONS, QAIDA_LEVELS, getQaidaLesson, lessonOrder } from "@shared/qaidaCurriculum";
 import {
   appendRecord,
   mergeLedgers,
@@ -361,7 +361,7 @@ export default function CurriculumAudit() {
               <header className="audit-lesson-head">
                 <div>
                   <p className="audit-eyebrow">
-                    Lesson {lessonOrder(lessonId)} of 42 · {lessonId}
+                    Lesson {lessonOrder(lessonId)} of {QAIDA_LESSONS.length} · {lessonId}
                   </p>
                   <h3>{lesson?.title ?? lessonId}</h3>
                 </div>

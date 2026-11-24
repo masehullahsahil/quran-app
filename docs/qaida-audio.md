@@ -20,37 +20,37 @@ Qaida reference audio coverage
 
                                    targets  recorded  reviewed  approved  missing
 --------------------------------------------------------------------------------
-ALL                                  182         0         0         0      182
-  instructional (record for us)      162         0         0         0      162
-  Quran words (Quran audio only)      20         0         0         0       20
+ALL                                  335         0         0         0      335
+  instructional (record for us)      303         0         0         0      303
+  Quran words (Quran audio only)      32         0         0         0       32
 
 By level
-  1. Arabic letters                   39         0         0         0       39
-  2. Letter forms and joining          8         0         0         0        8
-  3. Short vowels                     89         0         0         0       89
-  4. Tanween                           6         0         0         0        6
-  5. Long vowels                       5         0         0         0        5
-  6. Sukoon                            5         0         0         0        5
-  7. Shaddah                           6         0         0         0        6
+  1. Arabic letters                   44         0         0         0       44
+  2. Letter forms and joining         33         0         0         0       33
+  3. Short vowels                    109         0         0         0      109
+  4. Tanween                          31         0         0         0       31
+  5. Long vowels                      37         0         0         0       37
+  6. Sukoon                           28         0         0         0       28
+  7. Shaddah                          28         0         0         0       28
   8. The definite article              5         0         0         0        5
   9. Hamzah and written forms          6         0         0         0        6
   10. Introductory tajweed patterns     5         0         0         0        5
-  11. Mushaf symbols                   4         0         0         0        4
+  11. Mushaf symbols                   5         0         0         0        5
   12. Guided Quran reading             4         0         0         0        4
 
 By category
   hamzah                               4         0         0         0        4
-  joined-form                          8         0         0         0        8
-  letter                              39         0         0         0       39
+  joined-form                         24         0         0         0       24
+  letter                              44         0         0         0       44
   letter-harakat                      84         0         0         0       84
-  long-vowel                           4         0         0         0        4
+  long-vowel                          35         0         0         0       35
   mushaf-symbol                        4         0         0         0        4
-  quran-word                          20         0         0         0       20
-  shaddah                              3         0         0         0        3
-  short-vowel                          4         0         0         0        4
-  sukoon                               3         0         0         0        3
+  quran-word                          32         0         0         0       32
+  shaddah                             25         0         0         0       25
+  short-vowel                         24         0         0         0       24
+  sukoon                              25         0         0         0       25
   tajweed-pattern                      4         0         0         0        4
-  tanween                              5         0         0         0        5
+  tanween                             30         0         0         0       30
 ```
 
 Regenerate with `npx tsx scripts/qaida-audio-report.ts`. The report is
@@ -88,7 +88,7 @@ This is the one remaining placeholder path, and it is a dead end by design.
 
 ## 3. What needs recording
 
-182 unique targets, derived from the curriculum by `shared/qaidaAudioTargets.ts`
+335 unique targets, derived from the curriculum by `shared/qaidaAudioTargets.ts`
 — never hand-listed, so a lesson added tomorrow appears in the list. Targets are
 deduplicated by their exact Arabic: one recording of `بَ` serves every lesson
 that shows it.
