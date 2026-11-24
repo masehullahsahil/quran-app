@@ -85,6 +85,13 @@ export function createApp(): Express {
   app.use(requestIdMiddleware);
   app.use(securityHeadersMiddleware);
 
+  // Collects Content-Security-Policy reports (the policy is report-only).
+  // Registered before the global body parsers on purpose: Express never
+  // re-parses a body, so if the 3 MB parser below ran first it would consume
+  // application/json reports and the endpoint's own 16 KB limit would never
+  // apply. After requestIdMiddleware so violation logs keep their request ID.
+  registerCspReportEndpoint(app);
+
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
   app.use(express.urlencoded({ limit: JSON_BODY_LIMIT, extended: true }));
 
@@ -96,9 +103,6 @@ export function createApp(): Express {
   // Registered only when QURAN_VALIDATION_STAFF_API=1; otherwise the routes
   // do not exist. Never enable on Vercel serverless (process-local registry).
   registerStaffValidationEndpoints(app);
-
-  // Collects Content-Security-Policy reports (the policy is report-only).
-  registerCspReportEndpoint(app);
 
   registerStorageProxy(app);
   registerOAuthRoutes(app);

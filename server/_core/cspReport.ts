@@ -36,6 +36,15 @@ type Raw = Record<string, unknown>;
 
 const str = (value: unknown): string => (typeof value === "string" ? value : "");
 
+/**
+ * Longest directive kept. Real directive names ("script-src-elem",
+ * "frame-ancestors") are well under this; the field is caller-controlled, so
+ * it is capped at parse time and never reaches the log unbounded.
+ */
+export const MAX_DIRECTIVE_LENGTH = 40;
+
+const capDirective = (value: string): string => value.slice(0, MAX_DIRECTIVE_LENGTH);
+
 /** Reduce a URL (or CSP keyword) to something safe to log. */
 export function safeResource(value: string): string {
   if (!value) return "unknown";
@@ -60,7 +69,7 @@ function safePath(value: string): string {
 
 function fromLegacy(report: Raw): CspViolation {
   return {
-    directive: str(report["effective-directive"]) || str(report["violated-directive"]).split(" ")[0] || "unknown",
+    directive: capDirective(str(report["effective-directive"]) || str(report["violated-directive"]).split(" ")[0]) || "unknown",
     blocked: safeResource(str(report["blocked-uri"])),
     documentPath: safePath(str(report["document-uri"])),
     disposition: str(report.disposition) || "report",
@@ -69,7 +78,7 @@ function fromLegacy(report: Raw): CspViolation {
 
 function fromReportingApi(body: Raw): CspViolation {
   return {
-    directive: str(body.effectiveDirective) || "unknown",
+    directive: capDirective(str(body.effectiveDirective)) || "unknown",
     blocked: safeResource(str(body.blockedURL)),
     documentPath: safePath(str(body.documentURL)),
     disposition: str(body.disposition) || "report",
