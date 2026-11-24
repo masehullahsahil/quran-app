@@ -102,7 +102,10 @@ describe("Quran references", () => {
    * ayah is checked by scripts/verify-qaida-quran.ts against the app's own
    * Quran data, and finally by a qualified teacher.
    */
-  const AYAH_COUNTS: Record<number, number> = { 1: 7, 103: 3, 108: 3, 112: 4, 113: 5, 114: 6 };
+  const AYAH_COUNTS: Record<number, number> = {
+    1: 7, 2: 286, 19: 98, 20: 135, 26: 227, 36: 83, 38: 88, 40: 85, 50: 45, 68: 52,
+    103: 3, 104: 9, 106: 4, 108: 3, 112: 4, 113: 5, 114: 6,
+  };
 
   it("resolves every reference to a real surah and ayah", () => {
     for (const { where, text } of everyQuranText()) {
@@ -143,6 +146,9 @@ describe("difficulty progression", () => {
    *
    * Hamzah written on an alif (أ إ) is exempt: it reads as a plain vowelled
    * alif, and every Qaida uses such words long before hamzah seats are named.
+   * Hamzah on its own (ء) is a letter, taught with the alphabet as a Noorani
+   * Qaida does; only its seats on waw and ya, and the joining alif, wait for
+   * the hamzah level.
    */
   const FEATURES: Array<{ name: string; level: number; test: (text: string) => boolean }> = [
     { name: "short vowels", level: 3, test: (t) => /[َُِ]/.test(t) },
@@ -153,9 +159,14 @@ describe("difficulty progression", () => {
     { name: "long vowels", level: 5, test: (t) => /َا|ُو(?![َُِّْ])|ِي(?![َُِّْ])/.test(t) },
     { name: "sukoon", level: 6, test: (t) => /ْ/.test(t) },
     { name: "shaddah", level: 7, test: (t) => /ّ/.test(t) },
-    { name: "definite article", level: 8, test: (t) => t.split(/\s+/).some((word) => /^ال/.test(word)) },
-    { name: "hamzah seats", level: 9, test: (t) => /[ءؤئٱ]/.test(t) },
-    { name: "small alif", level: 9, test: (t) => /ٰ/.test(t) },
+    // الٓمٓ opens a surah with the letters Alif, Laam, Meem, each carrying the
+    // madd sign; it is not the definite article.
+    { name: "definite article", level: 8, test: (t) => t.split(/\s+/).some((word) => /^ال(?!ٓ)/.test(word)) },
+    { name: "hamzah letter", level: 1, test: (t) => /ء/.test(t) },
+    { name: "hamzah seats", level: 9, test: (t) => /[ؤئٱ]/.test(t) },
+    // The small (standing) alif is taught with the long vowels, as standing
+    // fatha, the way a Noorani Qaida teaches it.
+    { name: "small alif", level: 5, test: (t) => /ٰ/.test(t) },
   ];
 
   it("shows no mark before the level that teaches it", () => {

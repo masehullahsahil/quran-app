@@ -32,6 +32,19 @@ import {
   type QaidaExercise,
   type QaidaExerciseType,
 } from "./qaidaExercises";
+import {
+  harakatExerciseDrills,
+  joinedLetterDrills,
+  leenDrills,
+  maddDrills,
+  maddExerciseDrills,
+  shaddahCombinationDrills,
+  shaddahDrills,
+  shortVowelDrills,
+  sukoonDrills,
+  tanweenDrills,
+  tanweenExerciseDrills,
+} from "./qaidaDrills";
 
 export const QAIDA_LEVEL_IDS = [
   "letters",
@@ -125,7 +138,13 @@ export type QaidaLesson = {
   boundary?: string;
 };
 
-type LessonSeed = Omit<QaidaLesson, "next" | "mastery" | "examples"> & {
+/**
+ * A lesson as written. `next` and `prerequisites` are not written by hand: the
+ * course is one sequence, so each lesson's prerequisite is the lesson before it
+ * and `next` is the one after, both derived from course order below. Inserting
+ * a lesson therefore cannot leave a dangling or skipped prerequisite.
+ */
+type LessonSeed = Omit<QaidaLesson, "next" | "mastery" | "examples" | "prerequisites"> & {
   mastery?: Partial<QaidaMastery>;
   examples?: QaidaLesson["examples"];
 };
@@ -313,7 +332,6 @@ const letterLessons: LessonSeed[] = LETTER_GROUPS.map((group, index) => ({
   examples: group.letters.map((letter) => teaching(letter.glyph, letter.name)),
   stages: ["learn", "listen", "recognize", "check", "complete"],
   practice: [...group.letters.map(identifyLetterExercise), matchAudioExercise(group.letters[0])],
-  prerequisites: index === 0 ? [] : [`letters-${LETTER_GROUPS[index - 1].id}`],
 }));
 
 /**
@@ -406,7 +424,6 @@ const similarLettersLesson: LessonSeed = {
   examples: SIMILAR_DOTS.map((group) => teaching(group.letters.map((letter) => letter.glyph).join(" "), group.letters.map((letter) => letter.name).join(", "))),
   stages: ["learn", "recognize", "check", "complete"],
   practice: SIMILAR_DOTS.map(similarGroupExercise),
-  prerequisites: [`letters-${LETTER_GROUPS[LETTER_GROUPS.length - 1].id}`],
 };
 
 const similarShapesLesson: LessonSeed = {
@@ -418,7 +435,6 @@ const similarShapesLesson: LessonSeed = {
   examples: SIMILAR_SHAPES.map((group) => teaching(group.letters.map((letter) => letter.glyph).join(" "), group.letters.map((letter) => letter.name).join(" and "))),
   stages: ["learn", "recognize", "check", "complete"],
   practice: SIMILAR_SHAPES.map(similarGroupExercise),
-  prerequisites: ["letters-similar"],
   boundary: "This is telling shapes apart on the page. Which part of the mouth each letter is made from — its makhraj — has to be heard from a qualified teacher; a written exercise cannot show it and the app does not judge it.",
 };
 
@@ -455,7 +471,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "ـم", correct: true }, { arabic: "مـ" }, { arabic: "ـمـ" }]),
       },
     ],
-    prerequisites: ["letters-similar-shapes"],
   },
   {
     id: "forms-non-connectors",
@@ -479,7 +494,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "ن", label: "Noon", correct: true }, { arabic: "ر", label: "Raa" }, { arabic: "و", label: "Waaw" }]),
       },
     ],
-    prerequisites: ["forms-four-positions"],
   },
   {
     id: "forms-joining-practice",
@@ -511,7 +525,6 @@ const laterLessons: LessonSeed[] = [
         subject: teaching("بتث", "Baa, Taa, Thaa joined"),
       },
     ],
-    prerequisites: ["forms-non-connectors"],
   },
 
   {
@@ -538,7 +551,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Fatha", correct: true }, { label: "Kasra" }, { label: "Damma" }]),
       },
     ],
-    prerequisites: ["forms-joining-practice"],
   },
   {
     id: "harakat-kasra",
@@ -564,7 +576,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Below the letter", correct: true }, { label: "Above the letter" }, { label: "Inside the letter" }]),
       },
     ],
-    prerequisites: ["harakat-fatha"],
   },
   {
     id: "harakat-damma",
@@ -589,7 +600,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "نُ", correct: true }, { arabic: "نِ" }, { arabic: "نَ" }]),
       },
     ],
-    prerequisites: ["harakat-kasra"],
   },
   {
     id: "harakat-combinations",
@@ -621,7 +631,6 @@ const laterLessons: LessonSeed[] = [
         subject: teaching("بَتَثَ", "ba-ta-tha"),
       },
     ],
-    prerequisites: ["harakat-damma"],
   },
 
   {
@@ -647,7 +656,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Kasratayn", correct: true }, { label: "Fathatayn" }, { label: "Dammatayn" }]),
       },
     ],
-    prerequisites: ["harakat-combinations"],
   },
   {
     id: "tanween-reading",
@@ -672,7 +680,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Dammatayn", correct: true }, { label: "Kasratayn" }, { label: "Fathatayn" }]),
       },
     ],
-    prerequisites: ["tanween-three-marks"],
   },
 
   {
@@ -697,7 +704,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "نُو", correct: true }, { arabic: "نِي" }, { arabic: "نَا" }]),
       },
     ],
-    prerequisites: ["tanween-reading"],
     boundary: "This lesson is about noticing a long vowel on the page. How long to hold it, and how it sounds, is for a qualified teacher and the reciter\u2019s recording; the app does not measure it.",
   },
   {
@@ -722,7 +728,6 @@ const laterLessons: LessonSeed[] = [
         subject: quranWord("مَالِكِ", "malik — from Surah al-Fatiha", "1:4"),
       },
     ],
-    prerequisites: ["madd-long-vowels"],
     boundary: "The app checks that you can tell the two apart on the page. Whether you held the long one for the right count is for a qualified teacher; the app does not measure it.",
   },
   {
@@ -749,7 +754,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "nam", correct: true }, { label: "na-ma" }, { label: "nim" }]),
       },
     ],
-    prerequisites: ["madd-short-vs-long"],
   },
   {
     id: "sukoon-quran-words",
@@ -780,7 +784,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "لْ", label: "Laam", correct: true }, { arabic: "قُ", label: "Qaaf" }, { arabic: "ق", label: "Qaaf, with no mark" }]),
       },
     ],
-    prerequisites: ["sukoon-basics"],
   },
 
   {
@@ -806,7 +809,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "بِّ", correct: true }, { arabic: "بَّ" }, { arabic: "بُّ" }]),
       },
     ],
-    prerequisites: ["sukoon-quran-words"],
   },
   {
     id: "shaddah-quran-words",
@@ -830,7 +832,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ arabic: "إِيَّاكَ", label: "iyyaka", correct: true }, { arabic: "قُلْ", label: "qul" }, { arabic: "أَحَدٌ", label: "ahadun" }]),
       },
     ],
-    prerequisites: ["shaddah-basics"],
   },
 
   {
@@ -857,7 +858,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Saad is a sun letter, so the Laam merges into it", correct: true }, { label: "The word is emphasised" }, { label: "The Saad is lengthened" }]),
       },
     ],
-    prerequisites: ["shaddah-quran-words"],
   },
   {
     id: "lam-reading-practice",
@@ -881,7 +881,6 @@ const laterLessons: LessonSeed[] = [
         subject: quranWord("الْعَالَمِينَ", "al-'alamin — from Surah al-Fatiha", "1:2"),
       },
     ],
-    prerequisites: ["lam-sun-moon"],
   },
 
   {
@@ -906,7 +905,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Yaa", correct: true }, { label: "Waaw" }, { label: "Alif" }]),
       },
     ],
-    prerequisites: ["lam-reading-practice"],
   },
   {
     id: "hamzah-wasl",
@@ -930,7 +928,6 @@ const laterLessons: LessonSeed[] = [
         subject: quranWord("اهْدِنَا", "ihdina — from Surah al-Fatiha", "1:6"),
       },
     ],
-    prerequisites: ["hamzah-seats"],
   },
   {
     id: "hamzah-orthography",
@@ -961,7 +958,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "As 'h'", correct: true }, { label: "As 't'" }, { label: "It is silent" }]),
       },
     ],
-    prerequisites: ["hamzah-wasl"],
   },
 
   {
@@ -991,7 +987,6 @@ const laterLessons: LessonSeed[] = [
         note: "Listen to the reciter's recording for how the echo sounds. This exercise only asks you to spot the letter.",
       },
     ],
-    prerequisites: ["hamzah-orthography"],
     boundary: "Recognising a qalqalah letter is a reading skill. Whether your qalqalah was produced correctly is for a qualified teacher; the app does not judge it from a transcript.",
   },
   {
@@ -1025,7 +1020,6 @@ const laterLessons: LessonSeed[] = [
         note: "Which of the four cases applies, and how each one sounds, is learned with a teacher and by listening to the reciter.",
       },
     ],
-    prerequisites: ["tajweed-qalqalah"],
     boundary: "These are names for what is written. The app does not assess whether your ikhfa, idgham or ghunnah was produced correctly — only a qualified teacher, or a specialist acoustic evaluation, can speak to that.",
   },
   {
@@ -1054,7 +1048,6 @@ const laterLessons: LessonSeed[] = [
         ]),
       },
     ],
-    prerequisites: ["tajweed-noon-sakinah"],
     boundary: "This is recognition on the page. How long a ghunnah is held, and how it should sound, comes from a qualified teacher and from listening to the reciter; the app does not measure it.",
   },
 
@@ -1089,7 +1082,6 @@ const laterLessons: LessonSeed[] = [
         choices: choices([{ label: "Stopping is preferred, though continuing is allowed", correct: true }, { label: "Never stop here" }, { label: "The ayah ends here" }]),
       },
     ],
-    prerequisites: ["tajweed-meem-ghunnah"],
     boundary: "These marks tell you where a stop is allowed or preferred. Where to stop for meaning, and how to begin again afterwards, is guided by a qualified teacher; the app does not check where you stopped.",
   },
   {
@@ -1120,7 +1112,6 @@ const laterLessons: LessonSeed[] = [
         note: "How much longer is settled by the way you were taught to recite, with a qualified teacher. The sign only tells you that it is longer.",
       },
     ],
-    prerequisites: ["symbols-stop-marks"],
     boundary: "Recognising a sign is a reading skill. How long a madd is held is settled with a qualified teacher; the app does not measure it.",
   },
 
@@ -1146,7 +1137,6 @@ const laterLessons: LessonSeed[] = [
         subject: quranWord("الرَّحِيمِ", "ar-rahim — from Surah al-Fatiha", "1:1"),
       },
     ],
-    prerequisites: ["symbols-small-marks"],
   },
   {
     id: "quran-phrases",
@@ -1170,7 +1160,6 @@ const laterLessons: LessonSeed[] = [
         subject: quranWord("الْحَمْدُ لِلَّهِ", "al-hamdu lillah — from Surah al-Fatiha", "1:2"),
       },
     ],
-    prerequisites: ["quran-words"],
   },
   {
     id: "quran-first-ayah",
@@ -1188,7 +1177,6 @@ const laterLessons: LessonSeed[] = [
         quran: { surah: 1, ayah: 1, label: "Al-Fatiha 1:1" },
       },
     ],
-    prerequisites: ["quran-phrases"],
   },
   {
     id: "quran-short-ayat",
@@ -1218,7 +1206,6 @@ const laterLessons: LessonSeed[] = [
         quran: { surah: 1, ayah: 2, label: "Al-Fatiha 1:2" },
       },
     ],
-    prerequisites: ["quran-first-ayah"],
   },
   {
     id: "quran-short-surah",
@@ -1248,12 +1235,319 @@ const laterLessons: LessonSeed[] = [
         quran: { surah: 112, ayah: 4, label: "Al-Ikhlas 112:4" },
       },
     ],
-    prerequisites: ["quran-short-ayat"],
     boundary: "The recorded review compares transcribed words with the ayah. It does not assess tajwid, makhraj, madd duration or ghunnah.",
   },
 ];
 
-const LESSON_SEEDS: LessonSeed[] = [...letterLessons, similarLettersLesson, similarShapesLesson, ...laterLessons];
+// ---------------------------------------------------------------------------
+// Lessons a Noorani-style Qaida teaches that the course did not have.
+//
+// Each is inserted into the level it belongs to (see NOORANI_INSERTIONS). Like
+// the rest of the course they are AI-drafted and need a qualified teacher's
+// review before being presented as finished teaching material.
+// ---------------------------------------------------------------------------
+
+const hamzahLamAlifLesson: LessonSeed = {
+  id: "letters-hamzah-lam-alif",
+  level: "letters",
+  title: "Hamzah and Laam-Alif",
+  objective: "Recognise Hamzah as a letter of its own, and Laam-Alif as Laam joined to Alif.",
+  teaching: "A Noorani Qaida counts 29 letters: the 28 you have met and Hamzah ء, a letter of its own that is often written sitting on another letter (you meet those seats later). Laam-Alif لا is not a new letter. It is Laam joined to Alif, written in one special shape that you will see constantly in the Quran.",
+  examples: [teaching("ء", "Hamzah"), teaching("لا", "Laam joined to Alif")],
+  stages: ["learn", "recognize", "check", "complete"],
+  practice: [
+    {
+      id: "letters-pick-hamzah",
+      type: "distinguish-similar",
+      prompt: "Which of these is Hamzah?",
+      choices: choices([{ arabic: "ء", label: "Hamzah", correct: true }, { arabic: "ع", label: "Ayn" }, { arabic: "ا", label: "Alif" }]),
+    },
+    {
+      id: "letters-name-hamzah",
+      type: "identify-symbol",
+      prompt: "Which letter is this?",
+      subject: teaching("ء", "Hamzah"),
+      choices: choices([{ label: "Hamzah", correct: true }, { label: "Ayn" }, { label: "Alif" }]),
+    },
+    {
+      id: "letters-pick-lam-alif",
+      type: "distinguish-similar",
+      prompt: "Which of these is Laam-Alif?",
+      choices: choices([{ arabic: "لا", label: "Laam-Alif", correct: true }, { arabic: "لم", label: "Laam, Meem" }, { arabic: "كا", label: "Kaaf, Alif" }]),
+    },
+    {
+      id: "letters-build-lam-alif",
+      type: "build-combination",
+      prompt: "Which two letters make this combination?",
+      subject: teaching("لا", "Laam then Alif"),
+      choices: choices([{ label: "Laam + Alif", correct: true }, { label: "Alif + Laam" }, { label: "Kaaf + Alif" }]),
+    },
+  ],
+};
+
+const heavyLettersLesson: LessonSeed = {
+  id: "letters-heavy",
+  level: "letters",
+  title: "The seven heavy letters",
+  objective: "Tell the seven heavy letters apart from the light ones on the page.",
+  teaching: "Seven letters are always read heavy, with a full mouth: خ ص ض غ ط ق ظ, remembered by the phrase khuṣṣa ḍaghṭin qiẓ. Every other letter is light. Many of them have a light partner you have already met — ص and س, ط and ت, ق and ك. This lesson is spotting the heavy ones on the page.",
+  examples: [teaching("خ ص ض غ ط ق ظ", "the seven heavy letters"), teaching("ص س", "heavy Saad, light Seen"), teaching("ط ت", "heavy Taa, light Taa")],
+  stages: ["learn", "recognize", "check", "complete"],
+  practice: ([
+    ["sad", "ص", "Saad", "س", "Seen", "ث", "Thaa"],
+    ["tta", "ط", "Taa (heavy)", "ت", "Taa (light)", "د", "Daal"],
+    ["qaf", "ق", "Qaaf", "ك", "Kaaf", "ف", "Faa"],
+    ["zza", "ظ", "Zaa", "ذ", "Dhaal", "ز", "Zaay"],
+    ["ghayn", "غ", "Ghayn", "ع", "Ayn", "ه", "Haa"],
+    ["dad", "ض", "Daad", "د", "Daal", "ن", "Noon"],
+    ["kha", "خ", "Khaa", "ح", "Haa", "ج", "Jeem"],
+  ] as const).map(([slug, heavy, heavyName, a, aName, b, bName]) => ({
+    id: `letters-heavy-${slug}`,
+    type: "distinguish-similar" as const,
+    prompt: "Which of these is a heavy letter?",
+    choices: choices([{ arabic: heavy, label: heavyName, correct: true }, { arabic: a, label: aName }, { arabic: b, label: bName }]),
+  })),
+  boundary: "This is spotting the heavy letters on the page. How a heavy letter is made to sound full is heard from a qualified teacher and the reciter; the app does not judge it.",
+};
+
+const joinedLettersLesson: LessonSeed = {
+  id: "forms-compound-letters",
+  level: "forms",
+  title: "Joined letters (huroof murakkabat)",
+  objective: "Read which letters are joined together, in many pairs, including Laam-Alif.",
+  teaching: "This is the Qaida's page of joined letters. Each pair or group below is written joined, the way letters appear inside a word. Find where one letter ends and the next begins, and name each one, right to left. Laam-Alif لا is the pair you will meet most.",
+  examples: [teaching("لا", "Laam, Alif"), teaching("كل", "Kaaf, Laam"), teaching("عن", "Ayn, Noon")],
+  stages: ["learn", "recognize", "read", "check", "complete"],
+  practice: joinedLetterDrills(),
+};
+
+/**
+ * The disjointed letters that open twenty-nine surahs. Quoted from the mushaf
+ * (the waqf signs some carry are left off). They are read by the letters'
+ * names, so they belong here, straight after joined letters, as in a Qaida.
+ */
+const MUQATTAAT: Array<{ arabic: string; reference: string; names: string[]; wrong: string[][] }> = [
+  { arabic: "الٓمٓ", reference: "2:1", names: ["Alif", "Laam", "Meem"], wrong: [["Alif", "Laam", "Raa"], ["Alif", "Meem", "Laam"]] },
+  { arabic: "كٓهيعٓصٓ", reference: "19:1", names: ["Kaaf", "Haa", "Yaa", "Ayn", "Saad"], wrong: [["Kaaf", "Haa", "Yaa", "Ghayn", "Saad"], ["Qaaf", "Haa", "Yaa", "Ayn", "Saad"]] },
+  { arabic: "طه", reference: "20:1", names: ["Taa", "Haa"], wrong: [["Zaa", "Haa"], ["Taa", "Yaa"]] },
+  { arabic: "طسٓمٓ", reference: "26:1", names: ["Taa", "Seen", "Meem"], wrong: [["Taa", "Sheen", "Meem"], ["Taa", "Seen", "Noon"]] },
+  { arabic: "يسٓ", reference: "36:1", names: ["Yaa", "Seen"], wrong: [["Yaa", "Sheen"], ["Baa", "Seen"]] },
+  { arabic: "حمٓ", reference: "40:1", names: ["Haa", "Meem"], wrong: [["Khaa", "Meem"], ["Jeem", "Meem"]] },
+];
+
+const muqattaatLesson: LessonSeed = {
+  id: "forms-muqattaat",
+  level: "forms",
+  title: "The disjointed letters (huroof muqatta'at)",
+  objective: "Read the disjointed letters at the start of a surah by naming each letter.",
+  teaching: "Twenty-nine surahs open with letters that are not a word: الٓمٓ is read by saying the letters' names — Alif, Laam, Meem. You already know every letter and its name, so you can read them now. Some of these names are held long when recited; that is shown by the wavy sign above them.",
+  examples: [
+    ...MUQATTAAT.slice(0, 3).map((entry) => quranWord(entry.arabic, entry.names.join(" · "), entry.reference)),
+    quranWord("صٓ", "Saad", "38:1"),
+    quranWord("قٓ", "Qaaf", "50:1"),
+    quranWord("نٓ", "Noon", "68:1"),
+  ],
+  stages: ["learn", "recognize", "read", "check", "complete"],
+  practice: MUQATTAAT.map((entry) => ({
+    id: `forms-muqattaat-${entry.reference.replace(":", "-")}`,
+    type: "build-combination" as const,
+    prompt: "These letters are read by their names. Which names do you say?",
+    subject: quranWord(entry.arabic, entry.names.join(" · "), entry.reference),
+    choices: choices([
+      { label: entry.names.join(" · "), correct: true },
+      ...entry.wrong.map((names) => ({ label: names.join(" · ") })),
+    ]),
+  })),
+  boundary: "This is reading the letters' names from the page. How long each name is held in recitation is for a qualified teacher and the reciter; the app does not measure it.",
+};
+
+const harakatExerciseLesson: LessonSeed = {
+  id: "harakat-exercises",
+  level: "harakat",
+  title: "Exercise page: mixed short vowels",
+  objective: "Read three-letter combinations where each letter carries its own short vowel.",
+  teaching: "This is the Qaida's exercise page for the short vowels. Every letter now carries a fatha, kasra or damma, and they are mixed. Read each letter with its own vowel, then join them without a pause. Go slowly: the aim is to read each mark, not to guess the word.",
+  examples: [teaching("بَتَثَ", "ba-ta-tha"), teaching("جِحِخِ", "ji-ḥi-khi"), teaching("زَسِشُ", "za-si-shu")],
+  stages: ["learn", "read", "check", "complete"],
+  practice: harakatExerciseDrills(),
+};
+
+const tanweenExerciseLesson: LessonSeed = {
+  id: "tanween-exercises",
+  level: "tanween",
+  title: "Exercise page: tanween",
+  objective: "Read two-letter combinations that end in tanween.",
+  teaching: "The tanween exercise page. The first letter carries a short vowel; the last carries tanween. Read the first, then finish on the doubled ending: بَتٌ reads ba-tun.",
+  examples: [teaching("بَتٌ", "ba-tun"), teaching("ثِجٍ", "thi-jin"), teaching("حُخًا", "ḥu-khan")],
+  stages: ["learn", "read", "check", "complete"],
+  practice: tanweenExerciseDrills(),
+};
+
+const standingHarakatLesson: LessonSeed = {
+  id: "madd-standing-harakat",
+  level: "madd",
+  title: "Standing harakat",
+  objective: "Recognise a long vowel written as a small standing mark instead of a full letter.",
+  teaching: "Sometimes the long vowel is written as a small mark instead of a full alif, ya or waw. The standing fatha ـٰ is a small upright alif above the letter and reads a long 'aa'. The standing kasra ـٖ below the letter reads a long 'ii', and the inverted damma ـٗ above it reads a long 'uu'. South Asian mushafs print all three; the mushaf this app shows prints the standing fatha the same way, and writes the other two as a small ya and a small waw.",
+  examples: [teaching("بٰ", "baa — standing fatha"), teaching("بٖ", "bii — standing kasra"), teaching("بٗ", "buu — inverted damma"), quranWord("ذَٰلِكَ", "dhaalika — a standing fatha on the Dhaal", "2:2")],
+  stages: ["learn", "recognize", "read", "check", "complete"],
+  practice: [
+    {
+      id: "standing-fatha-name",
+      type: "identify-symbol",
+      prompt: "What is the mark above this letter called?",
+      subject: teaching("بٰ", "baa"),
+      choices: choices([{ label: "Standing fatha", correct: true }, { label: "Fatha" }, { label: "Sukoon" }]),
+    },
+    {
+      id: "standing-fatha-read",
+      type: "build-combination",
+      prompt: "How does this read?",
+      subject: teaching("تٰ", "taa"),
+      choices: choices([{ label: "taa", correct: true }, { label: "ta" }, { label: "tii" }]),
+    },
+    {
+      id: "standing-kasra-read",
+      type: "build-combination",
+      prompt: "How does this read?",
+      subject: teaching("بٖ", "bii"),
+      choices: choices([{ label: "bii", correct: true }, { label: "bi" }, { label: "buu" }]),
+    },
+    {
+      id: "inverted-damma-read",
+      type: "build-combination",
+      prompt: "How does this read?",
+      subject: teaching("هٗ", "huu"),
+      choices: choices([{ label: "huu", correct: true }, { label: "hu" }, { label: "haa" }]),
+    },
+    {
+      id: "standing-read-dhalika",
+      type: "read-word",
+      prompt: "Read this Quranic word aloud, then continue.",
+      subject: quranWord("ذَٰلِكَ", "dhaalika — from Surah al-Baqarah", "2:2"),
+    },
+  ],
+  boundary: "This is recognising a long vowel on the page. How long to hold it is for a qualified teacher and the reciter's recording; the app does not measure it.",
+};
+
+const maddExerciseLesson: LessonSeed = {
+  id: "madd-exercises",
+  level: "madd",
+  title: "Exercise page: long vowels",
+  objective: "Read combinations of two long vowels, holding each one.",
+  teaching: "The long-vowel exercise page. Each syllable has its own madd letter: read the vowel and hold it into the letter that lengthens it, then move to the next. بَاتُو reads baa-tuu.",
+  examples: [teaching("بَاتُو", "baa-tuu"), teaching("ثِيجَا", "thii-jaa")],
+  stages: ["learn", "read", "check", "complete"],
+  practice: maddExerciseDrills(),
+  boundary: "The app checks that you can read which vowels are long. How long you hold each one is for a qualified teacher; the app does not measure it.",
+};
+
+const leenLesson: LessonSeed = {
+  id: "sukoon-leen",
+  level: "sukoon",
+  title: "The soft letters (huroof leen)",
+  objective: "Read a waw or ya carrying sukoon after a fatha, and tell it apart from a long vowel.",
+  teaching: "When waw or ya carries sukoon and the letter before it carries a fatha, it is a soft letter (leen): بَوْ reads baw, بَيْ reads bay — a gliding sound, not a long vowel. Compare بُو (buu), where waw follows a damma and makes the vowel long.",
+  examples: [teaching("بَوْ", "baw"), teaching("بَيْ", "bay"), quranWord("قُرَيْشٍ", "quraysh — a soft ya", "106:1")],
+  stages: ["learn", "recognize", "read", "check", "complete"],
+  practice: [
+    ...leenDrills(["ta", "jeem", "seen", "qaf"]),
+    {
+      id: "leen-read-quraysh",
+      type: "read-word",
+      prompt: "Read this Quranic word aloud, then continue.",
+      subject: quranWord("قُرَيْشٍ", "quraysh — from Surah Quraysh", "106:1"),
+    },
+  ],
+};
+
+const shaddahCombinationsLesson: LessonSeed = {
+  id: "shaddah-combinations",
+  level: "shaddah",
+  title: "Shaddah with sukoon, and ghunnah",
+  objective: "Read a shaddah followed by a sakin letter, and Noon and Meem carrying a shaddah.",
+  teaching: "Two last patterns before the Quranic words. A shaddah can be followed by a sakin letter: اَبَّتْ reads abbat. And a Noon or Meem carrying a shaddah — اَنَّ, اَمَّ — is held with ghunnah, a hum through the nose, which you will meet again in the tajweed lessons.",
+  examples: [teaching("اَبَّتْ", "abbat"), teaching("اَنَّ اِنِّ اُنُّ", "anna inni unnu"), teaching("اَمَّ اِمِّ اُمُّ", "amma immi ummu")],
+  stages: ["learn", "read", "check", "complete"],
+  practice: shaddahCombinationDrills(),
+  boundary: "This is reading the marks on the page. How long a ghunnah is held, and how it should sound, comes from a qualified teacher; the app does not measure it.",
+};
+
+/**
+ * How to stop on the last word — the closing lesson of a Noorani Qaida.
+ * Every subject is a quoted Quranic word or a teaching combination; the options
+ * show how its ending is read when stopping, which is a reading of the word,
+ * not a different word.
+ */
+const STOPPING: Array<{ id: string; subject: QaidaArabicText; answer: string; wrong: string[] }> = [
+  { id: "stop-dammatayn", subject: quranWord("أَحَدٌ", "ahadun — from Surah al-Ikhlas", "112:1"), answer: "أَحَدْ", wrong: ["أَحَدٌ", "أَحَدَا"] },
+  { id: "stop-kasra", subject: quranWord("الْفَلَقِ", "al-falaqi — from Surah al-Falaq", "113:1"), answer: "الْفَلَقْ", wrong: ["الْفَلَقِ", "الْفَلَقِي"] },
+  { id: "stop-long-vowel", subject: quranWord("الْعَالَمِينَ", "al-'alamina — from Surah al-Fatiha", "1:2"), answer: "الْعَالَمِينْ", wrong: ["الْعَالَمِينَ", "الْعَالَمِي"] },
+  { id: "stop-fathatayn", subject: teaching("بَتًا", "batan — a teaching combination"), answer: "بَتَا", wrong: ["بَتْ", "بَتًا"] },
+  { id: "stop-ta-marbuta", subject: quranWord("هُمَزَةٍ", "humazatin — from Surah al-Humazah", "104:1"), answer: "هُمَزَهْ", wrong: ["هُمَزَةٍ", "هُمَزَتْ"] },
+];
+
+const stoppingLesson: LessonSeed = {
+  id: "symbols-stopping",
+  level: "mushaf-symbols",
+  title: "Stopping on a word (waqf)",
+  objective: "Read how the end of a word changes when you stop on it.",
+  teaching: "When you stop on a word, its ending changes. A last fatha, kasra or damma becomes a sukoon: الْفَلَقِ is read al-falaq. Kasratayn and dammatayn also become a sukoon: أَحَدٌ is read ahad. Fathatayn becomes a long 'aa': بَتًا is read bataa. A ta marbuta ة becomes a sakin Haa: هُمَزَةٍ is read humazah. A long vowel before the end stays long.",
+  examples: [quranWord("أَحَدٌ", "ahadun — stopping: ahad", "112:1"), quranWord("الْفَلَقِ", "al-falaqi — stopping: al-falaq", "113:1"), teaching("بَتًا", "batan — stopping: bataa")],
+  stages: ["learn", "recognize", "check", "complete"],
+  practice: STOPPING.map((entry) => ({
+    id: `symbols-${entry.id}`,
+    type: "identify-symbol" as const,
+    prompt: "You stop on this word. How is its ending read?",
+    subject: entry.subject,
+    choices: choices([{ arabic: entry.answer, correct: true }, ...entry.wrong.map((arabic) => ({ arabic }))]),
+  })),
+  boundary: "These are the reading rules for a word's ending when you stop. Where to stop, and the finer rules of stopping, are learned with a qualified teacher; the app does not check where or how you stopped.",
+};
+
+/**
+ * Where each new lesson goes: immediately after the named existing lesson.
+ * Existing lesson ids are never changed or removed, so saved progress (in the
+ * browser and in the database) keeps resolving.
+ */
+const NOORANI_INSERTIONS: Array<{ after: string; lessons: LessonSeed[] }> = [
+  { after: "letters-similar-shapes", lessons: [heavyLettersLesson, hamzahLamAlifLesson] },
+  { after: "forms-joining-practice", lessons: [joinedLettersLesson, muqattaatLesson] },
+  { after: "harakat-combinations", lessons: [harakatExerciseLesson] },
+  { after: "tanween-reading", lessons: [tanweenExerciseLesson] },
+  { after: "madd-long-vowels", lessons: [standingHarakatLesson] },
+  { after: "madd-short-vs-long", lessons: [maddExerciseLesson] },
+  { after: "sukoon-basics", lessons: [leenLesson] },
+  { after: "shaddah-basics", lessons: [shaddahCombinationsLesson] },
+  { after: "symbols-small-marks", lessons: [stoppingLesson] },
+];
+
+/**
+ * Whole-alphabet drill rows added to the existing lessons that teach each mark,
+ * so every mark is practised on every letter rather than on two or three.
+ */
+const DRILLS: Record<string, QaidaExercise[]> = {
+  "harakat-fatha": shortVowelDrills("fatha", ["jeem", "seen", "ayn", "qaf", "lam", "ya"]),
+  "harakat-kasra": shortVowelDrills("kasra", ["dal", "sheen", "ghayn", "kaf", "meem", "waw"]),
+  "harakat-damma": shortVowelDrills("damma", ["hha", "ra", "sad", "fa", "noon", "ha"]),
+  "tanween-three-marks": tanweenDrills(["ta", "jeem", "seen", "ayn", "fa", "meem"]),
+  "madd-long-vowels": maddDrills(["ta", "jeem", "dal", "seen", "qaf", "noon"]),
+  "sukoon-basics": sukoonDrills(["dal", "seen", "ayn", "lam"]),
+  "shaddah-basics": shaddahDrills(["ra", "seen", "qaf", "noon"]),
+};
+
+function withNooraniLessons(seeds: LessonSeed[]): LessonSeed[] {
+  const out: LessonSeed[] = [];
+  for (const seed of seeds) {
+    const drills = DRILLS[seed.id];
+    out.push(drills ? { ...seed, practice: [...seed.practice, ...drills] } : seed);
+    const insertion = NOORANI_INSERTIONS.find((entry) => entry.after === seed.id);
+    if (insertion) out.push(...insertion.lessons);
+  }
+  return out;
+}
+
+const LESSON_SEEDS: LessonSeed[] = withNooraniLessons([...letterLessons, similarLettersLesson, similarShapesLesson, ...laterLessons]);
 
 /**
  * Every lesson, in course order. `next` is filled in from that order so a lesson
@@ -1266,6 +1560,7 @@ export const QAIDA_LESSONS: QaidaLesson[] = LESSON_SEEDS.map((seed, index) => ({
   // — once, for every item — is what stops the course being passable by tapping
   // the top option forty-two times.
   practice: seed.practice.map((item) => (item.choices ? { ...item, choices: placeChoices(item.id, item.choices) } : item)),
+  prerequisites: index === 0 ? [] : [LESSON_SEEDS[index - 1].id],
   mastery: {
     correctRequired: seed.mastery?.correctRequired ?? seed.practice.length,
     itemsRequired: seed.mastery?.itemsRequired ?? seed.practice.length,

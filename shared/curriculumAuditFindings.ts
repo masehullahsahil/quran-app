@@ -1,7 +1,7 @@
 /**
  * Questions raised for the teacher while building the audit — not corrections.
  *
- * Reading 42 lessons closely turns up things that *might* be wrong: a
+ * Reading the lessons closely turns up things that *might* be wrong: a
  * transliteration used for two different letters, a spelling convention, a rule
  * stated in one sentence and answered slightly differently in the next. None of
  * those is a call this repository can make. Each one is recorded here as a

@@ -77,7 +77,7 @@ export type QaidaRecordingEntry = {
  *
  * Empty. No qualified teacher has recorded any of this yet, and an empty ledger
  * is the honest statement of that — the coverage report reads 0 approved and
- * 182 missing, and the app plays nothing rather than something.
+ * every target missing, and the app plays nothing rather than something.
  *
  * Adding a recording is adding an entry here alongside the file. See
  * docs/qaida-audio.md for the protocol and the review steps.

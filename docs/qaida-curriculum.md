@@ -1,6 +1,6 @@
 # The Qaida Curriculum
 
-Learn mode runs a twelve-level Qaida course that takes a beginner from recognising an isolated Arabic letter to reading short ayat and carrying them into recorded practice in Study mode. Twelve levels, 42 lessons, 116 practice items.
+Learn mode runs a twelve-level Qaida course that takes a beginner from recognising an isolated Arabic letter to reading short ayat and carrying them into recorded practice in Study mode. Twelve levels, 53 lessons, 295 practice items, following the order of a Noorani Qaida — see [Noorani-style depth](#noorani-style-depth).
 
 The curriculum is **data**. Levels, lessons, prerequisites and practice items are declared in `shared/qaidaCurriculum.ts`; exercise shapes and the small builders live in `shared/qaidaExercises.ts`; `client/src/components/QaidaCourse.tsx` renders whatever those say. Adding or reordering a lesson is a data change, not a UI change.
 
@@ -20,17 +20,17 @@ The curriculum is **data**. Levels, lessons, prerequisites and practice items ar
 
 | # | Level | Lessons | Why here |
 |---|---|---|---|
-| 1 | Arabic letters | 12 | Shapes and names first, ending with two lessons on the letters beginners actually confuse |
-| 2 | Letter forms and joining | 3 | A letter must be recognisable in a word before marks are added to it |
-| 3 | Short vowels | 4 | The first sound the learner produces from the page |
-| 4 | Tanween | 2 | The same three vowels doubled — a small step from level 3 |
-| 5 | Long vowels | 2 | A held version of the vowel just learned, and present in nearly every Quranic word |
-| 6 | Sukoon | 2 | The first genuinely new syllable shape: a letter with no vowel of its own |
-| 7 | Shaddah | 2 | A shaddah is a sakin letter joined to a vowelled one, so it depends on sukoon |
+| 1 | Arabic letters | 14 | Shapes and names first, then the letters beginners confuse, the seven heavy letters, and Hamzah and Laam-Alif |
+| 2 | Letter forms and joining | 5 | A letter must be recognisable in a word before marks are added to it; ends with joined letters (murakkabat) and the disjointed letters (muqatta'at), read by name |
+| 3 | Short vowels | 5 | The first sound the learner produces from the page; each vowel on all 28 letters, then an exercise page |
+| 4 | Tanween | 3 | The same three vowels doubled — a small step from level 3 |
+| 5 | Long vowels | 4 | A held version of the vowel just learned, including the standing harakat |
+| 6 | Sukoon | 3 | The first genuinely new syllable shape: a letter with no vowel of its own; then the soft (leen) letters |
+| 7 | Shaddah | 3 | A shaddah is a sakin letter joined to a vowelled one, so it depends on sukoon; then shaddah with sukoon, and ghunnah |
 | 8 | The definite article | 2 | ال is the most common thing on the page, and sun/moon behaviour is visible in the marks |
 | 9 | Hamzah and written forms | 3 | Hamzat al-wasl is explained through ال, so the article comes first |
 | 10 | Introductory tajweed patterns | 3 | Recognition only, once every mark can be read |
-| 11 | Mushaf symbols | 2 | Stop marks and small signs, once the words around them can be read |
+| 11 | Mushaf symbols | 3 | Stop marks, small signs, and how a word's ending is read when stopping (waqf) |
 | 12 | Guided Quran reading | 5 | Word → phrase → one ayah → several ayat → a whole short surah, recorded |
 
 Two orderings changed during the quality audit, both for pedagogical reasons and both asserted by tests:
@@ -39,6 +39,19 @@ Two orderings changed during the quality audit, both for pedagogical reasons and
 - **The definite article moved ahead of hamzah** (was level 9, now level 8). Hamzat al-wasl is explained through ال; teaching the article first means that lesson can point at something familiar.
 
 The separate "madd sign" lesson was **merged into Level 11**, where the other mushaf notation lives, rather than being taught twice.
+
+## Noorani-style depth
+
+A Noorani Qaida teaches each mark by running it across the whole alphabet, row after row, and follows each topic with an exercise page. The course does the same:
+
+- **Whole-alphabet drills.** The fatha, kasra and damma lessons put their vowel on all 28 letters (اَ بَ تَ ثَ …); tanween, madd, sukoon (اَبْ اِبْ اُبْ) and shaddah (اَبَّ اِبِّ اُبُّ) run across every letter that can carry them. Each drilled lesson ends with "how does this read?" checks whose options differ only in the mark being taught.
+- **The Noorani lessons the course lacked**, each inserted into the level it belongs to: Hamzah and Laam-Alif, the seven heavy letters, joined letters (murakkabat), the disjointed letters (muqatta'at), exercise pages after the short vowels, tanween and long vowels, the standing harakat, the soft (leen) letters, shaddah with sukoon and ghunnah, and stopping on a word (waqf).
+- **Generated, not hand-listed.** The rows come from `shared/qaidaDrills.ts`, built from the alphabet and a few rules, with a small fixed set of prompts so each language pack translates each prompt once. `shared/qaidaNoorani.test.ts` checks that every letter is drilled with every mark and that the Noorani lessons are present and in order.
+- **Saved progress is untouched.** No existing lesson id was changed or removed, and a test lists them. A lesson's prerequisite is now derived from course order (the lesson before it), so inserting a lesson cannot leave a gap.
+
+Two ordering rules changed with it, both as a Noorani Qaida teaches: Hamzah ء is taught as a letter in Level 1 (its seats on waw and ya still wait for Level 9), and the small (standing) alif is taught with the long vowels in Level 5 rather than in Level 9. The teaching combinations are drills built from consecutive letters (بَتَثَ, جِحِخِ), labelled as teaching text and never as Quran.
+
+**Script.** The course keeps its current spelling. Noorani Qaidas are traditionally printed in the South Asian (Indo-Pak) script; whether this course should switch is a decision for the teacher review, and the standing-harakat lesson names both conventions in the meantime.
 
 ## Lesson shape
 
@@ -79,7 +92,7 @@ Quoted words use a simplified vowelled spelling (الصِّرَاطَ) rather th
 
 ## Teacher review checklist
 
-The structured version of this checklist is the **[teacher audit](./qaida-teacher-audit.md)**: a review workspace at `/curriculum-audit` and a printable report (`pnpm audit:qaida`) that break the course into 608 reviewable items — every level, lesson, objective, example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each carrying its own review state and provenance. Use it to record decisions; the table below stays as the shape of the job.
+The structured version of this checklist is the **[teacher audit](./qaida-teacher-audit.md)**: a review workspace at `/curriculum-audit` and a printable report (`pnpm audit:qaida`) that break the course into 1,051 reviewable items — every level, lesson, objective, example, exercise, expected answer, prerequisite, mastery rule, articulation note, tajweed explanation and Quran reference — each carrying its own review state and provenance. Use it to record decisions; the table below stays as the shape of the job.
 
 Nothing in this list is verified by code. Each item needs a qualified Qari or Qaida teacher to sign off before this course is presented as finished teaching material.
 
@@ -101,9 +114,11 @@ Nothing in this list is verified by code. Each item needs a qualified Qari or Qa
 
 ## Known limitations
 
-- **Lesson text is English-only.** Titles, teaching text and prompts are inline English in the curriculum module, following `shared/learningPath.ts`; the chrome around them is localised. A non-English pack gets translated chrome and English lessons.
+- **Lesson text is written in English first.** The English lives in the curriculum module; Arabic, Pashto, Dari and Urdu translations live in each language pack, keyed by lesson and exercise id, and `locales/coverage.test.ts` fails if any lesson or prompt is left untranslated. The translations are AI-drafted like the lessons themselves.
 - **Recognition, not production.** A learner can pass every exercise by reading correctly on the page.
 - **Audio coverage follows the active source.** With the placeholder recording set there are no vowelled-form recordings, so `match-audio` items past Level 1 show the unavailable note.
 - **Mastery is per sitting.** Leaving a lesson part-way and returning restarts its practice; completed lessons are unaffected.
 - **No mushaf-accurate Uthmani rendering** in curriculum examples — see the note above.
-- **Ayah-count checks cover only the surahs quoted** (1, 103, 108, 112, 113, 114). Quoting another surah means adding it to that table.
+- **Ayah-count checks cover only the surahs quoted** (1, 2, 19, 20, 26, 36, 38, 40, 50, 68, 103, 104, 106, 108, 112, 113, 114). Quoting another surah means adding it to that table.
+- **Still thin after Level 7.** The definite article, hamzah, tajweed-pattern and mushaf-symbol lessons have two or three items each. They lean on Quranic words, which need a teacher's eye, so they were not bulk-generated.
+- **Reading aloud is self-reported.** A read item is completed when the learner says they read it; the app does not listen in the Learn view.
