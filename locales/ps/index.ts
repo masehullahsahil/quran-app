@@ -490,6 +490,7 @@ export const strings: TranslatableStrings = {
   "course.exerciseProgress": "پوښتنه {number} له {total} څخه",
   "course.playAudio": "بېلګه وغږوئ",
   "course.audioUnavailable": "د دې شکل لپاره لا هیڅ ثبت شوې بېلګه نشته.",
+  "course.quranWordNote": "د همدې کلمې د بېلګې تلاوت، کلمه په کلمه.",
   "course.correct": "سم دی.",
   "course.retry": "لا سم نه دی. بیا وګورئ، بیا یو ځل هڅه وکړئ.",
   "course.letterReference": "د حروفو لړ",

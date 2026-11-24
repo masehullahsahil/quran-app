@@ -226,6 +226,7 @@ export const strings = {
   "course.exerciseProgress": "Question {number} of {total}",
   "course.playAudio": "Play the reference",
   "course.audioUnavailable": "No reference recording is available for this form yet.",
+  "course.quranWordNote": "A word-by-word recitation of this word, from Quran.com.",
   "course.correct": "Correct.",
   "course.retry": "Not quite. Look again, then try once more.",
   "course.continue": "Continue",

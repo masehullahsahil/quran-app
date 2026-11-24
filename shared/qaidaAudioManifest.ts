@@ -20,7 +20,7 @@
  * ledger: a synthesised clip can never be a teacher's reference recording, so
  * it can never be approved, so it is never played as one.
  */
-import { qaidaAudioTargets, type QaidaAudioTarget } from "./qaidaAudioTargets";
+import { qaidaAudioTargetForArabic, qaidaAudioTargets, type QaidaAudioTarget } from "./qaidaAudioTargets";
 
 /**
  * How far along one recording is.
@@ -161,6 +161,23 @@ export function approvedAudioPath(
 }
 
 /** The id of a letter's recording, alone or carrying a short vowel. */
+/**
+ * The approved recording for a piece of teaching Arabic, or null.
+ *
+ * This is how a drill row, a syllable or a joined form reaches the listen
+ * control: the same approval rules as a letter, looked up by the Arabic the
+ * lesson shows. Quran words are never served from here (they are not recorded
+ * for this app; see docs/qaida-audio.md §7), so a Quran target answers null.
+ */
+export function approvedTextAudioPath(
+  arabic: string,
+  recordings: readonly QaidaRecordingEntry[] = QAIDA_RECORDINGS,
+): string | null {
+  const target = qaidaAudioTargetForArabic(arabic);
+  if (!target || target.kind === "quran") return null;
+  return approvedAudioPath(target.id, recordings);
+}
+
 export function letterTargetId(slug: string, harakat?: string): string {
   return harakat ? `letter:${slug}:${harakat}` : `letter:${slug}`;
 }

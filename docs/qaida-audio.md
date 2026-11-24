@@ -68,6 +68,9 @@ count an entry as approved unless it would actually be played, so a status of
 | A letter with an approved recording | plays it — Listen control, loading state, playing state, replay |
 | A letter without one | the control is disabled and the interface says the recording has not been added yet |
 | A Qaida lesson step with no recording | *"No reference recording is available for this form yet."* |
+| A teaching syllable, joined form or drill row with an approved recording | plays it, from the same listen control as a letter |
+| A teaching item with no approved recording | no control at all (nothing to play, and never a synthesised fallback) |
+| A quoted Quran word | plays the Quran.com word-by-word recitation of that word, when the ayah's word list contains it (§7) |
 | Anything at all | never a synthesised voice, in any language |
 
 `shared/qaidaAudioManifest.ts` is the only playback authority. The client asks
@@ -93,22 +96,28 @@ This is the one remaining placeholder path, and it is a dead end by design.
 deduplicated by their exact Arabic: one recording of `بَ` serves every lesson
 that shows it.
 
-**162 are for a teacher to record.** In rough order of usefulness:
+**303 are for a teacher to record.** In rough order of usefulness:
 
 | What | How many | Notes |
 |---|---|---|
 | The 28 letters, alone | 28 | say the letter's **sound**, not its alphabet name |
 | Each letter with fatha, kasra, damma | 84 | `بَ` = *ba*, `بِ` = *bi*, `بُ` = *bu* |
-| Teaching syllables and combinations | ~50 | joined forms, tanween, madd, sukoon, shaddah, ال, hamzah seats, tajweed patterns, mushaf symbols |
+| Teaching syllables, combinations and drill rows | ~190 | the whole-alphabet rows (اَ بَ تَ ثَ …, اَبْ اِبْ اُبْ …), joined letters, tanween, madd, sukoon, shaddah, ال, hamzah seats, tajweed patterns, mushaf symbols |
 
-Print the exact list, with the Arabic and the lessons that use each one:
+**Build the kit to hand the reciter:**
 
 ```
-npx tsx -e 'import {instructionalTargets} from "./shared/qaidaAudioTargets"; \
-  for (const t of instructionalTargets()) console.log([t.id, t.arabic, t.category, t.gloss].join("\t"))'
+pnpm audio:qaida-kit
 ```
 
-**20 are Quranic words and are NOT to be recorded.** See §7.
+This writes `qaida-recording-kit/recording-sheet.html`, a printable sheet with
+one card per recording (the Arabic large, how it reads, and the exact file name
+to save it as), grouped by level with the protocol below on top, and
+`recording-list.csv`, the same list as a spreadsheet for tracking. Anything
+already approved is left off. The file names are what makes importing
+automatic (§6), so ask the reciter to keep them exactly.
+
+**32 are Quranic words and are NOT to be recorded.** See §7.
 
 ## 4. Recording protocol
 
@@ -169,10 +178,20 @@ a matter of how the work is organised.
 
 ## 6. Importing recordings
 
-1. Put the files under `client/public/audio/qaida/…` — **not** in
-   `/audio/letters`, which holds the synthesised clips.
-2. Add an entry per file to `QAIDA_RECORDINGS` in
-   `shared/qaidaAudioManifest.ts`:
+1. Put the delivered files under `client/public/audio/qaida/` with the names
+   from the recording sheet — **not** in `/audio/letters`, which holds the
+   synthesised clips.
+2. Generate the ledger entries:
+
+```
+pnpm audio:qaida-import --speaker "…" --qualification "…" --source "…" --date 2026-12-01
+```
+
+   It matches each file name to its target, prints an entry per file with
+   status `recorded` and the provenance you gave, and lists any file it could
+   not match. It never marks anything approved. Paste the entries into
+   `QAIDA_RECORDINGS` in `shared/qaidaAudioManifest.ts`, and once the reviewer
+   has listened, set `status: "approved"` and fill in `review`:
 
 ```ts
 {
@@ -197,13 +216,18 @@ exist.
 
 ## 7. Quran words are not recorded here
 
-20 of the targets are actual Quranic words the curriculum quotes — `قُلْ`,
+32 of the targets are actual Quranic words the curriculum quotes — `قُلْ`,
 `رَبِّ`, `أَحَدٌ` and so on. They are marked `kind: "quran"` and kept apart from
 the instructional set:
 
 - nobody records a replacement Quran recitation for this app;
 - they are served, where they can be, by the app's own Quran audio — the
-  word-by-word reference described in [quran-word-audio.md](./quran-word-audio.md);
+  word-by-word reference described in [quran-word-audio.md](./quran-word-audio.md).
+  In the Learn view a quoted single word (قُلْ from 112:1) gets a listen control
+  that fetches its ayah through `quran.surah`, finds the word by comparing text
+  (never by position alone) and plays that word's file
+  (`client/src/lib/qaidaQuranWordAudio.ts`). Two-word phrases get no control
+  rather than half a phrase;
 - where no trustworthy recording exists, the target is simply unavailable.
 
 A ledger entry claiming to supply one fails validation
@@ -212,16 +236,16 @@ A ledger entry claiming to supply one fails validation
 
 ## 8. Limitations
 
-- **Nothing is recorded yet**, so the Qaida currently plays no reference audio
-  at all. Before this change a learner heard the synthesised clips, described in
+- **Nothing is recorded yet**, so apart from quoted Quran words the Qaida
+  plays no reference audio. Before this change a learner heard the synthesised clips, described in
   the interface as synthesised. That is now silence with an explanation, which
   is the right trade for a Quran-reading course but is a real reduction in what
   the app does today. It is undone by recordings, not by code.
 - **The teaching-target list is derived, and reflects the curriculum's current
-  shape.** ~50 combination targets is what the lessons currently show; adding
-  lessons adds targets.
+  shape.** the drill rows and combinations are what the lessons currently show;
+  adding lessons adds targets.
 - **No automated check validates pronunciation**, by design.
-- **The 20 Quranic targets depend on the Quran word-audio path**, whose live
+- **The 32 Quranic targets depend on the Quran word-audio path**, whose live
   behaviour is itself unverified — see that document's own limitations.
 - **The interface strings are AI-drafted** (`translationStatus: "ai-drafted"`,
   `nativeReviewed: false`) in all five languages, like the rest of the packs.

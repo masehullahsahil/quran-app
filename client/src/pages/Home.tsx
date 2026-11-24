@@ -37,6 +37,7 @@ import { readQaidaProgress, writeQaidaProgress, type QaidaProgress } from "@/lib
 import { describeCourseView } from "@/lib/courseView";
 import { clearSavedPlace, loadSavedPlace, saveSavedPlace, type SavedPlace } from "@/lib/savedPlace";
 import { QaidaCourse } from "@/components/QaidaCourse";
+import { QaidaQuranWordAudio } from "@/components/QaidaQuranWordAudio";
 import { curriculumProgressPercent, firstLetterIndexForLesson } from "@shared/qaidaCurriculum";
 import { type SupportedLanguageCode } from "@shared/languages";
 import { ARABIC_LETTERS, HARAKAT, letterAudioPath, type Harakat } from "@/lib/arabicLetters";
@@ -2235,6 +2236,7 @@ export default function Home() {
               progress={qaidaProgress}
               onProgressChange={setQaidaProgress}
               onOpenQuran={(surah, ayah) => { selectSurah(surah, ayah); setView("study"); }}
+              QuranWordAudio={QaidaQuranWordAudio}
             />}
             {learningLevel === "tajweed" && <div className="path-workspace tajweed-path"><div className="path-copy"><span className="eyebrow">{t("tajweed.eyebrow")}</span><h3>{t("tajweed.heading")}</h3><p>{t("tajweed.copy")}</p></div><div className="tajweed-principles"><span>{t("tajweed.principleAudio")}</span><span>{t("tajweed.principleReview")}</span><span>{t("tajweed.principleTeacher")}</span></div><button type="button" className="path-cta" onClick={openRecitationPractice}><Mic size={17} /> {t("tajweed.begin")} <ArrowRight size={17} /></button></div>}
           </div>}

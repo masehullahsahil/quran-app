@@ -9,10 +9,18 @@
  */
 import { describe, expect, it } from "vitest";
 import { QAIDA_LESSONS, QAIDA_LEVELS } from "./qaidaCurriculum";
-import { instructionalTargets, qaidaAudioTargets, quranTargets } from "./qaidaAudioTargets";
+import {
+  instructionalTargets,
+  qaidaAudioTargetForArabic,
+  qaidaAudioTargets,
+  quranTargets,
+  recordingFileName,
+  targetIdFromRecordingFileName,
+} from "./qaidaAudioTargets";
 import {
   buildQaidaAudioManifest,
   approvedAudioPath,
+  approvedTextAudioPath,
   isPlayableReference,
   letterTargetId,
   PLACEHOLDER_LETTER_AUDIO,
@@ -324,5 +332,57 @@ describe("the coverage report", () => {
     const after = qaidaAudioCoverage([approved(letterTargetId("ba"), "/audio/qaida/letters/ba.mp3")]);
     expect(after.total.approved).toBe(before.total.approved + 1);
     expect(after.total.missing).toBe(before.total.missing - 1);
+  });
+});
+
+describe("finding the recording an item needs", () => {
+  it("resolves a vowelled letter to the letter's own recording", () => {
+    expect(qaidaAudioTargetForArabic("بَ")?.id).toBe("letter:ba:fatha");
+  });
+
+  it("resolves a drill row to its own teaching target", () => {
+    const row = QAIDA_LESSONS.find((lesson) => lesson.id === "sukoon-basics")!.practice.find((item) => item.id === "drill-sukoon-row-1")!;
+    const target = qaidaAudioTargetForArabic(row.subject!.arabic);
+    expect(target?.kind).toBe("instructional");
+    expect(target?.id.startsWith("text:")).toBe(true);
+  });
+
+  it("answers null for Arabic the course never shows", () => {
+    expect(qaidaAudioTargetForArabic("غَيْرُ مَوْجُود")).toBeNull();
+  });
+
+  it("names every instructional recording with a file name that maps back to it", () => {
+    const names = new Set<string>();
+    for (const target of instructionalTargets()) {
+      const name = recordingFileName(target.id);
+      expect(name, target.id).toMatch(/^[a-z0-9-]+\.mp3$/);
+      expect(targetIdFromRecordingFileName(name), name).toBe(target.id);
+      names.add(name);
+    }
+    expect(names.size).toBe(instructionalTargets().length);
+  });
+
+  it("does not map unrelated file names to a target", () => {
+    expect(targetIdFromRecordingFileName("notes.txt")).toBeNull();
+    expect(targetIdFromRecordingFileName("quran-abc.mp3")).toBeNull();
+  });
+
+  it("plays a teaching item only once its recording is approved, and never a Quran word", () => {
+    const row = QAIDA_LESSONS.find((lesson) => lesson.id === "sukoon-basics")!.practice.find((item) => item.id === "drill-sukoon-row-1")!;
+    const arabic = row.subject!.arabic;
+    const targetId = qaidaAudioTargetForArabic(arabic)!.id;
+    const recorded = { targetId, audioPath: "/audio/qaida/x.mp3", status: "recorded" as const };
+    const approved = {
+      ...recorded,
+      status: "approved" as const,
+      provenance: { speaker: "A", qualification: "Qari", source: "studio", recordedOn: "2026-11-01" },
+      review: { reviewer: "B", qualification: "Qari", reviewedOn: "2026-11-02", verdict: "correct" },
+    };
+    expect(approvedTextAudioPath(arabic, [])).toBeNull();
+    expect(approvedTextAudioPath(arabic, [recorded])).toBeNull();
+    expect(approvedTextAudioPath(arabic, [approved])).toBe("/audio/qaida/x.mp3");
+
+    const quran = quranTargets()[0];
+    expect(approvedTextAudioPath(quran.arabic, [{ ...approved, targetId: quran.id }])).toBeNull();
   });
 });

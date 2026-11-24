@@ -17,7 +17,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowRight, BookOpen, Check, Lock, RotateCcw, Volume2 } from "lucide-react";
 import { type QaidaLesson, type QaidaLessonStage } from "@shared/qaidaCurriculum";
 import { describeCourseView } from "@/lib/courseView";
-import { isReadExercise } from "@shared/qaidaExercises";
+import { isReadExercise, type QaidaArabicText } from "@shared/qaidaExercises";
+import { approvedTextAudioPath } from "@shared/qaidaAudioManifest";
 import {
   answerItem,
   continueSession,
@@ -48,11 +49,17 @@ export function QaidaCourse({
   progress,
   onProgressChange,
   onOpenQuran,
+  QuranWordAudio,
 }: {
   progress: QaidaProgress;
   onProgressChange: (progress: QaidaProgress) => void;
   /** Hands an ayah to Study mode, where the text comes from the Quran data layer. */
   onOpenQuran: (surah: number, ayah: number) => void;
+  /**
+   * Listen control for a quoted Quran word, supplied by the page because it
+   * fetches from the Quran API. Omitted, Quran words simply have no control.
+   */
+  QuranWordAudio?: React.ComponentType<{ subject: QaidaArabicText }>;
 }) {
   const { t, qaida } = useLocale();
   const letterAudio = useLetterAudio();
@@ -86,7 +93,15 @@ export function QaidaCourse({
     onProgressChange(openLesson(progress, lessonId));
   };
 
-  const audioSrc = item?.audio ? letterAudioPath(item.audio.letterSlug, item.audio.harakat) : null;
+  // A letter item plays the letter's recording; a teaching syllable, joined
+  // form or drill row plays its own approved recording once a teacher's has
+  // been approved (null until then, so nothing is shown). Quran words are
+  // never recorded for this app — they come from the reciter, below.
+  const audioSrc = item?.audio
+    ? letterAudioPath(item.audio.letterSlug, item.audio.harakat)
+    : item?.subject?.source === "teaching"
+      ? approvedTextAudioPath(item.subject.arabic)
+      : null;
 
   return (
     <div className="qaida-course">
@@ -203,6 +218,7 @@ export function QaidaCourse({
               </p>
             )}
             {item.audio && !audioSrc && <p className="course-note"><AlertCircle size={13} /> {t("course.audioUnavailable")}</p>}
+            {item.subject?.source === "quran" && QuranWordAudio && <QuranWordAudio key={item.id} subject={item.subject} />}
 
             {item.choices && (
               <div className="course-choices">
