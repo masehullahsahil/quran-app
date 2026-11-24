@@ -173,17 +173,21 @@ const tanween = (letter: ArabicLetter, vowel: Vowel): Syllable => ({
   sound: `${consonant(letter)}${VOWEL_SOUND[vowel]}n`,
 });
 
-/** Each tanween across the alphabet, two rows each, then checks. */
+/**
+ * Each tanween across the whole alphabet, in rows of seven, then checks.
+ *
+ * Every tanween runs over every chunk of the alphabet. (An earlier version
+ * picked two chunks per tanween with a modulo, so the first and third tanween
+ * drilled the same letters and each covered only half the alphabet.)
+ */
 export function tanweenDrills(checkSlugs: readonly string[]): QaidaExercise[] {
-  const halves = chunk(CONSONANTS, 7);
+  const chunks = chunk(CONSONANTS, 7);
   const rows: QaidaExercise[] = [];
-  (["damma", "kasra", "fatha"] as Vowel[]).forEach((vowel, v) => {
-    // Two rows per tanween, taken from different parts of the alphabet so the
-    // three tanween between them run across every letter.
-    for (const half of [halves[(v * 2) % halves.length], halves[(v * 2 + 1) % halves.length]]) {
-      rows.push(rowExercise(`drill-tanween-${vowel}-row-${rows.length + 1}`, half.map((letter) => tanween(letter, vowel))));
-    }
-  });
+  for (const vowel of ["damma", "kasra", "fatha"] as Vowel[]) {
+    chunks.forEach((letters, index) => {
+      rows.push(rowExercise(`drill-tanween-${vowel}-row-${index + 1}`, letters.map((letter) => tanween(letter, vowel))));
+    });
+  }
   const checks = checkSlugs.map((slug, i) => {
     const letter = letterBySlug(slug);
     const vowel = VOWELS[i % 3];
@@ -224,19 +228,25 @@ export function tanweenExerciseDrills(): QaidaExercise[] {
 // Long vowels (madd).
 // ---------------------------------------------------------------------------
 
+/**
+ * A long vowel in the Indo-Pak script: alif after a fatha is bare (بَا), while
+ * waw after a damma and ya after a kasra carry a sukoon (بُوْ, بِيْ), as the
+ * Indo-Pak mushaf and a Noorani Qaida print them (see shared/qaidaScript.ts).
+ */
 const long = (letter: ArabicLetter, vowel: Vowel): Syllable => ({
-  arabic: `${letter.letter}${SHORT_MARK[vowel]}${MADD_LETTER[vowel]}`,
+  arabic: `${letter.letter}${SHORT_MARK[vowel]}${MADD_LETTER[vowel]}${vowel === "fatha" ? "" : SUKOON}`,
   sound: `${consonant(letter)}${LONG_SOUND[vowel]}`,
 });
 
+/** Each long vowel across the whole alphabet, in rows of seven, then checks. */
 export function maddDrills(checkSlugs: readonly string[]): QaidaExercise[] {
-  const halves = chunk(CONSONANTS, 7);
+  const chunks = chunk(CONSONANTS, 7);
   const rows: QaidaExercise[] = [];
-  VOWELS.forEach((vowel, v) => {
-    for (const half of [halves[(v * 2) % halves.length], halves[(v * 2 + 1) % halves.length]]) {
-      rows.push(rowExercise(`drill-madd-${vowel}-row-${rows.length + 1}`, half.map((letter) => long(letter, vowel))));
-    }
-  });
+  for (const vowel of VOWELS) {
+    chunks.forEach((letters, index) => {
+      rows.push(rowExercise(`drill-madd-${vowel}-row-${index + 1}`, letters.map((letter) => long(letter, vowel))));
+    });
+  }
   const checks = checkSlugs.map((slug, i) => {
     const letter = letterBySlug(slug);
     return readingChoice(`drill-madd-read-${slug}`, long(letter, VOWELS[i % 3]), VOWELS.map((v) => long(letter, v).sound));
@@ -312,7 +322,7 @@ export function leenDrills(checkSlugs: readonly string[]): QaidaExercise[] {
     const letter = letterBySlug(slug);
     const which = i % 2 === 0 ? "waw" : "ya";
     const answer = leen(letter, which);
-    // The long vowel is the confusion worth testing: بَوْ against بُو.
+    // The long vowel is the confusion worth testing: بَوْ against بُوْ.
     const longSound = `${consonant(letter)}${which === "waw" ? LONG_SOUND.damma : LONG_SOUND.kasra}`;
     return readingChoice(`drill-leen-read-${slug}`, answer, [answer.sound, leen(letter, which === "waw" ? "ya" : "waw").sound, longSound]);
   });

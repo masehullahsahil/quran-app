@@ -65,17 +65,31 @@ describe("each mark is drilled across the whole alphabet", () => {
 
   const consonants = ARABIC_LETTERS.filter((letter) => letter.slug !== "alif");
 
-  it("tanween runs across every letter that can carry it", () => {
+  // Each tanween and each long-vowel form separately, across every letter. An
+  // earlier generator picked two alphabet chunks per mark with a modulo, so the
+  // first and third mark drilled the same letters and each covered only half
+  // the alphabet; a combined "any mark" check could not see that.
+  const TANWEEN_FORMS: Array<[string, (glyph: string) => string]> = [
+    ["fathatayn", (g) => `${g}\u064B\u0627`],
+    ["kasratayn", (g) => `${g}\u064D`],
+    ["dammatayn", (g) => `${g}\u064C`],
+  ];
+  const MADD_FORMS: Array<[string, (glyph: string) => string]> = [
+    // Indo-Pak: alif madd is bare, waw and ya madd carry a sukoon.
+    ["alif after fatha", (g) => `${g}\u064E\u0627`],
+    ["ya after kasra", (g) => `${g}\u0650\u064A\u0652`],
+    ["waw after damma", (g) => `${g}\u064F\u0648\u0652`],
+  ];
+
+  it.each(TANWEEN_FORMS)("drills %s on every letter that can carry it", (_name, form) => {
     const text = subjects("tanween-three-marks");
-    const missing = consonants.filter((letter) => !["ً", "ٌ", "ٍ"].some((mark) => text.includes(`${letter.letter}${mark}`)));
+    const missing = consonants.filter((letter) => !text.split(/\s+/).includes(form(letter.letter)));
     expect(missing.map((letter) => letter.name)).toEqual([]);
   });
 
-  it("long vowels run across every letter", () => {
+  it.each(MADD_FORMS)("drills the long vowel %s on every letter", (_name, form) => {
     const text = subjects("madd-long-vowels");
-    const missing = consonants.filter((letter) =>
-      ![`${MARK.fatha}ا`, `${MARK.kasra}ي`, `${MARK.damma}و`].some((madd) => text.includes(`${letter.letter}${madd}`)),
-    );
+    const missing = consonants.filter((letter) => !text.split(/\s+/).includes(form(letter.letter)));
     expect(missing.map((letter) => letter.name)).toEqual([]);
   });
 
