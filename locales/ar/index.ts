@@ -492,6 +492,7 @@ export const strings: TranslatableStrings = {
   "course.exerciseProgress": "السؤال {number} من {total}",
   "course.playAudio": "شغّل النموذج",
   "course.audioUnavailable": "لا يتوفر بعد تسجيل نموذجي لهذا الشكل.",
+  "course.quranWordNote": "تلاوة مرجعية لهذه الكلمة، كلمةً كلمة.",
   "course.correct": "صحيح.",
   "course.retry": "ليس تمامًا. انظر مرة أخرى، ثم حاول من جديد.",
   "course.letterReference": "قائمة الحروف",

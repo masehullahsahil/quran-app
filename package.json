@@ -18,6 +18,8 @@
     "audit:production": "pnpm audit --prod --audit-level=moderate",
     "verify:qaida": "tsx scripts/verify-qaida-quran.ts",
     "audit:qaida": "tsx scripts/curriculum-audit-report.ts",
+    "audio:qaida-kit": "tsx scripts/qaida-recording-kit.ts",
+    "audio:qaida-import": "tsx scripts/import-qaida-recordings.ts",
     "db:push": "drizzle-kit generate && drizzle-kit migrate",
     "db:migrate": "drizzle-kit migrate",
     "db:verify-learner-persistence": "tsx scripts/verify-learner-persistence-db.ts",

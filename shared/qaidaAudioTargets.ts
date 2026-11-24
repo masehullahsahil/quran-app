@@ -212,3 +212,41 @@ export function instructionalTargets(): QaidaAudioTarget[] {
 export function quranTargets(): QaidaAudioTarget[] {
   return qaidaAudioTargets().filter((target) => target.kind === "quran");
 }
+
+let targetsByArabic: Map<string, QaidaAudioTarget> | null = null;
+
+/**
+ * The recording target a piece of on-screen Arabic belongs to, or null.
+ *
+ * Targets are deduplicated by their exact Arabic, so this is how a lesson item
+ * finds the one recording that serves it — a letter's own recording for `بَ`,
+ * a teaching-combination recording for `اَبْ اِبْ اُبْ`.
+ */
+export function qaidaAudioTargetForArabic(arabic: string): QaidaAudioTarget | null {
+  if (!targetsByArabic) {
+    targetsByArabic = new Map();
+    for (const target of qaidaAudioTargets()) {
+      if (!targetsByArabic.has(target.arabic)) targetsByArabic.set(target.arabic, target);
+    }
+  }
+  return targetsByArabic.get(arabic) ?? null;
+}
+
+/**
+ * The file name a recording of a target is delivered as: the target id with
+ * its colons turned into hyphens, `letter:ba:fatha` → `letter-ba-fatha.mp3`.
+ * Reversible (see targetIdFromRecordingFileName), so a folder of delivered
+ * files can be matched to targets without anyone typing an id.
+ */
+export function recordingFileName(targetId: string, extension = ".mp3"): string {
+  return `${targetId.replace(/:/g, "-")}${extension}`;
+}
+
+/** The target id a delivered file name stands for, or null if it is not one. */
+export function targetIdFromRecordingFileName(fileName: string): string | null {
+  const base = fileName.replace(/\.[a-z0-9]+$/i, "");
+  const parts = base.split("-");
+  if (parts[0] === "letter" && (parts.length === 2 || parts.length === 3)) return parts.join(":");
+  if (parts[0] === "text" && parts.length === 2) return parts.join(":");
+  return null;
+}
